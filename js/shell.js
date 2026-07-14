@@ -270,9 +270,9 @@ const Shell = (() => {
     if (!el) {
       el = document.createElement("div");
       el.id = "black-flag-banner";
-      el.style.cssText = "display:none; background: var(--indigo-950); color:#fff; padding: var(--space-3) var(--space-5); text-align:center; font-family: var(--font-display); letter-spacing: var(--tracking-wide); text-transform: uppercase; font-size: var(--fs-sm); border-bottom: 3px solid #000;";
-      const shell = document.querySelector(".app-shell");
-      if (shell) shell.parentNode.insertBefore(el, shell);
+      el.style.cssText = "display:none; align-items:center; gap: var(--space-3); background:#000; color:#fff; border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); font-family: var(--font-display); letter-spacing: var(--tracking-wide); text-transform: uppercase; font-size: var(--fs-sm);";
+      const main = document.querySelector(".app-main");
+      if (main) main.insertBefore(el, main.firstChild);
       else document.body.insertBefore(el, document.body.firstChild);
     }
     return el;
@@ -281,8 +281,7 @@ const Shell = (() => {
   function renderBlackFlagBanner_(status) {
     const el = ensureGlobalBannerSlot_();
     if (status && (status.Active === true || status.Active === "TRUE" || status.Active === "true")) {
-      el.style.display = "block";
-      el.style.background = "#000";
+      el.style.display = "flex";
       el.textContent = "⚑ BLACK FLAG IN EFFECT — outdoor activity restricted";
     } else {
       el.style.display = "none";
