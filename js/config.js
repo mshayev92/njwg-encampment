@@ -73,12 +73,20 @@ window.APP_CONFIG = {
   // person" indefinitely. Does not affect the device gate itself.
   IDLE_TIMEOUT_MINUTES: 120,
 
+  // Fixed encampment location for the Overview page's weather widget
+  // (Joint Base McGuire-Dix-Lakehurst, NJ) — not the device's location.
+  WEATHER_LOCATION_NAME: "JB McGuire-Dix-Lakehurst, NJ",
+  WEATHER_LAT: 40.0156,
+  WEATHER_LON: -74.5917,
+
   // NAV_ITEMS hrefs are relative to APP_BASE_PATH, not the domain root —
   // Shell.js resolves them at render time via Shell's nav renderer.
   NAV_ITEMS: [
-    { id: "schedule",    label: "Schedule",    href: "pages/schedule.html",    icon: "calendar" },
-    { id: "roster",      label: "Roster",      href: "pages/roster.html",      icon: "users" },
-    { id: "inspections", label: "Inspections", href: "pages/inspections.html", icon: "check" }
+    { id: "overview",     label: "Overview",     href: "pages/overview.html",     icon: "calendar" },
+    { id: "schedule",     label: "Schedule",     href: "pages/schedule.html",     icon: "calendar" },
+    { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
+    { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },
+    { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" }
     // Add future pages here, e.g.:
     // { id: "forms", label: "Forms", href: "pages/forms.html", icon: "file" },
   ]
