@@ -141,11 +141,6 @@
 
       <div class="roster-toolbar">
         <input type="search" id="roster-search" placeholder="Search by name, CAP ID, or flight…">
-        <select id="roster-status-filter" style="font-family: var(--font-body); font-size: var(--fs-sm); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
-          <option value="">All cadets</option>
-          <option value="scored">Scored (inspection)</option>
-          <option value="unscored">Not yet scored</option>
-        </select>
       </div>
 
       <div id="roster-form-container"></div>
@@ -169,7 +164,6 @@
     const contentEl = document.getElementById("roster-content");
     const refreshBtn = document.getElementById("refresh-btn");
     const searchInput = document.getElementById("roster-search");
-    const statusFilter = document.getElementById("roster-status-filter");
     const formContainer = document.getElementById("roster-form-container");
 
     // Viewing this page only requires "roster" in Pages. Editing
@@ -182,7 +176,6 @@
     const canEditRoster = sessionPages.includes("edit-roster");
 
     let allRows = [];
-    let inspectedCapIds = new Set(); // for the scored/unscored filter
     let editingCapId = null; // CapId string being edited, or null for "adding new"
     // Null = showing the flight tile grid. A string = showing that
     // flight's member list ("Unassigned" for rows with no Flight value).
@@ -222,7 +215,7 @@
       contentEl.querySelectorAll(".flight-tile").forEach(tile => {
         tile.addEventListener("click", () => {
           selectedFlight = tile.dataset.flight;
-          render(applyStatusFilter(allRows));
+          render(allRows);
         });
       });
     }
@@ -240,7 +233,7 @@
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
-                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Inspected</th>${canEditRoster ? "<th></th>" : ""}</tr>
+                <tr><th>CAP ID</th><th>Name</th><th>Rank</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
                 ${members.map(m => `
@@ -248,7 +241,6 @@
                     <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
                     <td data-label="Name">${m.Name || "—"}</td>
                     <td data-label="Rank">${m.Rank || "—"}</td>
-                    <td data-label="Inspected">${inspectedCapIds.has(String(m.CapId)) ? `<span class="badge badge--success">Scored</span>` : `<span class="badge badge--warning">Pending</span>`}</td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
                         <button data-action="edit" data-capid="${m.CapId}">Edit</button>
@@ -263,7 +255,7 @@
         ` : `
           <div class="state-message">
             <div class="state-message__icon">👥</div>
-            <p>No cadets in this flight${statusFilter.value ? " matching this filter" : ""}.</p>
+            <p>No cadets in this flight.</p>
           </div>
         `}
       `;
@@ -289,7 +281,7 @@
         backBtn.addEventListener("click", () => {
           selectedFlight = null;
           searchInput.value = "";
-          render(applyStatusFilter(allRows));
+          render(allRows);
         });
       }
     }
@@ -307,24 +299,12 @@
       }
     }
 
-    function applyStatusFilter(rows) {
-      const status = statusFilter.value;
-      if (!status) return rows;
-      return rows.filter(m => {
-        const isScored = inspectedCapIds.has(String(m.CapId));
-        return status === "scored" ? isScored : !isScored;
-      });
-    }
-
     function applyFilter() {
       const q = searchInput.value.trim().toLowerCase();
-      const statusFiltered = applyStatusFilter(allRows);
 
       if (!q) {
-        // Stay on the flight-detail view if one is selected and the
-        // status filter changed — otherwise a status-only filter change
-        // would silently bounce the user back to the tile grid.
-        render(statusFiltered);
+        selectedFlight = null;
+        render(allRows);
         return;
       }
 
@@ -333,7 +313,7 @@
       // exposing names directly — clicking a tile still requires a
       // second click to see the members inside it.
       selectedFlight = null;
-      const filtered = statusFiltered.filter(m =>
+      const filtered = allRows.filter(m =>
         String(m.Name).toLowerCase().includes(q) ||
         String(m.CapId).toLowerCase().includes(q) ||
         String(m.Flight).toLowerCase().includes(q)
@@ -426,14 +406,10 @@
     async function load() {
       contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
       try {
-        const [rosterData, inspectionData] = await Promise.all([
-          Api.getSheet("Roster"),
-          Api.getSheet("UniformInspections")
-        ]);
-        allRows = rosterData.rows || [];
-        inspectedCapIds = new Set((inspectionData.rows || []).map(r => String(r.StudentCapId)));
+        const data = await Api.getSheet("Roster");
+        allRows = data.rows || [];
         selectedFlight = null;
-        render(applyStatusFilter(allRows));
+        render(allRows);
       } catch (err) {
         contentEl.innerHTML = `
           <div class="state-message">
@@ -446,7 +422,6 @@
 
     refreshBtn.addEventListener("click", load);
     searchInput.addEventListener("input", applyFilter);
-    statusFilter.addEventListener("change", applyFilter);
     load();
   </script>
 
