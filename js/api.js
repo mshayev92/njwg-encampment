@@ -193,12 +193,6 @@ const Api = (() => {
     }
   }
 
-  function removeFromStorage_(key) {
-    try {
-      localStorage.removeItem(CACHE_STORAGE_PREFIX + key);
-    } catch (e) { /* ignore */ }
-  }
-
   function clearCacheInternal_() {
     cache.clear();
     try {
@@ -370,16 +364,17 @@ const Api = (() => {
      * cached-render every page does automatically on load.
      */
     async hardRefresh() {
-      const keys = Array.from(cache.keys());
-      cache.clear();
-      keys.forEach(removeFromStorage_);
-      // Re-derive sheetName/extraParams isn't tracked per key, so
-      // instead of guessing, just let each page's own getSheetCached
-      // call (fired again by the page's own refresh handler) refill
-      // things — hardRefresh's real job is guaranteeing nothing STALE
-      // is served in the meantime. Pages call this before re-invoking
-      // their own load().
-      return keys;
+      // Deliberately does NOT clear the cache. getSheetCached() always
+      // triggers a real network fetch regardless of what's cached, so
+      // the page's own load() (called right after this by Shell's
+      // hardRefresh) already guarantees fresh data lands — wiping the
+      // cache first used to just blank the page back to its "Loading…"
+      // spinner for a moment while that fetch was in flight, stacked on
+      // top of the header's own refresh spinner, which looked broken
+      // (two spinners) and made a normal load fail to show ANYTHING
+      // if the refetch hit a rate limit. Keeping old data on screen
+      // until the fresh data actually arrives is strictly better.
+      return Array.from(cache.keys());
     },
 
     /**
@@ -390,8 +385,11 @@ const Api = (() => {
      * instantly instead of waiting on the network. Skips a sheet
      * entirely if it was already fetched within maxAgeMs, so clicking
      * around quickly doesn't re-hit the backend on every single load.
+     * Default is deliberately generous (2 minutes) — the backend caps
+     * reads at 30 requests/minute per session, and warming 5 sheets on
+     * every single page load/navigation adds up fast otherwise.
      */
-    warmCache(sheetNames, { maxAgeMs = 30000 } = {}) {
+    warmCache(sheetNames, { maxAgeMs = 120000 } = {}) {
       (sheetNames || []).forEach((name) => {
         const key = cacheKey(name, {});
         const cached = cache.get(key);
