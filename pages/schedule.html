@@ -14,6 +14,43 @@
 
   <link rel="stylesheet" href="../css/tokens.css">
   <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .schedule-item-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
+    .schedule-item-row__edit-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--ink-600);
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--fs-xs);
+      border-radius: var(--radius-sm);
+    }
+    .schedule-item-row__edit-btn:hover {
+      background: var(--surface-sunken);
+      color: var(--navy-900);
+    }
+
+    .schedule-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+
+    .schedule-form .field { margin-bottom: 0; }
+
+    .schedule-form-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: var(--space-3);
+    }
+  </style>
 </head>
 <body>
 
@@ -28,8 +65,13 @@
           <span class="page-header__eyebrow">Cadre Tools</span>
           <h1>Schedule</h1>
         </div>
-        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+        <div style="display:flex; gap: var(--space-3);">
+          <button class="btn btn--ghost" id="add-item-btn" style="display:none;">+ Add Item</button>
+          <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+        </div>
       </div>
+
+      <div id="schedule-form-container"></div>
 
       <div id="schedule-content">
         <div class="state-message">
@@ -47,11 +89,26 @@
   <script>
     // "schedule" must match this page's NAV_ITEMS id in js/config.js and
     // a value in a staff member's StaffAccess Pages column, or
-    // Shell.init redirects them to Roster (always-allowed) instead.
+    // Shell.init redirects them elsewhere instead.
     Shell.init({ activePage: "schedule" });
 
     const contentEl = document.getElementById("schedule-content");
     const refreshBtn = document.getElementById("refresh-btn");
+    const addItemBtn = document.getElementById("add-item-btn");
+    const formContainer = document.getElementById("schedule-form-container");
+
+    // Viewing this page only requires "schedule" in Pages. Editing
+    // additionally requires "edit-schedule" — a separate, explicit
+    // grant — so seeing Schedule no longer implies being able to
+    // change it. This is a client-side convenience to hide controls
+    // the backend would reject anyway; assertPageWriteAccess_ in
+    // Code.gs is the real check on every write.
+    const sessionPages = (Auth.getSession()?.Pages || []).map(p => String(p).toLowerCase());
+    const canEditSchedule = sessionPages.includes("edit-schedule");
+    addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+
+    let scheduleRows = [];
+    let editingRow = null; // the original row object being edited, or null for "adding new"
 
     function groupByDay(rows) {
       return rows.reduce((groups, row) => {
@@ -77,28 +134,136 @@
           <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${day}</h2>
           <table class="data-table">
             <thead>
-              <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th></tr>
+              <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th>${canEditSchedule ? "<th></th>" : ""}</tr>
             </thead>
             <tbody>
-              ${items.map(item => `
+              ${items.map((item, i) => `
                 <tr>
                   <td data-label="Time" class="mono">${item.Time || "—"}</td>
                   <td data-label="Activity">${item.Activity || "—"}</td>
                   <td data-label="Location">${item.Location || "—"}</td>
                   <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${item.Flight}</span>` : "—"}</td>
+                  ${canEditSchedule ? `
+                    <td data-label="" class="schedule-item-row">
+                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="edit">Edit</button>
+                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="delete">Delete</button>
+                    </td>
+                  ` : ""}
                 </tr>
               `).join("")}
             </tbody>
           </table>
         </div>
       `).join("");
+
+      contentEl.querySelectorAll("[data-action='edit']").forEach(btn => {
+        btn.addEventListener("click", () => openForm(scheduleRows[Number(btn.dataset.index)]));
+      });
+      contentEl.querySelectorAll("[data-action='delete']").forEach(btn => {
+        btn.addEventListener("click", () => deleteItem(scheduleRows[Number(btn.dataset.index)]));
+      });
+    }
+
+    /**
+     * Schedule has no natural unique key (no id column) — matching on
+     * the FULL original row's (Day, Time, Activity) is how we identify
+     * "which row is this" for update/delete, since that combination is
+     * effectively unique in practice for a printed schedule. If two
+     * items ever share all three, editing one could affect the other;
+     * unlikely for a daily schedule, but worth knowing.
+     */
+    function openForm(row) {
+      editingRow = row || null;
+
+      formContainer.innerHTML = `
+        <div class="card" style="margin-bottom: var(--space-5);">
+          <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+            ${editingRow ? "Edit Schedule Item" : "Add Schedule Item"}
+          </h3>
+          <div class="schedule-form">
+            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${editingRow?.Day || ""}" placeholder="e.g. Monday"></div>
+            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${editingRow?.Time || ""}" placeholder="e.g. 0600"></div>
+            <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${editingRow?.Activity || ""}"></div>
+            <div class="field"><label for="f-location">Location</label><input id="f-location" value="${editingRow?.Location || ""}"></div>
+            <div class="field"><label for="f-flight">Flight (optional)</label><input id="f-flight" value="${editingRow?.Flight || ""}" placeholder="blank = all flights"></div>
+            <div class="schedule-form-actions">
+              <button class="btn btn--primary" id="save-item-btn">Save</button>
+              <button class="btn btn--ghost" id="cancel-item-btn">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("cancel-item-btn").addEventListener("click", closeForm);
+      document.getElementById("save-item-btn").addEventListener("click", saveItem);
+      formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function closeForm() {
+      editingRow = null;
+      formContainer.innerHTML = "";
+    }
+
+    async function saveItem() {
+      const newRow = {
+        Day: document.getElementById("f-day").value.trim(),
+        Time: document.getElementById("f-time").value.trim(),
+        Activity: document.getElementById("f-activity").value.trim(),
+        Location: document.getElementById("f-location").value.trim(),
+        Flight: document.getElementById("f-flight").value.trim()
+      };
+
+      if (!newRow.Day || !newRow.Activity) {
+        Shell.showToast("Day and Activity are required.", { type: "error" });
+        return;
+      }
+
+      const saveBtn = document.getElementById("save-item-btn");
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+
+      try {
+        if (editingRow) {
+          const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
+          if (keyChanged) {
+            // The match key itself changed (e.g. renamed the Activity) —
+            // matching on the NEW values wouldn't find the old row, so
+            // delete the old row explicitly, then add the new one.
+            await Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
+            await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+          } else {
+            await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+          }
+        } else {
+          await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+        }
+        closeForm();
+        Shell.showToast("Schedule updated.", { type: "success" });
+        load();
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save";
+      }
+    }
+
+    async function deleteItem(row) {
+      if (!confirm(`Remove "${row.Activity}" on ${row.Day} at ${row.Time || "—"}?`)) return;
+      try {
+        await Api.deleteRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
+        Shell.showToast("Item removed.", { type: "success" });
+        load();
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+      }
     }
 
     async function load() {
       contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading schedule…</p></div>`;
       try {
         const data = await Api.getSheet("Schedule");
-        render(data.rows || []);
+        scheduleRows = data.rows || [];
+        render(scheduleRows);
       } catch (err) {
         contentEl.innerHTML = `
           <div class="state-message">
@@ -109,6 +274,7 @@
       }
     }
 
+    addItemBtn.addEventListener("click", () => openForm(null));
     refreshBtn.addEventListener("click", load);
     load();
   </script>

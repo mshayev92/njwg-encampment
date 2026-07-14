@@ -254,6 +254,156 @@
       padding: var(--space-8) var(--space-5);
       color: var(--ink-600);
     }
+
+    /* ---- Inspection history (per student, multiple dates) ---- */
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-bottom: var(--space-5);
+    }
+
+    .history-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+
+    .history-row__date {
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      color: var(--navy-900);
+      font-weight: 600;
+    }
+
+    .history-row__meta {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+    }
+
+    .history-row__score {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+    }
+
+    /* ---- Trends tab ---- */
+    .trends-toolbar {
+      display: flex;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .trends-toolbar select {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+
+    .flight-avg-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+
+    .flight-avg-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .flight-avg-card__name {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      color: var(--navy-900);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      margin-bottom: var(--space-2);
+    }
+
+    .flight-avg-card__value {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xl);
+      color: var(--navy-900);
+      line-height: 1;
+    }
+
+    .flight-avg-card__value span {
+      font-size: var(--fs-md);
+      color: var(--ink-600);
+    }
+
+    .flight-avg-card__bar-track {
+      height: 6px;
+      border-radius: 999px;
+      background: var(--surface-sunken);
+      margin-top: var(--space-3);
+      overflow: hidden;
+    }
+
+    .flight-avg-card__bar-fill {
+      height: 100%;
+      background: var(--gold-500);
+      border-radius: 999px;
+    }
+
+    .flight-avg-card__count {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      margin-top: var(--space-2);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+
+    .trend-item-breakdown {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .trend-item-row {
+      display: grid;
+      grid-template-columns: 200px 1fr 48px;
+      align-items: center;
+      gap: var(--space-3);
+      font-size: var(--fs-sm);
+    }
+
+    .trend-item-row__label { color: var(--ink-900); }
+
+    .trend-item-row__track {
+      height: 8px;
+      border-radius: 999px;
+      background: var(--surface-sunken);
+      overflow: hidden;
+    }
+
+    .trend-item-row__fill {
+      height: 100%;
+      border-radius: 999px;
+    }
+
+    .trend-item-row__fill--good { background: var(--green-600); }
+    .trend-item-row__fill--warn { background: var(--amber-600); }
+    .trend-item-row__fill--bad { background: var(--red-600); }
+
+    .trend-item-row__pct {
+      text-align: right;
+      font-family: var(--font-mono);
+      color: var(--ink-600);
+    }
   </style>
 </head>
 <body>
@@ -274,6 +424,7 @@
 
       <div class="inspection-tabs">
         <button class="inspection-tab is-active" data-tab="uniform">Uniform</button>
+        <button class="inspection-tab" data-tab="trends">Trends</button>
         <button class="inspection-tab" data-tab="room" disabled title="Coming soon">Room</button>
       </div>
 
@@ -312,9 +463,11 @@
     ];
 
     let rosterRows = [];
-    let existingInspections = {}; // keyed by StudentCapId
+    let allInspections = []; // ALL rows from UniformInspections (multiple per student now)
+    let inspectionsByStudent = {}; // StudentCapId -> array of rows, newest first
     let selectedFlight = null;
     let selectedStudent = null;
+    let selectedInspectionDate = null; // null = new inspection; a Date string = editing/viewing that day's entry
     let currentScores = {};
 
     const session = Auth.getSession();
@@ -380,14 +533,15 @@
         ${members.length ? `
           <div class="student-list">
             ${members.map(m => {
-              const inspected = existingInspections[String(m.CapId)];
+              const history = inspectionsByStudent[String(m.CapId)] || [];
+              const latest = history[0]; // sorted newest first
               return `
                 <button class="student-row" data-capid="${m.CapId}">
                   <div>
                     <div class="student-row__name">${m.Name || "—"}</div>
                     <div class="student-row__meta">${m.CapId || "—"} · ${m.Rank || "—"}</div>
                   </div>
-                  ${inspected ? `<span class="student-row__status student-row__status--done">Scored ${inspected.TotalPoints}/9</span>` : ""}
+                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${latest.TotalPoints}/${SCORE_ITEMS.length}</span>` : ""}
                 </button>`;
             }).join("")}
           </div>
@@ -407,22 +561,22 @@
       contentEl.querySelectorAll(".student-row").forEach(row => {
         row.addEventListener("click", () => {
           selectedStudent = members.find(m => String(m.CapId) === row.dataset.capid);
-          renderScorecard();
+          renderHistory();
         });
       });
     }
 
-    function renderScorecard() {
-      const existing = existingInspections[String(selectedStudent.CapId)] || {};
-      currentScores = {};
-      SCORE_ITEMS.forEach(item => {
-        const v = existing[item.key];
-        currentScores[item.key] = (v === 1 || v === "1") ? 1 : ((v === 0 || v === "0") ? 0 : null);
-      });
-
-      const now = new Date();
-      const dateStr = now.toLocaleDateString("en-CA"); // YYYY-MM-DD, from the computer's clock
-      const timestampStr = now.toISOString();
+    /**
+     * Shows this student's past inspections (newest first) with a
+     * "New inspection" button. Clicking a past entry opens the
+     * scorecard pre-filled with that day's scores for viewing/editing;
+     * "New inspection" opens a blank scorecard for today (or updates
+     * today's entry in place if one already exists for today).
+     */
+    function renderHistory() {
+      const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
+      const todayStr = new Date().toLocaleDateString("en-CA");
+      const hasToday = history.some(h => h.Date === todayStr);
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -433,8 +587,79 @@
         <div class="scorecard-meta">
           <div class="scorecard-meta__item"><span>Student CAP ID</span>${selectedStudent.CapId || "—"}</div>
           <div class="scorecard-meta__item"><span>Flight</span>${selectedFlight}</div>
+          <div class="scorecard-meta__item"><span>Total Inspections</span>${history.length}</div>
+        </div>
+
+        <button class="btn btn--primary" id="new-inspection-btn" style="margin-bottom: var(--space-5);">
+          ${hasToday ? "Update Today's Inspection" : "New Inspection"}
+        </button>
+
+        ${history.length ? `
+          <div class="history-list">
+            ${history.map(h => `
+              <div class="history-row" data-date="${h.Date}" style="cursor:pointer;">
+                <div>
+                  <div class="history-row__date">${h.Date}</div>
+                  <div class="history-row__meta">${h.InspectingPosition || "—"}${h.Notes ? " · has notes" : ""}</div>
+                </div>
+                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${SCORE_ITEMS.length}</div>
+              </div>
+            `).join("")}
+          </div>
+        ` : `
+          <div class="state-message">
+            <div class="state-message__icon">🪖</div>
+            <p>No inspections recorded yet for this cadet.</p>
+          </div>
+        `}
+      `;
+
+      document.getElementById("back-to-students-btn").addEventListener("click", () => {
+        selectedStudent = null;
+        renderStudentList();
+      });
+
+      document.getElementById("new-inspection-btn").addEventListener("click", () => {
+        selectedInspectionDate = hasToday ? todayStr : null;
+        renderScorecard();
+      });
+
+      contentEl.querySelectorAll(".history-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedInspectionDate = row.dataset.date;
+          renderScorecard();
+        });
+      });
+    }
+
+    function renderScorecard() {
+      const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
+      const existing = selectedInspectionDate
+        ? (history.find(h => h.Date === selectedInspectionDate) || {})
+        : {};
+
+      currentScores = {};
+      SCORE_ITEMS.forEach(item => {
+        const v = existing[item.key];
+        currentScores[item.key] = (v === 1 || v === "1") ? 1 : ((v === 0 || v === "0") ? 0 : null);
+      });
+
+      const now = new Date();
+      const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA"); // YYYY-MM-DD
+      const timestampStr = now.toISOString();
+      const isEditingPast = !!selectedInspectionDate;
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-history-btn">← Back</button>
+          <h2>${selectedStudent.Name || "—"}</h2>
+        </div>
+
+        <div class="scorecard-meta">
+          <div class="scorecard-meta__item"><span>Student CAP ID</span>${selectedStudent.CapId || "—"}</div>
+          <div class="scorecard-meta__item"><span>Flight</span>${selectedFlight}</div>
           <div class="scorecard-meta__item"><span>Inspecting Position</span>${session.Position}</div>
-          <div class="scorecard-meta__item"><span>Date</span>${dateStr}</div>
+          <div class="scorecard-meta__item"><span>Date</span>${dateStr}${isEditingPast ? " (editing existing entry)" : ""}</div>
         </div>
 
         <div class="scorecard-section">
@@ -463,9 +688,9 @@
         <button class="btn btn--primary" id="submit-scorecard-btn">Save Inspection</button>
       `;
 
-      document.getElementById("back-to-students-btn").addEventListener("click", () => {
-        selectedStudent = null;
-        renderStudentList();
+      document.getElementById("back-to-history-btn").addEventListener("click", () => {
+        selectedInspectionDate = null;
+        renderHistory();
       });
 
       SCORE_ITEMS.forEach(item => updateToggleUI(item.key));
@@ -521,15 +746,141 @@
       row.TotalPoints = computeTotal();
 
       try {
-        await Api.writeRow("UniformInspections", row, { matchColumn: "StudentCapId" });
-        existingInspections[String(selectedStudent.CapId)] = row;
+        // Composite match on (StudentCapId, Date): re-inspecting the
+        // SAME day updates that entry in place; a NEW day appends a
+        // fresh row, preserving history for trends.
+        await Api.writeRow("UniformInspections", row, { matchColumns: ["StudentCapId", "Date"] });
+
+        const capId = String(selectedStudent.CapId);
+        const list = inspectionsByStudent[capId] || (inspectionsByStudent[capId] = []);
+        const idx = list.findIndex(h => h.Date === dateStr);
+        if (idx >= 0) list[idx] = row; else list.unshift(row);
+        list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
+
         Shell.showToast("Inspection saved.", { type: "success" });
-        selectedStudent = null;
-        renderStudentList();
+        selectedInspectionDate = null;
+        renderHistory();
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
         submitBtn.disabled = false;
         submitBtn.textContent = "Save Inspection";
+      }
+    }
+
+    /**
+     * Flight-vs-flight averages. Uses each cadet's MOST RECENT
+     * inspection only (not every historical entry) so a flight that
+     * was scored low once early on isn't dragged down forever — this
+     * shows "how is this flight doing right now," not a lifetime
+     * average. A "count basis" toggle lets you switch to all-time if
+     * you want the fuller picture instead.
+     */
+    let trendsBasis = "latest"; // "latest" | "all"
+
+    function computeFlightTrends(basis) {
+      const grouped = groupByFlight(rosterRows);
+      const flightNames = Object.keys(grouped).sort();
+
+      return flightNames.map(flight => {
+        const members = grouped[flight];
+        const relevantRows = [];
+        members.forEach(m => {
+          const history = inspectionsByStudent[String(m.CapId)] || [];
+          if (!history.length) return;
+          if (basis === "latest") relevantRows.push(history[0]);
+          else relevantRows.push(...history);
+        });
+
+        const itemAverages = {};
+        SCORE_ITEMS.forEach(item => {
+          const scored = relevantRows.filter(r => r[item.key] === 1 || r[item.key] === 0 || r[item.key] === "1" || r[item.key] === "0");
+          const passCount = scored.filter(r => Number(r[item.key]) === 1).length;
+          itemAverages[item.key] = scored.length ? passCount / scored.length : null;
+        });
+
+        const totalAvg = relevantRows.length
+          ? relevantRows.reduce((sum, r) => sum + (Number(r.TotalPoints) || 0), 0) / relevantRows.length
+          : null;
+
+        return { flight, count: relevantRows.length, studentsInspected: new Set(relevantRows.map(r => r.StudentCapId)).size, totalAvg, itemAverages };
+      });
+    }
+
+    function renderTrends() {
+      const data = computeFlightTrends(trendsBasis);
+
+      contentEl.innerHTML = `
+        <div class="trends-toolbar">
+          <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
+          <select id="trends-basis-select">
+            <option value="latest" ${trendsBasis === "latest" ? "selected" : ""}>Each cadet's latest inspection</option>
+            <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
+          </select>
+        </div>
+
+        ${data.length ? `
+          <div class="flight-avg-grid">
+            ${data.map(d => `
+              <div class="flight-avg-card">
+                <div class="flight-avg-card__name">${d.flight}</div>
+                ${d.totalAvg !== null ? `
+                  <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${SCORE_ITEMS.length}</span></div>
+                  <div class="flight-avg-card__bar-track">
+                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / SCORE_ITEMS.length) * 100)}%;"></div>
+                  </div>
+                  <div class="flight-avg-card__count">${d.studentsInspected} cadet${d.studentsInspected === 1 ? "" : "s"} · ${d.count} scorecard${d.count === 1 ? "" : "s"}</div>
+                ` : `
+                  <div class="flight-avg-card__count" style="margin-top: var(--space-2);">No inspections yet</div>
+                `}
+              </div>
+            `).join("")}
+          </div>
+
+          <div class="card">
+            <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+              Pass rate by item, across all flights
+            </h3>
+            <div class="trend-item-breakdown">
+              ${SCORE_ITEMS.map(item => {
+                let scored = 0, passed = 0;
+                Object.values(inspectionsByStudent).forEach(history => {
+                  const rows = trendsBasis === "latest" ? history.slice(0, 1) : history;
+                  rows.forEach(r => {
+                    const v = r[item.key];
+                    if (v === 1 || v === 0 || v === "1" || v === "0") {
+                      scored++;
+                      if (Number(v) === 1) passed++;
+                    }
+                  });
+                });
+                const pct = scored ? Math.round((passed / scored) * 100) : null;
+                const fillClass = pct === null ? "" : pct >= 85 ? "trend-item-row__fill--good" : pct >= 60 ? "trend-item-row__fill--warn" : "trend-item-row__fill--bad";
+                return `
+                  <div class="trend-item-row">
+                    <span class="trend-item-row__label">${item.label}</span>
+                    <div class="trend-item-row__track">
+                      <div class="trend-item-row__fill ${fillClass}" style="width:${pct ?? 0}%;"></div>
+                    </div>
+                    <span class="trend-item-row__pct">${pct === null ? "—" : pct + "%"}</span>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+        ` : `
+          <div class="state-message">
+            <div class="state-message__icon">📊</div>
+            <p>No inspection data yet.</p>
+          </div>
+        `}
+      `;
+
+      const basisSelect = document.getElementById("trends-basis-select");
+      if (basisSelect) {
+        basisSelect.addEventListener("change", () => {
+          trendsBasis = basisSelect.value;
+          renderTrends();
+        });
       }
     }
 
@@ -549,12 +900,18 @@
           Api.getSheet("UniformInspections")
         ]);
         rosterRows = rosterData.rows || [];
-        existingInspections = {};
-        (inspectionData.rows || []).forEach(row => {
-          existingInspections[String(row.StudentCapId)] = row;
+        allInspections = inspectionData.rows || [];
+        inspectionsByStudent = {};
+        allInspections.forEach(row => {
+          const capId = String(row.StudentCapId);
+          (inspectionsByStudent[capId] = inspectionsByStudent[capId] || []).push(row);
         });
+        // Newest first within each student's history.
+        Object.values(inspectionsByStudent).forEach(list => list.sort((a, b) => (a.Date < b.Date ? 1 : -1)));
+
         selectedFlight = null;
         selectedStudent = null;
+        selectedInspectionDate = null;
         renderFlightGrid();
       } catch (err) {
         contentEl.innerHTML = `
@@ -575,6 +932,8 @@
           selectedFlight = null;
           selectedStudent = null;
           renderFlightGrid();
+        } else if (btn.dataset.tab === "trends") {
+          renderTrends();
         } else {
           renderRoomPlaceholder();
         }

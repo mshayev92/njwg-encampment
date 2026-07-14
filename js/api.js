@@ -132,11 +132,31 @@ const Api = (() => {
       return request("read", { params: { sheet: sheetName, ...extraParams } });
     },
 
-    /** Append or update a row. rowData is a plain object of column:value pairs. */
-    writeRow(sheetName, rowData, { matchColumn = null } = {}) {
+    /**
+     * Append or update a row. rowData is a plain object of column:value
+     * pairs. Pass matchColumn for a single-column key (Roster, Schedule,
+     * Announcements-style), or matchColumns (array) for a composite key
+     * — e.g. UniformInspections uses ["StudentCapId", "Date"] so a new
+     * DAY appends a new row instead of overwriting history, while a
+     * second save on the same day still updates in place.
+     */
+    writeRow(sheetName, rowData, { matchColumn = null, matchColumns = null } = {}) {
       return request("write", {
         method: "POST",
-        body: { sheet: sheetName, row: rowData, matchColumn }
+        body: { sheet: sheetName, row: rowData, matchColumn, matchColumns }
+      });
+    },
+
+    /**
+     * Deletes a row matched by matchColumn/matchColumns against
+     * matchValues (a plain object of column:value pairs identifying the
+     * row to remove). Requires the same page-gated write permission as
+     * writeRow for that sheet. Used for Roster removal.
+     */
+    deleteRow(sheetName, matchValues, { matchColumn = null, matchColumns = null } = {}) {
+      return request("delete", {
+        method: "POST",
+        body: { sheet: sheetName, matchValues, matchColumn, matchColumns }
       });
     },
 

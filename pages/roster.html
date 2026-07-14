@@ -90,6 +90,37 @@
       color: var(--navy-900);
       margin: 0;
     }
+
+    .roster-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+    .roster-form .field { margin-bottom: 0; }
+    .roster-form-actions {
+      grid-column: 1 / -1;
+      display: flex;
+      gap: var(--space-3);
+    }
+
+    .roster-row-actions {
+      display: flex;
+      gap: var(--space-2);
+    }
+    .roster-row-actions button {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--ink-600);
+      padding: var(--space-1) var(--space-2);
+      font-size: var(--fs-xs);
+      border-radius: var(--radius-sm);
+    }
+    .roster-row-actions button:hover {
+      background: var(--surface-sunken);
+      color: var(--navy-900);
+    }
   </style>
 </head>
 <body>
@@ -110,7 +141,14 @@
 
       <div class="roster-toolbar">
         <input type="search" id="roster-search" placeholder="Search by name, CAP ID, or flight…">
+        <select id="roster-status-filter" style="font-family: var(--font-body); font-size: var(--fs-sm); padding: var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+          <option value="">All cadets</option>
+          <option value="scored">Scored (inspection)</option>
+          <option value="unscored">Not yet scored</option>
+        </select>
       </div>
+
+      <div id="roster-form-container"></div>
 
       <div id="roster-content">
         <div class="state-message">
@@ -131,8 +169,21 @@
     const contentEl = document.getElementById("roster-content");
     const refreshBtn = document.getElementById("refresh-btn");
     const searchInput = document.getElementById("roster-search");
+    const statusFilter = document.getElementById("roster-status-filter");
+    const formContainer = document.getElementById("roster-form-container");
+
+    // Viewing this page only requires "roster" in Pages. Editing
+    // additionally requires "edit-roster" — a separate, explicit grant
+    // — so seeing Roster no longer implies being able to change it.
+    // This is a client-side convenience to hide controls the backend
+    // would reject anyway; assertPageWriteAccess_ in Code.gs is the
+    // real check on every write.
+    const sessionPages = (Auth.getSession()?.Pages || []).map(p => String(p).toLowerCase());
+    const canEditRoster = sessionPages.includes("edit-roster");
 
     let allRows = [];
+    let inspectedCapIds = new Set(); // for the scored/unscored filter
+    let editingCapId = null; // CapId string being edited, or null for "adding new"
     // Null = showing the flight tile grid. A string = showing that
     // flight's member list ("Unassigned" for rows with no Flight value).
     let selectedFlight = null;
@@ -171,7 +222,7 @@
       contentEl.querySelectorAll(".flight-tile").forEach(tile => {
         tile.addEventListener("click", () => {
           selectedFlight = tile.dataset.flight;
-          render(allRows);
+          render(applyStatusFilter(allRows));
         });
       });
     }
@@ -183,12 +234,13 @@
         <div class="flight-detail-header">
           <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
           <h2>${flight}</h2>
+          ${canEditRoster ? `<button class="btn btn--ghost" id="add-cadet-btn" style="margin-left:auto;">+ Add Cadet</button>` : ""}
         </div>
         ${members.length ? `
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
-                <tr><th>CAP ID</th><th>Name</th><th>Rank</th></tr>
+                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Inspected</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
                 ${members.map(m => `
@@ -196,6 +248,13 @@
                     <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
                     <td data-label="Name">${m.Name || "—"}</td>
                     <td data-label="Rank">${m.Rank || "—"}</td>
+                    <td data-label="Inspected">${inspectedCapIds.has(String(m.CapId)) ? `<span class="badge badge--success">Scored</span>` : `<span class="badge badge--warning">Pending</span>`}</td>
+                    ${canEditRoster ? `
+                      <td data-label="" class="roster-row-actions">
+                        <button data-action="edit" data-capid="${m.CapId}">Edit</button>
+                        <button data-action="delete" data-capid="${m.CapId}">Remove</button>
+                      </td>
+                    ` : ""}
                   </tr>
                 `).join("")}
               </tbody>
@@ -204,17 +263,33 @@
         ` : `
           <div class="state-message">
             <div class="state-message__icon">👥</div>
-            <p>No cadets in this flight.</p>
+            <p>No cadets in this flight${statusFilter.value ? " matching this filter" : ""}.</p>
           </div>
         `}
       `;
+
+      const addBtn = document.getElementById("add-cadet-btn");
+      if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
+
+      contentEl.querySelectorAll("[data-action='edit']").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const m = allRows.find(r => String(r.CapId) === btn.dataset.capid);
+          openForm(m, flight);
+        });
+      });
+      contentEl.querySelectorAll("[data-action='delete']").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const m = allRows.find(r => String(r.CapId) === btn.dataset.capid);
+          deleteStudent(m);
+        });
+      });
 
       const backBtn = document.getElementById("back-to-flights-btn");
       if (backBtn) {
         backBtn.addEventListener("click", () => {
           selectedFlight = null;
           searchInput.value = "";
-          render(allRows);
+          render(applyStatusFilter(allRows));
         });
       }
     }
@@ -232,12 +307,24 @@
       }
     }
 
+    function applyStatusFilter(rows) {
+      const status = statusFilter.value;
+      if (!status) return rows;
+      return rows.filter(m => {
+        const isScored = inspectedCapIds.has(String(m.CapId));
+        return status === "scored" ? isScored : !isScored;
+      });
+    }
+
     function applyFilter() {
       const q = searchInput.value.trim().toLowerCase();
+      const statusFiltered = applyStatusFilter(allRows);
 
       if (!q) {
-        selectedFlight = null;
-        render(allRows);
+        // Stay on the flight-detail view if one is selected and the
+        // status filter changed — otherwise a status-only filter change
+        // would silently bounce the user back to the tile grid.
+        render(statusFiltered);
         return;
       }
 
@@ -246,7 +333,7 @@
       // exposing names directly — clicking a tile still requires a
       // second click to see the members inside it.
       selectedFlight = null;
-      const filtered = allRows.filter(m =>
+      const filtered = statusFiltered.filter(m =>
         String(m.Name).toLowerCase().includes(q) ||
         String(m.CapId).toLowerCase().includes(q) ||
         String(m.Flight).toLowerCase().includes(q)
@@ -254,13 +341,99 @@
       renderFlightGrid(filtered);
     }
 
+    // ---- Add / edit / delete ----
+
+    function openForm(student, flightContext) {
+      editingCapId = student ? String(student.CapId) : null;
+
+      formContainer.innerHTML = `
+        <div class="card" style="margin-bottom: var(--space-5);">
+          <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+            ${student ? "Edit Cadet" : "Add Cadet"}
+          </h3>
+          <div class="roster-form">
+            <div class="field"><label for="f-capid">CAP ID</label><input id="f-capid" value="${student?.CapId || ""}" ${student ? "readonly" : ""}></div>
+            <div class="field"><label for="f-name">Name</label><input id="f-name" value="${student?.Name || ""}"></div>
+            <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${student?.Rank || ""}"></div>
+            <div class="field"><label for="f-flight">Flight</label><input id="f-flight" value="${student?.Flight || flightContext || ""}"></div>
+            <div class="roster-form-actions">
+              <button class="btn btn--primary" id="save-cadet-btn">Save</button>
+              <button class="btn btn--ghost" id="cancel-cadet-btn">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("cancel-cadet-btn").addEventListener("click", closeForm);
+      document.getElementById("save-cadet-btn").addEventListener("click", saveStudent);
+      formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function closeForm() {
+      editingCapId = null;
+      formContainer.innerHTML = "";
+    }
+
+    async function saveStudent() {
+      const row = {
+        CapId: document.getElementById("f-capid").value.trim(),
+        Name: document.getElementById("f-name").value.trim(),
+        Rank: document.getElementById("f-rank").value.trim(),
+        Flight: document.getElementById("f-flight").value.trim()
+      };
+
+      if (!row.CapId || !row.Name) {
+        Shell.showToast("CAP ID and Name are required.", { type: "error" });
+        return;
+      }
+
+      // Adding new: block a duplicate CapId client-side (backend would
+      // otherwise just append a second row with the same id, since
+      // matchColumn only updates-in-place for an EXISTING match).
+      if (!editingCapId && allRows.some(r => String(r.CapId).toLowerCase() === row.CapId.toLowerCase())) {
+        Shell.showToast("A cadet with that CAP ID already exists.", { type: "error" });
+        return;
+      }
+
+      const saveBtn = document.getElementById("save-cadet-btn");
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+
+      try {
+        await Api.writeRow("Roster", row, { matchColumn: "CapId" });
+        closeForm();
+        Shell.showToast(editingCapId ? "Cadet updated." : "Cadet added.", { type: "success" });
+        load();
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save";
+      }
+    }
+
+    async function deleteStudent(student) {
+      if (!student) return;
+      if (!confirm(`Remove ${student.Name || student.CapId} from the roster? This does not delete their inspection history.`)) return;
+      try {
+        await Api.deleteRow("Roster", student, { matchColumn: "CapId" });
+        Shell.showToast("Cadet removed.", { type: "success" });
+        load();
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
     async function load() {
       contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
       try {
-        const data = await Api.getSheet("Roster");
-        allRows = data.rows || [];
+        const [rosterData, inspectionData] = await Promise.all([
+          Api.getSheet("Roster"),
+          Api.getSheet("UniformInspections")
+        ]);
+        allRows = rosterData.rows || [];
+        inspectedCapIds = new Set((inspectionData.rows || []).map(r => String(r.StudentCapId)));
         selectedFlight = null;
-        render(allRows);
+        render(applyStatusFilter(allRows));
       } catch (err) {
         contentEl.innerHTML = `
           <div class="state-message">
@@ -273,6 +446,7 @@
 
     refreshBtn.addEventListener("click", load);
     searchInput.addEventListener("input", applyFilter);
+    statusFilter.addEventListener("change", applyFilter);
     load();
   </script>
 
