@@ -217,22 +217,44 @@ const Shell = (() => {
     pageRefreshFn_ = fn;
   }
 
+  let hardRefreshInFlight_ = false;
+
   async function hardRefresh() {
+    // Guards against a second click re-entering while one is already
+    // running (the button is disabled meanwhile, but keyboard Enter /
+    // rapid double-click can still fire a second handler call first).
+    if (hardRefreshInFlight_) return;
+    hardRefreshInFlight_ = true;
+
     const btn = document.getElementById("hard-refresh-btn");
     const spinner = document.getElementById("hard-refresh-spinner");
     const label = document.getElementById("hard-refresh-label");
     if (btn) { btn.disabled = true; btn.classList.add("is-spinning"); }
     if (spinner) spinner.style.display = "inline-block";
     if (label) label.textContent = "Refreshing…";
+
+    // Guarantee the spinner is visible for at least this long — a
+    // refresh that completes from warm cache in well under 100ms used
+    // to flash the spinner so briefly it looked like clicking Refresh
+    // did nothing at all.
+    const minVisible = new Promise((resolve) => setTimeout(resolve, 400));
+
     try {
       await Api.hardRefresh();
-      if (pageRefreshFn_) {
-        await pageRefreshFn_();
-      } else {
-        window.location.reload();
-      }
+      // Pages' own registered refresh functions already catch and toast
+      // their own errors (see roster.html/schedule.html/etc.'s load()),
+      // so we deliberately don't layer a generic "Refreshed" toast on
+      // top here — it would immediately overwrite a real error toast
+      // the page just showed, since showToast() replaces whatever's
+      // currently visible.
+      const work = pageRefreshFn_ ? pageRefreshFn_() : Promise.resolve(window.location.reload());
+      await Promise.all([work, minVisible]);
       loadGlobalAlerts_();
+    } catch (err) {
+      await minVisible;
+      showToast(err && err.message ? err.message : "Refresh failed. Try again.", { type: "error" });
     } finally {
+      hardRefreshInFlight_ = false;
       if (btn) { btn.disabled = false; btn.classList.remove("is-spinning"); }
       if (spinner) spinner.style.display = "none";
       if (label) label.textContent = "Refresh";
