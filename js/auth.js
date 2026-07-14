@@ -12,13 +12,18 @@
       (see js/config.js DEVICE_GATE settings) — enforced server-side,
       not just here.
 
-   2. PER-PERSON SESSION (CAP ID) — stored in sessionStorage, so it
-      does NOT persist across a full browser close, and additionally
-      auto-clears after a period of inactivity (see idle timer below).
-      This is the layer that identifies a specific person and their
-      role, so it intentionally does not linger the way the device
-      gate does — that keeps a shared device from staying "logged in
-      as the last person" indefinitely.
+   2. PER-POSITION SESSION — stored in sessionStorage, so it does NOT
+      persist across a full browser close, and additionally auto-clears
+      after a period of inactivity (see idle timer below). This app has
+      no per-person login: instead of a CAP ID, the user picks a
+      POSITION (a flight, a squadron, "CCT", or "Administrator") from a
+      dropdown populated from the StaffAccess sheet tab. CCT and
+      Administrator each require their own separate password; ordinary
+      flights/squadrons don't. This is the layer that identifies which
+      position is using the device right now and what pages/role it
+      has, so it intentionally does not linger the way the device gate
+      does — that keeps a shared device from staying "signed in as"
+      whatever position was last picked, indefinitely.
 
    SECURITY NOTE: this module manages the CLIENT side of both layers
    only (storing/reading tokens). The actual authentication check
@@ -93,7 +98,7 @@ const Auth = (() => {
     return data;
   }
 
-  // ---- Per-person session (Layer 2) ----------------------------------
+  // ---- Per-position session (Layer 2) ----------------------------------
 
   function getSession() {
     try {
@@ -120,7 +125,7 @@ const Auth = (() => {
 
   /**
    * Call at the top of every protected page's <script>. Requires BOTH
-   * the device gate and a per-person session; redirects to whichever
+   * the device gate and a per-position session; redirects to whichever
    * layer is missing, device gate first since it's the outer layer.
    */
   function requireSession() {
@@ -138,16 +143,27 @@ const Auth = (() => {
   }
 
   /**
-   * Runs the CAP ID login flow. The Apps Script backend looks up the
-   * CAP ID in Roster and, if found, returns a signed session token.
-   * Requires the device gate to already be unlocked (Api.login sends
-   * the device token automatically).
+   * Fetches the list of valid position names from the backend
+   * (StaffAccess sheet tab), for populating the login dropdown.
+   * Requires the device gate to already be unlocked.
    */
-  async function login(capId) {
-    const trimmed = (capId || "").trim();
-    if (!trimmed) throw new Error("Enter your CAP ID.");
+  async function listPositions() {
+    const data = await Api.listPositions();
+    return data.positions || [];
+  }
 
-    const data = await Api.login(trimmed);
+  /**
+   * Runs the position-based login flow. position must exactly match a
+   * Position value in StaffAccess. password is required only for
+   * password-protected positions (CCT, Administrator) — pass null/blank
+   * for ordinary flights/squadrons. Requires the device gate to already
+   * be unlocked (Api.login sends the device token automatically).
+   */
+  async function login(position, password) {
+    const trimmedPosition = (position || "").trim();
+    if (!trimmedPosition) throw new Error("Select a position.");
+
+    const data = await Api.login(trimmedPosition, password || "");
     if (!data.token || !data.member) throw new Error("Sign-in failed. Try again.");
 
     setSession({ token: data.token, member: data.member });
@@ -160,18 +176,20 @@ const Auth = (() => {
   }
 
   /**
-   * Convenience check for showing/hiding write-capable UI (e.g. an
-   * "Edit schedule" button). This is a UX nicety only — the backend
-   * enforces the real permission check on every write regardless of
-   * what the page shows, so hiding a button here is not the security
-   * boundary.
+   * Placeholder for future write-permission UI (e.g. an "Edit schedule"
+   * button). StaffAccess no longer has a Role column — there is
+   * currently no write-permission concept in the app at all, and no
+   * page performs writes. If you add a write feature later and want
+   * some positions to be able to write and others not, reintroduce a
+   * permission signal here (e.g. a new StaffAccess column) and update
+   * Code.gs's SHEET_PERMISSIONS accordingly. For now this always
+   * returns false since nothing in the app currently checks it.
    */
   function isStaff() {
-    const session = getSession();
-    return !!session && session.Role === "Staff";
+    return false;
   }
 
-  // ---- Idle timeout (auto-logout on the per-person session only) -----
+  // ---- Idle timeout (auto-logout on the per-position session only) -----
 
   function touchActivity() {
     localStorage.setItem(IDLE_LAST_ACTIVE_KEY, String(Date.now()));
@@ -179,10 +197,11 @@ const Auth = (() => {
 
   /**
    * If more time than IDLE_TIMEOUT_MS has passed since the last recorded
-   * activity, clears the per-person session (NOT the device gate — the
-   * device stays unlocked, only "who's using it right now" resets).
-   * Call on every page load; also wired to periodic checks + activity
-   * listeners in Shell.init so a page left open eventually logs out too.
+   * activity, clears the per-position session (NOT the device gate — the
+   * device stays unlocked, only "which position is using it right now"
+   * resets). Call on every page load; also wired to periodic checks +
+   * activity listeners in Shell.init so a page left open eventually logs
+   * out too.
    */
   function enforceIdleTimeout() {
     const last = Number(localStorage.getItem(IDLE_LAST_ACTIVE_KEY) || 0);
@@ -195,8 +214,8 @@ const Auth = (() => {
   return {
     // device gate
     getDeviceAuth, getDeviceToken, requireDeviceGate, unlockDevice, clearDeviceAuth,
-    // per-person session
-    getSession, getToken, setSession, clearSession, requireSession, login, logout, isStaff,
+    // per-position session
+    getSession, getToken, setSession, clearSession, requireSession, listPositions, login, logout, isStaff,
     // idle
     touchActivity, enforceIdleTimeout
   };
