@@ -370,6 +370,18 @@ const Shell = (() => {
     document.body.appendChild(el);
     announcementsPopoverEl_ = el;
 
+    // Anchor to the bell button's actual on-screen position rather than
+    // a fixed top offset — the header's height varies (wraps on narrow
+    // widths, grows when the black-flag pill is showing), and a fixed
+    // offset was overlapping the header buttons instead of sitting
+    // below them.
+    const bellBtnForPosition = document.getElementById("announcements-bell-btn");
+    if (bellBtnForPosition) {
+      const rect = bellBtnForPosition.getBoundingClientRect();
+      el.style.top = `${Math.round(rect.bottom + 8)}px`;
+      el.style.right = `${Math.round(window.innerWidth - rect.right)}px`;
+    }
+
     el.querySelector(".announcements-popover__close").addEventListener("click", closeAnnouncementsPopover_);
 
     announcementsOutsideHandler_ = (e) => {
@@ -768,9 +780,13 @@ const Shell = (() => {
       // Warm every sheet ANY page reads from, not just this one — so by
       // the time someone clicks to another page, its data is already
       // sitting in the persisted cache and renders instantly instead of
-      // making them wait on the network again.
+      // making them wait on the network again. Kept deliberately
+      // infrequent (backend enforces a 30 requests/minute-per-session
+      // rate limit) — polling every 5 sheets too often was tipping
+      // normal navigation + this background warming over that limit,
+      // surfacing as intermittent "Too many requests" errors.
       Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
-      setInterval(() => Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []), 60 * 1000);
+      setInterval(() => Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []), 3 * 60 * 1000);
     }
   }
 
