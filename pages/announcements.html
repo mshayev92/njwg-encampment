@@ -123,10 +123,6 @@
     <div class="duty-strip" id="duty-strip"></div>
 
     <main class="app-main">
-      <div class="page-header" style="justify-content: flex-end;">
-        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
-      </div>
-
       <div id="page-content">
         <div class="state-message">
           <div class="spinner"></div>
@@ -145,7 +141,6 @@
     Shell.markAnnouncementsSeen();
 
     const contentEl = document.getElementById("page-content");
-    const refreshBtn = document.getElementById("refresh-btn");
     const session = Auth.getSession();
 
     // Posting/toggling black flag requires "announcements" in this
@@ -288,7 +283,7 @@
       }
     }
 
-    refreshBtn.addEventListener("click", load);
+    Shell.registerRefresh(load);
     load();
   </script>
 

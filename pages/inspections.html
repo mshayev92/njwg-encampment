@@ -19,31 +19,10 @@
 
   <style>
     .inspection-tabs {
-      display: flex;
-      gap: var(--space-2);
       margin-bottom: var(--space-5);
-      border-bottom: 1px solid var(--line);
     }
 
-    .inspection-tab {
-      padding: var(--space-3) var(--space-4);
-      font-family: var(--font-display);
-      font-size: var(--fs-sm);
-      letter-spacing: var(--tracking-wide);
-      text-transform: uppercase;
-      color: var(--ink-600);
-      background: none;
-      border: none;
-      border-bottom: 2px solid transparent;
-      cursor: pointer;
-    }
-
-    .inspection-tab.is-active {
-      color: var(--indigo-900);
-      border-bottom-color: var(--gold-500);
-    }
-
-    .inspection-tab:disabled {
+    .tabs__tab:disabled {
       color: var(--ink-400);
       cursor: not-allowed;
     }
@@ -416,14 +395,10 @@
     <div class="duty-strip" id="duty-strip"></div>
 
     <main class="app-main">
-      <div class="page-header" style="justify-content: flex-end;">
-        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
-      </div>
-
-      <div class="inspection-tabs">
-        <button class="inspection-tab is-active" data-tab="uniform">Uniform</button>
-        <button class="inspection-tab" data-tab="trends">Trends</button>
-        <button class="inspection-tab" data-tab="room" disabled data-tooltip="Coming soon">Room</button>
+      <div class="inspection-tabs tabs">
+        <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
+        <button class="tabs__tab" data-tab="trends">Trends</button>
+        <button class="tabs__tab" data-tab="room" disabled data-tooltip="Coming soon">Room</button>
       </div>
 
       <div id="inspection-content">
@@ -443,8 +418,7 @@
     Shell.init({ activePage: "inspections" });
 
     const contentEl = document.getElementById("inspection-content");
-    const refreshBtn = document.getElementById("refresh-btn");
-    const tabButtons = document.querySelectorAll(".inspection-tab");
+    const tabButtons = document.querySelectorAll(".tabs__tab");
 
     // The 9 scored line items, matching the printed scorecard exactly.
     // key = the UniformInspections column name written to the Sheet.
@@ -880,6 +854,7 @@
           trendsBasis = basisSelect.value;
           renderTrends();
         });
+        Shell.enhanceSelect(basisSelect);
       }
     }
 
@@ -996,7 +971,6 @@
       });
     });
 
-    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
     Shell.registerRefresh(load);
     load();
   </script>

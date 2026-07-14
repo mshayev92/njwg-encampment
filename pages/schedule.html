@@ -20,22 +20,7 @@
   <style>
     .schedule-item-row {
       display: flex;
-      align-items: center;
-      gap: var(--space-2);
-    }
-
-    .schedule-item-row__edit-btn {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--ink-600);
-      padding: var(--space-1) var(--space-2);
-      font-size: var(--fs-xs);
-      border-radius: var(--radius-sm);
-    }
-    .schedule-item-row__edit-btn:hover {
-      background: var(--surface-sunken);
-      color: var(--indigo-900);
+      justify-content: flex-end;
     }
 
     .schedule-form {
@@ -63,10 +48,7 @@
 
     <main class="app-main">
       <div class="page-header" style="justify-content: flex-end;">
-        <div style="display:flex; gap: var(--space-3);">
-          <button class="btn btn--ghost" id="add-item-btn" style="display:none;">+ Add Item</button>
-          <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
-        </div>
+        <button class="btn btn--ghost" id="add-item-btn" style="display:none;">+ Add Item</button>
       </div>
 
       <div id="schedule-form-container"></div>
@@ -91,7 +73,6 @@
     Shell.init({ activePage: "schedule" });
 
     const contentEl = document.getElementById("schedule-content");
-    const refreshBtn = document.getElementById("refresh-btn");
     const addItemBtn = document.getElementById("add-item-btn");
     const formContainer = document.getElementById("schedule-form-container");
 
@@ -143,8 +124,7 @@
                   <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${item.Flight}</span>` : "—"}</td>
                   ${canEditSchedule ? `
                     <td data-label="" class="schedule-item-row">
-                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="edit" data-tooltip="Edit this item">Edit</button>
-                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="delete" data-tooltip="Remove this item">Delete</button>
+                      <button class="btn btn--ghost" data-index="${scheduleRows.indexOf(item)}" data-action="row-menu" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
                     </td>
                   ` : ""}
                 </tr>
@@ -154,11 +134,26 @@
         </div>
       `).join("");
 
-      contentEl.querySelectorAll("[data-action='edit']").forEach(btn => {
-        btn.addEventListener("click", () => openForm(scheduleRows[Number(btn.dataset.index)]));
-      });
-      contentEl.querySelectorAll("[data-action='delete']").forEach(btn => {
-        btn.addEventListener("click", () => deleteItem(scheduleRows[Number(btn.dataset.index)]));
+      contentEl.querySelectorAll("[data-action='row-menu']").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const row = scheduleRows[Number(btn.dataset.index)];
+          const rect = btn.getBoundingClientRect();
+          Shell.openContextMenu(rect.right, rect.bottom, [
+            {
+              label: "Edit row",
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+              onSelect: () => openForm(row)
+            },
+            "divider",
+            {
+              label: "Delete",
+              danger: true,
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>',
+              onSelect: () => deleteItem(row)
+            }
+          ]);
+        });
       });
       Shell.wireTooltips(contentEl);
     }
@@ -300,7 +295,6 @@
     }
 
     addItemBtn.addEventListener("click", () => openForm(null));
-    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
     Shell.registerRefresh(load);
     load();
   </script>
