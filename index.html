@@ -77,6 +77,11 @@
     .login-error.is-visible { display: block; }
 
     .login-card .btn { width: 100%; }
+
+    /* Password field is hidden until a password-protected position
+       (CCT, Administrator) is selected from the dropdown. */
+    .field--password { display: none; }
+    .field--password.is-visible { display: flex; }
   </style>
 </head>
 <body>
@@ -85,15 +90,23 @@
     <div class="login-card">
       <div class="login-card__mark">NJ</div>
       <span class="login-card__eyebrow">NJWG CAP Encampment</span>
-      <h1>Cadre Sign In</h1>
+      <h1>Staff Sign In</h1>
 
       <div class="login-error" id="login-error"></div>
 
       <form id="login-form" novalidate>
-        <div class="field field--capid">
-          <label for="capid-input">CAP ID</label>
-          <input type="text" id="capid-input" name="capid" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" required>
+        <div class="field field--position">
+          <label for="position-select">Position</label>
+          <select id="position-select" name="position" required>
+            <option value="" disabled selected>Loading positions…</option>
+          </select>
         </div>
+
+        <div class="field field--password" id="password-field">
+          <label for="password-input">Password</label>
+          <input type="password" id="password-input" name="password" autocomplete="off">
+        </div>
+
         <button type="submit" class="btn btn--primary" id="login-submit">Sign In</button>
       </form>
     </div>
@@ -106,16 +119,55 @@
     const form = document.getElementById("login-form");
     const errorBox = document.getElementById("login-error");
     const submitBtn = document.getElementById("login-submit");
-    const input = document.getElementById("capid-input");
+    const positionSelect = document.getElementById("position-select");
+    const passwordField = document.getElementById("password-field");
+    const passwordInput = document.getElementById("password-input");
+
+    // Positions that require a password in addition to picking them from
+    // the dropdown. Kept in sync with PASSWORD_PROTECTED_POSITIONS in
+    // apps-script/Code.gs — the backend is the real enforcement point;
+    // this only controls whether the password field is shown client-side.
+    const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
+
+    function isPasswordProtected(position) {
+      return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
+    }
+
+    function updatePasswordFieldVisibility() {
+      const protectedPosition = isPasswordProtected(positionSelect.value);
+      passwordField.classList.toggle("is-visible", protectedPosition);
+      passwordInput.required = protectedPosition;
+      if (!protectedPosition) passwordInput.value = "";
+    }
 
     // Must have already unlocked this device with the passphrase.
     Auth.requireDeviceGate();
 
-    // If already logged in as a person, skip straight past this page.
+    // If already logged in, skip straight past this page.
     if (Auth.getSession()) {
       const params = new URLSearchParams(window.location.search);
       window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
     }
+
+    async function loadPositions() {
+      try {
+        const positions = await Auth.listPositions();
+        if (!positions.length) {
+          positionSelect.innerHTML = `<option value="" disabled selected>No positions configured</option>`;
+          return;
+        }
+        positionSelect.innerHTML = `
+          <option value="" disabled selected>Select your position…</option>
+          ${positions.map(p => `<option value="${p}">${p}</option>`).join("")}
+        `;
+      } catch (err) {
+        positionSelect.innerHTML = `<option value="" disabled selected>Couldn't load positions</option>`;
+        errorBox.textContent = err.message;
+        errorBox.classList.add("is-visible");
+      }
+    }
+
+    positionSelect.addEventListener("change", updatePasswordFieldVisibility);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -124,7 +176,7 @@
       submitBtn.textContent = "Checking…";
 
       try {
-        await Auth.login(input.value);
+        await Auth.login(positionSelect.value, passwordInput.value);
         const params = new URLSearchParams(window.location.search);
         window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
       } catch (err) {
@@ -132,8 +184,11 @@
         errorBox.classList.add("is-visible");
         submitBtn.disabled = false;
         submitBtn.textContent = "Sign In";
+        passwordInput.value = "";
       }
     });
+
+    loadPositions();
   </script>
 
   <script>
