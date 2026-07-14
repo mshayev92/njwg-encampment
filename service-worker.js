@@ -25,7 +25,8 @@ const APP_SHELL = [
   "./js/auth.js",
   "./js/shell.js",
   "./pages/schedule.html",
-  "./pages/roster.html"
+  "./pages/roster.html",
+  "./pages/inspections.html"
 ].map((path) => new URL(path, self.location.href).href);
 
 self.addEventListener("install", (event) => {
