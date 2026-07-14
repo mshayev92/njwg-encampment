@@ -44,6 +44,18 @@
 const Api = (() => {
   const BASE_URL = window.APP_CONFIG.APPS_SCRIPT_URL;
 
+  // Apps Script web apps occasionally stall (cold starts, transient
+  // Google-side slowness) instead of erroring outright. Without a
+  // client-side timeout, a stalled fetch() never settles — and since
+  // fetchSheet_ below dedupes concurrent reads of the same sheet through
+  // a single in-flight Promise, one stuck request silently blocks every
+  // future read/refresh of that sheet too, with no error ever shown.
+  // This is the "sometimes Refresh just does nothing" symptom. Aborting
+  // after REQUEST_TIMEOUT_MS guarantees the promise always eventually
+  // settles (rejects), which clears it out of inFlight/hardRefreshInFlight_
+  // and lets the next click retry cleanly.
+  const REQUEST_TIMEOUT_MS = 15000;
+
   function getSessionToken() {
     return (typeof Auth !== "undefined" && Auth.getToken) ? Auth.getToken() : null;
   }
@@ -98,11 +110,20 @@ const Api = (() => {
       options.body = JSON.stringify({ action, ...body, ...tokenParams });
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    options.signal = controller.signal;
+
     let response;
     try {
       response = await fetch(url, options);
     } catch (networkErr) {
+      if (networkErr.name === "AbortError") {
+        throw new Error("Request timed out. Check your connection and try again.");
+      }
       throw new Error("Network error reaching the server. Check your connection and try again.");
+    } finally {
+      clearTimeout(timeoutId);
     }
 
     if (!response.ok) {

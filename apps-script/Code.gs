@@ -171,6 +171,19 @@ const PAGE_WRITE_GATES = {
 // Max requests per token (or per login key) per rolling 60-second window.
 const RATE_LIMIT_PER_MINUTE = 30;
 
+// How long a sheet's full row data is cached (CacheService, shared across
+// every user/instance of this script) before a read is forced to hit the
+// Spreadsheet API again. Reads are the hot path — every page load warms
+// several sheets, the header polls Announcements/BlackFlagStatus every 2
+// minutes, and a manual Refresh re-reads everything currently on screen —
+// so within this window, repeat reads of the same sheet (from different
+// tabs/pages/background timers, or a Refresh click) are served out of
+// cache instead of re-scanning and re-serializing the whole sheet each
+// time. Writes invalidate the affected sheet's cache entry immediately
+// (see invalidateSheetCache_), so nobody ever reads stale data past their
+// own write.
+const READ_CACHE_TTL_SECONDS = 20;
+
 // Column order for auto-created tabs.
 const UNIFORM_INSPECTION_COLUMNS = [
   "StudentCapId", "StudentName", "Flight", "InspectingPosition",
@@ -496,8 +509,7 @@ function handleRead(params, session) {
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
-  const sheet = getSheetOrThrow(sheetName);
-  const values = sheet.getDataRange().getValues();
+  const values = getCachedSheetValues_(sheetName);
   if (values.length === 0) return { ok: true, rows: [] };
 
   const headers = values[0];
@@ -520,6 +532,43 @@ function handleRead(params, session) {
   });
 
   return { ok: true, rows };
+}
+
+/**
+ * Cached read of a sheet's full getDataRange().getValues() — see
+ * READ_CACHE_TTL_SECONDS above for why. Falls back to a direct read
+ * whenever the cache misses, is empty, or the sheet is too large to fit
+ * in a single CacheService entry (100KB/key limit) — in that last case
+ * the put() below just silently no-ops via the try/catch, so oversized
+ * sheets behave exactly as they did before this cache existed.
+ */
+function getCachedSheetValues_(sheetName) {
+  const cache = CacheService.getScriptCache();
+  const cacheKey = "sheetvals:" + sheetName;
+
+  const cached = cache.get(cacheKey);
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch (err) {
+      // Fall through to a fresh read below.
+    }
+  }
+
+  const sheet = getSheetOrThrow(sheetName);
+  const values = sheet.getDataRange().getValues();
+
+  try {
+    cache.put(cacheKey, JSON.stringify(values), READ_CACHE_TTL_SECONDS);
+  } catch (err) {
+    // Too large for CacheService — just skip caching this sheet.
+  }
+
+  return values;
+}
+
+function invalidateSheetCache_(sheetName) {
+  CacheService.getScriptCache().remove("sheetvals:" + sheetName);
 }
 
 // ---- WRITE ---------------------------------------------------------------
@@ -568,12 +617,14 @@ function handleWrite(body, session) {
       const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
       if (isMatch) {
         sheet.getRange(r + 1, 1, 1, newRowArray.length).setValues([newRowArray]);
+        invalidateSheetCache_(sheetName);
         return { ok: true, action: "updated", row: rowData };
       }
     }
   }
 
   sheet.appendRow(newRowArray);
+  invalidateSheetCache_(sheetName);
   return { ok: true, action: "appended", row: rowData };
 }
 
@@ -609,6 +660,7 @@ function handleDelete(body, session) {
     const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
     if (isMatch) {
       sheet.deleteRow(r + 1);
+      invalidateSheetCache_(sheetName);
       return { ok: true, action: "deleted" };
     }
   }
