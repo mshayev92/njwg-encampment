@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Overview — NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-5);
+    }
+
+    .weather-card {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+    }
+
+    .weather-card__temp {
+      font-family: var(--font-display);
+      font-size: var(--fs-3xl);
+      color: var(--navy-900);
+    }
+
+    .weather-card__details {
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+    }
+
+    .weather-card__location {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      margin-bottom: var(--space-1);
+    }
+
+    .flight-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: var(--space-3);
+    }
+
+    .flight-stat {
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+      text-align: center;
+    }
+
+    .flight-stat__name {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      color: var(--navy-900);
+      margin-bottom: var(--space-1);
+    }
+
+    .flight-stat__count {
+      font-family: var(--font-display);
+      font-size: var(--fs-xl);
+      color: var(--gold-600);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+    <div class="duty-strip" id="duty-strip"></div>
+
+    <main class="app-main">
+      <div class="page-header">
+        <div>
+          <span class="page-header__eyebrow">Cadre Tools</span>
+          <h1>Overview</h1>
+        </div>
+        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div id="page-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading overview…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "overview" });
+
+    const contentEl = document.getElementById("page-content");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const session = Auth.getSession();
+    const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
+
+    function isFlightAllowed(flight) {
+      if (!allowedFlights.length) return true;
+      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
+      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+    }
+
+    // Weather codes from Open-Meteo's WMO code table, condensed to
+    // plain-language labels for display.
+    const WEATHER_CODE_LABELS = {
+      0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
+      45: "Fog", 48: "Depositing rime fog",
+      51: "Light drizzle", 53: "Drizzle", 55: "Dense drizzle",
+      61: "Light rain", 63: "Rain", 65: "Heavy rain",
+      71: "Light snow", 73: "Snow", 75: "Heavy snow",
+      80: "Light showers", 81: "Showers", 82: "Violent showers",
+      95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Thunderstorm w/ heavy hail"
+    };
+
+    async function fetchWeather() {
+      const lat = window.APP_CONFIG.WEATHER_LAT;
+      const lon = window.APP_CONFIG.WEATHER_LON;
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Weather service unavailable.");
+      return response.json();
+    }
+
+    function renderWeatherCard(weather) {
+      if (!weather || !weather.current) {
+        return `
+          <div class="card weather-card">
+            <div>
+              <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
+              <div class="weather-card__details">Weather unavailable right now.</div>
+            </div>
+          </div>`;
+      }
+
+      const c = weather.current;
+      const label = WEATHER_CODE_LABELS[c.weather_code] || "—";
+      return `
+        <div class="card weather-card">
+          <div class="weather-card__temp">${Math.round(c.temperature_2m)}°F</div>
+          <div>
+            <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
+            <div class="weather-card__details">${label} · Humidity ${Math.round(c.relative_humidity_2m)}% · Wind ${Math.round(c.wind_speed_10m)} mph</div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFlightStats(rosterRows) {
+      const grouped = rosterRows
+        .filter(r => isFlightAllowed(r.Flight))
+        .reduce((groups, row) => {
+          const flight = row.Flight || "Unassigned";
+          (groups[flight] = groups[flight] || []).push(row);
+          return groups;
+        }, {});
+
+      const flightNames = Object.keys(grouped).sort();
+
+      if (!flightNames.length) {
+        return `<div class="card"><p style="color: var(--ink-600); margin:0;">No flight data available for your position.</p></div>`;
+      }
+
+      return `
+        <div class="card">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900); margin-bottom: var(--space-4);">Your Flights</h2>
+          <div class="flight-stat-grid">
+            ${flightNames.map(flight => `
+              <div class="flight-stat">
+                <div class="flight-stat__name">${flight}</div>
+                <div class="flight-stat__count">${grouped[flight].length}</div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
+    async function load() {
+      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
+      try {
+        const [weather, rosterData] = await Promise.all([
+          fetchWeather().catch(() => null),
+          Api.getSheet("Roster")
+        ]);
+
+        contentEl.innerHTML = `
+          <div class="overview-grid">
+            ${renderWeatherCard(weather)}
+          </div>
+          ${renderFlightStats(rosterData.rows || [])}
+        `;
+      } catch (err) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">⚠️</div>
+            <p>${err.message}</p>
+          </div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    refreshBtn.addEventListener("click", load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>
