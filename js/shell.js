@@ -54,6 +54,7 @@ const Shell = (() => {
   };
 
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
+  const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
 
   /** Returns the list of NAV_ITEMS ids this session is allowed to see. */
   function getAllowedPageIds() {
@@ -67,6 +68,21 @@ const Shell = (() => {
     return window.APP_CONFIG.NAV_ITEMS.filter((item) => allowedSet.has(item.id.toLowerCase()));
   }
 
+  function isNavCollapsed_() {
+    return localStorage.getItem(NAV_COLLAPSED_KEY) === "true";
+  }
+
+  function applyCollapsedState_(collapsed) {
+    const shell = document.querySelector(".app-shell");
+    if (shell) shell.classList.toggle("app-shell--collapsed", collapsed);
+  }
+
+  function toggleNavCollapsed_() {
+    const collapsed = !isNavCollapsed_();
+    localStorage.setItem(NAV_COLLAPSED_KEY, String(collapsed));
+    applyCollapsedState_(collapsed);
+  }
+
   function renderNav(activePage) {
     const rail = document.getElementById("nav-rail");
     if (!rail) return;
@@ -78,43 +94,56 @@ const Shell = (() => {
       </a>
     `).join("");
 
+    const session = Auth.getSession();
+
     rail.innerHTML = `
-      <div class="nav-rail__crest">
-        <div class="nav-rail__crest-mark"><img src="${window.APP_BASE_PATH}icons/icon-192.png" alt="${window.APP_CONFIG.UNIT_SHORT}"></div>
-        <div class="nav-rail__crest-text">${window.APP_CONFIG.UNIT_NAME}</div>
-      </div>
+      <button type="button" class="nav-rail__crest" id="nav-rail-crest" aria-label="Toggle navigation width">
+        <span class="nav-rail__crest-mark"><img src="${window.APP_BASE_PATH}icons/icon-192.png" alt="${window.APP_CONFIG.UNIT_SHORT}"></span>
+        <span class="nav-rail__crest-text">${window.APP_CONFIG.UNIT_SHORT}<span>${window.APP_CONFIG.UNIT_NAME.replace(window.APP_CONFIG.UNIT_SHORT, "").trim() || "Encampment"}</span></span>
+      </button>
       ${links}
+      ${session ? `
+        <div class="nav-rail__footer">
+          <div class="nav-rail__footer-label">Signed in as</div>
+          <div class="nav-rail__footer-position">${session.Position || session.position || "Staff"}</div>
+          <button class="btn btn--ghost" id="logout-btn">Log out</button>
+        </div>
+      ` : ""}
     `;
+
+    applyCollapsedState_(isNavCollapsed_());
+
+    const crestBtn = document.getElementById("nav-rail-crest");
+    if (crestBtn) crestBtn.addEventListener("click", toggleNavCollapsed_);
+
+    const logoutBtn = document.getElementById("logout-btn");
+    if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
   }
 
-  function renderHeader() {
+  function renderHeader(activePage) {
     const header = document.getElementById("app-header");
     if (!header) return;
 
     const session = Auth.getSession();
+    const navItem = (window.APP_CONFIG.NAV_ITEMS || []).find(i => i.id === activePage);
+    const title = navItem ? navItem.label : window.APP_CONFIG.UNIT_NAME;
+
     header.innerHTML = `
-      <h1 class="app-header__title">${window.APP_CONFIG.UNIT_NAME}</h1>
+      <h1 class="app-header__title">${title}</h1>
       <div class="app-header__user">
         ${session ? `
           <span id="sync-indicator" class="sync-indicator" style="display:none;">
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label"></span>
           </span>
-          <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" style="padding: var(--space-2);" aria-label="Refresh">
-            <span style="width:16px;height:16px;display:inline-flex;">${ICONS.refresh}</span>
-          </button>
+          <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">Refresh</button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
             <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
           </button>
-          <strong>${session.Position || session.position || "Staff"}</strong>
-          <button class="btn btn--ghost" id="logout-btn" style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs);">Log out</button>
         ` : ""}
       </div>
     `;
-
-    const logoutBtn = document.getElementById("logout-btn");
-    if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
 
     const bellBtn = document.getElementById("announcements-bell-btn");
     if (bellBtn) {
@@ -514,7 +543,7 @@ const Shell = (() => {
     if (requireAuth) Auth.requireSession();
     if (requireAuth && activePage) requirePageAccess(activePage);
     renderNav(activePage);
-    renderHeader();
+    renderHeader(activePage);
     renderDutyStrip();
     wireTooltips_(document);
     if (requireAuth) {
