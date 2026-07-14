@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Device Access — NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+
+  <style>
+    .gate-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--navy-950);
+      padding: var(--space-5);
+    }
+
+    .gate-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-7) var(--space-6);
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+    }
+
+    .gate-card__mark {
+      width: 64px; height: 64px;
+      margin: 0 auto var(--space-4);
+      border-radius: 50%;
+      background: var(--gold-500);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: var(--fs-lg);
+      color: var(--navy-950);
+    }
+
+    .gate-card__eyebrow {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      letter-spacing: var(--tracking-wider);
+      text-transform: uppercase;
+      color: var(--ink-600);
+    }
+
+    .gate-card h1 {
+      font-size: var(--fs-xl);
+      color: var(--navy-900);
+      margin-bottom: var(--space-2);
+    }
+
+    .gate-card__hint {
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+      margin-bottom: var(--space-5);
+    }
+
+    .gate-card .field { text-align: left; }
+
+    .gate-error {
+      display: none;
+      background: var(--red-100);
+      color: var(--red-600);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      font-size: var(--fs-sm);
+      margin-bottom: var(--space-4);
+      text-align: left;
+    }
+    .gate-error.is-visible { display: block; }
+
+    .device-type-choice {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+    }
+
+    .device-type-option {
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      cursor: pointer;
+      text-align: left;
+      background: var(--surface-sunken);
+      transition: border-color var(--duration-fast) var(--ease-standard),
+                  background var(--duration-fast) var(--ease-standard);
+    }
+
+    .device-type-option input { display: none; }
+
+    .device-type-option strong {
+      display: block;
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      color: var(--navy-900);
+      margin-bottom: var(--space-1);
+    }
+
+    .device-type-option span {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+    }
+
+    .device-type-option:has(input:checked) {
+      border-color: var(--gold-500);
+      background: var(--gold-100);
+    }
+
+    .gate-card .btn { width: 100%; }
+  </style>
+</head>
+<body>
+
+  <div class="gate-screen">
+    <div class="gate-card">
+      <div class="gate-card__mark">NJ</div>
+      <span class="gate-card__eyebrow">NJWG CAP Encampment</span>
+      <h1>Device Access</h1>
+      <p class="gate-card__hint">Enter the encampment passphrase given out at check-in. You'll only need to do this once per device.</p>
+
+      <div class="gate-error" id="gate-error"></div>
+
+      <form id="gate-form" novalidate>
+        <div class="device-type-choice" role="radiogroup" aria-label="Device type">
+          <label class="device-type-option">
+            <input type="radio" name="deviceType" value="personal" checked>
+            <strong>My own device</strong>
+            <span>Stay unlocked for the whole encampment</span>
+          </label>
+          <label class="device-type-option">
+            <input type="radio" name="deviceType" value="shared">
+            <strong>Shared / desk device</strong>
+            <span>Re-lock after a few hours</span>
+          </label>
+        </div>
+
+        <div class="field">
+          <label for="passphrase-input">Encampment Passphrase</label>
+          <input type="password" id="passphrase-input" name="passphrase" autocomplete="off" required>
+        </div>
+
+        <button type="submit" class="btn btn--primary" id="gate-submit">Unlock This Device</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    const form = document.getElementById("gate-form");
+    const errorBox = document.getElementById("gate-error");
+    const submitBtn = document.getElementById("gate-submit");
+    const passphraseInput = document.getElementById("passphrase-input");
+
+    // Already unlocked on this device? Skip straight past.
+    if (Auth.getDeviceAuth()) {
+      const params = new URLSearchParams(window.location.search);
+      window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}index.html`;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorBox.classList.remove("is-visible");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Checking…";
+
+      const deviceType = form.querySelector('input[name="deviceType"]:checked').value;
+
+      try {
+        await Auth.unlockDevice(passphraseInput.value, deviceType);
+        const params = new URLSearchParams(window.location.search);
+        window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}index.html`;
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.classList.add("is-visible");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Unlock This Device";
+        passphraseInput.value = "";
+        passphraseInput.focus();
+      }
+    });
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

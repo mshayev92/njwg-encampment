@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schedule — NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+    <div class="duty-strip" id="duty-strip"></div>
+
+    <main class="app-main">
+      <div class="page-header">
+        <div>
+          <span class="page-header__eyebrow">Cadre Tools</span>
+          <h1>Schedule</h1>
+        </div>
+        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div id="schedule-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading schedule…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "schedule" });
+
+    const contentEl = document.getElementById("schedule-content");
+    const refreshBtn = document.getElementById("refresh-btn");
+
+    function groupByDay(rows) {
+      return rows.reduce((groups, row) => {
+        const day = row.Day || "Unscheduled";
+        (groups[day] = groups[day] || []).push(row);
+        return groups;
+      }, {});
+    }
+
+    function render(rows) {
+      if (!rows.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">📋</div>
+            <p>No schedule items yet. Check back once cadre staff publish the day's activities.</p>
+          </div>`;
+        return;
+      }
+
+      const grouped = groupByDay(rows);
+      contentEl.innerHTML = Object.entries(grouped).map(([day, items]) => `
+        <div class="card">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${day}</h2>
+          <table class="data-table">
+            <thead>
+              <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th></tr>
+            </thead>
+            <tbody>
+              ${items.map(item => `
+                <tr>
+                  <td data-label="Time" class="mono">${item.Time || "—"}</td>
+                  <td data-label="Activity">${item.Activity || "—"}</td>
+                  <td data-label="Location">${item.Location || "—"}</td>
+                  <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${item.Flight}</span>` : "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `).join("");
+    }
+
+    async function load() {
+      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading schedule…</p></div>`;
+      try {
+        const data = await Api.getSheet("Schedule");
+        render(data.rows || []);
+      } catch (err) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">⚠️</div>
+            <p>${err.message}</p>
+          </div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    refreshBtn.addEventListener("click", load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

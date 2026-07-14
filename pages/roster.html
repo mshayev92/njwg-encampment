@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Roster — NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .roster-toolbar {
+      display: flex;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .roster-toolbar input {
+      flex: 1;
+      min-width: 200px;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+    <div class="duty-strip" id="duty-strip"></div>
+
+    <main class="app-main">
+      <div class="page-header">
+        <div>
+          <span class="page-header__eyebrow">Cadre Tools</span>
+          <h1>Roster</h1>
+        </div>
+        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div class="roster-toolbar">
+        <input type="search" id="roster-search" placeholder="Search by name, CAP ID, or flight…">
+      </div>
+
+      <div id="roster-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading roster…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "roster" });
+
+    const contentEl = document.getElementById("roster-content");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const searchInput = document.getElementById("roster-search");
+
+    let allRows = [];
+
+    function render(rows) {
+      if (!rows.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">👥</div>
+            <p>No matching roster entries.</p>
+          </div>`;
+        return;
+      }
+
+      contentEl.innerHTML = `
+        <div class="card" style="padding: 0; overflow-x: auto;">
+          <table class="data-table">
+            <thead>
+              <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Flight</th><th>Role</th></tr>
+            </thead>
+            <tbody>
+              ${rows.map(m => `
+                <tr>
+                  <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
+                  <td data-label="Name">${m.Name || "—"}</td>
+                  <td data-label="Rank">${m.Rank || "—"}</td>
+                  <td data-label="Flight">${m.Flight ? `<span class="badge badge--gold">${m.Flight}</span>` : "—"}</td>
+                  <td data-label="Role">${m.Role || "—"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    function applyFilter() {
+      const q = searchInput.value.trim().toLowerCase();
+      if (!q) return render(allRows);
+      const filtered = allRows.filter(m =>
+        String(m.Name).toLowerCase().includes(q) ||
+        String(m.CapId).toLowerCase().includes(q) ||
+        String(m.Flight).toLowerCase().includes(q)
+      );
+      render(filtered);
+    }
+
+    async function load() {
+      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
+      try {
+        const data = await Api.getSheet("Roster");
+        allRows = data.rows || [];
+        render(allRows);
+      } catch (err) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">⚠️</div>
+            <p>${err.message}</p>
+          </div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    refreshBtn.addEventListener("click", load);
+    searchInput.addEventListener("input", applyFilter);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

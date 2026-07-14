@@ -1,0 +1,103 @@
+/* ============================================================
+   NJWG CAP ENCAMPMENT — DESIGN TOKENS
+   Universal variables used across every page.
+   Load this file FIRST, before app.css or any page-specific CSS.
+   ============================================================ */
+
+:root {
+  /* ---- Color: core ---- */
+  --navy-950:        #08192f;   /* deepest surface / header on scroll */
+  --navy-900:        #0b2545;   /* primary brand navy */
+  --navy-700:        #13315c;   /* elevated surfaces, cards on dark */
+  --navy-500:        #2a4d7a;   /* borders on dark, secondary buttons */
+  --steel-300:       #8fa6c7;   /* muted text on dark, dividers */
+  --steel-100:       #dbe4f0;   /* light borders, hairlines on light */
+
+  --gold-500:        #c9a227;   /* brass/insignia accent — sparing use */
+  --gold-600:        #a9840f;   /* gold hover/active state */
+  --gold-100:        #f4ecd2;   /* gold tint background (badges) */
+
+  --red-600:         #b3261e;   /* errors, urgent/overdue */
+  --red-100:         #fbe9e7;   /* error background tint */
+  --green-600:       #1e6b3e;   /* success, confirmed status */
+  --green-100:       #e6f3ea;   /* success background tint */
+  --amber-600:       #96650a;   /* warning / pending status */
+  --amber-100:       #fbf0d9;   /* warning background tint */
+
+  --bg:              #f5f7fa;   /* app background */
+  --surface:         #ffffff;   /* cards, panels */
+  --surface-sunken:  #eef1f6;   /* input backgrounds, table stripes */
+
+  --ink-900:         #101826;   /* primary text */
+  --ink-600:         #45526b;   /* secondary text */
+  --ink-400:         #96a2b8;   /* placeholder / disabled text */
+  --line:            #d7deea;   /* standard hairline border */
+
+  /* ---- Typography ---- */
+  --font-display: "Oswald", "Arial Narrow", sans-serif;   /* headers, nav, labels, duty strip */
+  --font-body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* body copy, forms */
+  --font-mono:    "JetBrains Mono", "SFMono-Regular", Consolas, monospace; /* IDs, times, table figures */
+
+  --fs-2xs:  0.6875rem;  /* 11px — micro labels, eyebrows */
+  --fs-xs:   0.75rem;    /* 12px — captions, meta */
+  --fs-sm:   0.875rem;   /* 14px — secondary body */
+  --fs-base: 1rem;       /* 16px — body */
+  --fs-md:   1.125rem;   /* 18px — emphasized body */
+  --fs-lg:   1.375rem;   /* 22px — card titles */
+  --fs-xl:   1.75rem;    /* 28px — section headers */
+  --fs-2xl:  2.25rem;    /* 36px — page titles */
+  --fs-3xl:  3rem;       /* 48px — hero/duty-day number */
+
+  --lh-tight: 1.15;
+  --lh-normal: 1.5;
+
+  --tracking-wide: 0.04em;   /* used on uppercase display labels */
+  --tracking-wider: 0.08em;  /* used on eyebrow/micro labels */
+
+  /* ---- Spacing scale (4px base) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+
+  /* ---- Radius & elevation ---- */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(11, 37, 69, 0.06), 0 1px 1px rgba(11, 37, 69, 0.04);
+  --shadow-md: 0 4px 12px rgba(11, 37, 69, 0.10), 0 1px 3px rgba(11, 37, 69, 0.08);
+  --shadow-lg: 0 12px 32px rgba(11, 37, 69, 0.16);
+
+  /* ---- Layout ---- */
+  --nav-rail-width: 232px;
+  --header-height: 56px;
+  --duty-strip-height: 40px;
+  --bottom-tab-height: 64px;
+  --content-max-width: 1180px;
+
+  /* ---- Motion ---- */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+
+  /* ---- Z-index scale ---- */
+  --z-nav: 100;
+  --z-header: 200;
+  --z-overlay: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+}
+
+/* Reduced motion: respected globally */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

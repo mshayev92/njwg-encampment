@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+
+  <style>
+    /* Login-page-specific styles (not needed elsewhere, kept local) */
+    .login-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--navy-950);
+      padding: var(--space-5);
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-7) var(--space-6);
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+    }
+
+    .login-card__mark {
+      width: 64px; height: 64px;
+      margin: 0 auto var(--space-4);
+      border-radius: 50%;
+      background: var(--gold-500);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-weight: 700;
+      font-size: var(--fs-lg);
+      color: var(--navy-950);
+    }
+
+    .login-card__eyebrow {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      letter-spacing: var(--tracking-wider);
+      text-transform: uppercase;
+      color: var(--ink-600);
+    }
+
+    .login-card h1 {
+      font-size: var(--fs-xl);
+      color: var(--navy-900);
+      margin-bottom: var(--space-5);
+    }
+
+    .login-card .field { text-align: left; }
+
+    .login-error {
+      display: none;
+      background: var(--red-100);
+      color: var(--red-600);
+      border-radius: var(--radius-md);
+      padding: var(--space-3);
+      font-size: var(--fs-sm);
+      margin-bottom: var(--space-4);
+      text-align: left;
+    }
+    .login-error.is-visible { display: block; }
+
+    .login-card .btn { width: 100%; }
+  </style>
+</head>
+<body>
+
+  <div class="login-screen">
+    <div class="login-card">
+      <div class="login-card__mark">NJ</div>
+      <span class="login-card__eyebrow">NJWG CAP Encampment</span>
+      <h1>Cadre Sign In</h1>
+
+      <div class="login-error" id="login-error"></div>
+
+      <form id="login-form" novalidate>
+        <div class="field field--capid">
+          <label for="capid-input">CAP ID</label>
+          <input type="text" id="capid-input" name="capid" inputmode="numeric" autocomplete="off" placeholder="e.g. 123456" required>
+        </div>
+        <button type="submit" class="btn btn--primary" id="login-submit">Sign In</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    const form = document.getElementById("login-form");
+    const errorBox = document.getElementById("login-error");
+    const submitBtn = document.getElementById("login-submit");
+    const input = document.getElementById("capid-input");
+
+    // Must have already unlocked this device with the passphrase.
+    Auth.requireDeviceGate();
+
+    // If already logged in as a person, skip straight past this page.
+    if (Auth.getSession()) {
+      const params = new URLSearchParams(window.location.search);
+      window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      errorBox.classList.remove("is-visible");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Checking…";
+
+      try {
+        await Auth.login(input.value);
+        const params = new URLSearchParams(window.location.search);
+        window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.classList.add("is-visible");
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Sign In";
+      }
+    });
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>
