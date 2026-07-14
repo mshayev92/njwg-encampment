@@ -14,6 +14,15 @@
      <script src="js/auth.js"></script>
      <script src="js/shell.js"></script>
      <script>Shell.init({ activePage: 'schedule' }); </script>
+
+   PAGE ACCESS:
+   This app is staff-only (see js/auth.js). Each signed-in staff member's
+   session carries a Pages array (from the StaffAccess sheet tab) listing
+   which nav items they're allowed to see. "roster" is always shown to
+   any signed-in staff member regardless of Pages — see
+   Auth.ALWAYS_ALLOWED_PAGES. Every other page must be explicitly listed
+   in Pages or it's hidden from the nav AND blocked if reached directly
+   (see Shell.requirePageAccess below).
    ============================================================ */
 
 const Shell = (() => {
@@ -23,11 +32,32 @@ const Shell = (() => {
     file:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>'
   };
 
+  // Page ids always shown/reachable for any signed-in staff member,
+  // regardless of what's in their StaffAccess Pages list. Must match the
+  // ALWAYS_ALLOWED_PAGES list enforced server-side in Code.gs.
+  const ALWAYS_ALLOWED_PAGES = ["roster"];
+
+  /**
+   * Returns the list of NAV_ITEMS this session is allowed to see:
+   * always-allowed pages (e.g. roster) plus whatever's in
+   * session.Pages (case-insensitive match on NAV_ITEMS id).
+   */
+  function getAllowedNavItems() {
+    const session = Auth.getSession();
+    const allowedPages = (session && Array.isArray(session.Pages)) ? session.Pages : [];
+    const allowedSet = new Set(
+      allowedPages.map((p) => String(p).toLowerCase())
+    );
+    ALWAYS_ALLOWED_PAGES.forEach((p) => allowedSet.add(p));
+
+    return window.APP_CONFIG.NAV_ITEMS.filter((item) => allowedSet.has(item.id.toLowerCase()));
+  }
+
   function renderNav(activePage) {
     const rail = document.getElementById("nav-rail");
     if (!rail) return;
 
-    const links = window.APP_CONFIG.NAV_ITEMS.map(item => `
+    const links = getAllowedNavItems().map(item => `
       <a class="nav-rail__link" href="${window.APP_BASE_PATH}${item.href}" ${item.id === activePage ? 'aria-current="page"' : ''}>
         <span class="nav-rail__link-icon">${ICONS[item.icon] || ""}</span>
         <span class="nav-rail__link-label">${item.label}</span>
@@ -148,15 +178,41 @@ const Shell = (() => {
   }
 
   /**
+   * Call at the top of every protected page's script, passing that
+   * page's own nav id, e.g. Shell.requirePageAccess('schedule').
+   * Redirects to the Roster page (always-allowed) if the signed-in
+   * staff member isn't permitted to see this page — closes the gap
+   * where someone could type a page's URL directly even though it's
+   * hidden from their nav. This is still a client-side UX guard, not
+   * the real security boundary — Code.gs independently enforces its
+   * own read/write permission checks regardless of what any page does.
+   */
+  function requirePageAccess(pageId) {
+    if (!pageId || ALWAYS_ALLOWED_PAGES.includes(pageId.toLowerCase())) return true;
+
+    const session = Auth.getSession();
+    const allowedPages = (session && Array.isArray(session.Pages)) ? session.Pages : [];
+    const allowed = allowedPages.map((p) => String(p).toLowerCase()).includes(pageId.toLowerCase());
+
+    if (!allowed) {
+      showToast("You don't have access to that page.", { type: "error" });
+      window.location.href = `${window.APP_BASE_PATH}pages/roster.html`;
+      throw new Error("Page access denied — redirecting.");
+    }
+    return true;
+  }
+
+  /**
    * Call once per page. Pass { activePage: 'schedule' | 'roster' | ... , requireAuth: true }
    */
   function init({ activePage = null, requireAuth = true } = {}) {
     if (requireAuth) Auth.requireSession();
+    if (requireAuth && activePage) requirePageAccess(activePage);
     renderNav(activePage);
     renderHeader();
     renderDutyStrip();
     if (requireAuth) wireIdleTimeout();
   }
 
-  return { init, showToast, encampmentDayInfo };
+  return { init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems };
 })();
