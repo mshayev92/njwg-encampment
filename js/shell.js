@@ -1,12 +1,11 @@
 /* ============================================================
    NJWG ENCAMPMENT — APP SHELL RENDERER
-   Builds the header, nav rail, duty status strip, black flag banner,
-   and announcements bell. Every page includes a skeleton like:
+   Builds the header, nav rail, black flag banner, and announcements
+   bell. Every page includes a skeleton like:
 
      <div class="app-shell">
        <nav class="nav-rail" id="nav-rail"></nav>
        <header class="app-header" id="app-header"></header>
-       <div class="duty-strip" id="duty-strip"></div>
        <main class="app-main">...page content...</main>
      </div>
      <script src="js/config.js"></script>   (or "../js/config.js" from pages/)
@@ -237,31 +236,6 @@ const Shell = (() => {
     if (dayNumber < 1) return { label: "ENCAMPMENT NOT STARTED", isActive: false };
     if (dayNumber > totalDays) return { label: "ENCAMPMENT COMPLETE", isActive: false };
     return { label: `DAY ${dayNumber} OF ${totalDays}`, isActive: true };
-  }
-
-  function renderDutyStrip() {
-    const strip = document.getElementById("duty-strip");
-    if (!strip) return;
-
-    const { label } = encampmentDayInfo();
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const dateStr = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-
-    strip.innerHTML = `
-      <span class="duty-strip__day">${label}</span>
-      <span class="duty-strip__divider"></span>
-      <span class="duty-strip__now-label">Today</span>
-      <span class="duty-strip__now-value">${dateStr}</span>
-      <span class="duty-strip__divider"></span>
-      <span class="duty-strip__now-label">Local Time</span>
-      <span class="duty-strip__now-value" id="duty-strip-clock">${timeStr}</span>
-    `;
-
-    setInterval(() => {
-      const clock = document.getElementById("duty-strip-clock");
-      if (clock) clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    }, 15000);
   }
 
   // ---- Black flag banner + announcements bell (global, every page) ----
@@ -713,7 +687,6 @@ const Shell = (() => {
     if (requireAuth && activePage) requirePageAccess(activePage);
     renderNav(activePage);
     renderHeader(activePage);
-    renderDutyStrip();
     wireTooltips_(document);
     if (requireAuth) {
       wireIdleTimeout();
