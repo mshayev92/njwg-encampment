@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inspections — NJWG CAP Encampment</title>
+  <meta name="theme-color" content="#0b2545">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/icon-192.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .inspection-tabs {
+      display: flex;
+      gap: var(--space-2);
+      margin-bottom: var(--space-5);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .inspection-tab {
+      padding: var(--space-3) var(--space-4);
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      letter-spacing: var(--tracking-wide);
+      text-transform: uppercase;
+      color: var(--ink-600);
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      cursor: pointer;
+    }
+
+    .inspection-tab.is-active {
+      color: var(--navy-900);
+      border-bottom-color: var(--gold-500);
+    }
+
+    .inspection-tab:disabled {
+      color: var(--ink-400);
+      cursor: not-allowed;
+    }
+
+    .flight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: var(--space-4);
+    }
+
+    .flight-tile {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      cursor: pointer;
+      text-align: left;
+      box-shadow: var(--shadow-sm);
+      transition: border-color var(--duration-fast) var(--ease-standard),
+                  transform var(--duration-fast) var(--ease-standard);
+      font-family: inherit;
+    }
+
+    .flight-tile:hover {
+      border-color: var(--gold-500);
+      transform: translateY(-2px);
+    }
+
+    .flight-tile__name {
+      display: block;
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--navy-900);
+      margin-bottom: var(--space-2);
+    }
+
+    .flight-tile__count {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+
+    .student-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+
+    .student-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      width: 100%;
+    }
+
+    .student-row:hover {
+      border-color: var(--gold-500);
+    }
+
+    .student-row__name {
+      font-weight: 600;
+      color: var(--navy-900);
+    }
+
+    .student-row__meta {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      font-family: var(--font-mono);
+    }
+
+    .student-row__status {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      padding: var(--space-1) var(--space-2);
+      border-radius: 999px;
+    }
+
+    .student-row__status--done {
+      background: var(--green-100);
+      color: var(--green-600);
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+      flex-wrap: wrap;
+    }
+
+    .detail-header h2 {
+      font-size: var(--fs-lg);
+      color: var(--navy-900);
+      margin: 0;
+    }
+
+    .scorecard-meta {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+      padding: var(--space-4);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      font-size: var(--fs-sm);
+    }
+
+    .scorecard-meta__item span {
+      display: block;
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-1);
+    }
+
+    .scorecard-section {
+      margin-bottom: var(--space-5);
+    }
+
+    .scorecard-section h3 {
+      font-size: var(--fs-sm);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-3);
+    }
+
+    .scorecard-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) 0;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .scorecard-item:last-child { border-bottom: none; }
+
+    .scorecard-item__label { font-size: var(--fs-sm); color: var(--ink-900); }
+
+    .scorecard-toggle {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .scorecard-toggle button {
+      padding: var(--space-2) var(--space-4);
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      border: none;
+      background: var(--surface);
+      color: var(--ink-600);
+      cursor: pointer;
+    }
+
+    .scorecard-toggle button.is-selected.value-0 {
+      background: var(--red-100);
+      color: var(--red-600);
+    }
+
+    .scorecard-toggle button.is-selected.value-1 {
+      background: var(--green-100);
+      color: var(--green-600);
+    }
+
+    .scorecard-total {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-4);
+      background: var(--navy-900);
+      color: var(--surface);
+      border-radius: var(--radius-md);
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      margin-bottom: var(--space-5);
+    }
+
+    .scorecard-notes textarea {
+      width: 100%;
+      min-height: 100px;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-sunken);
+      resize: vertical;
+    }
+
+    .room-placeholder {
+      text-align: center;
+      padding: var(--space-8) var(--space-5);
+      color: var(--ink-600);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+    <div class="duty-strip" id="duty-strip"></div>
+
+    <main class="app-main">
+      <div class="page-header">
+        <div>
+          <span class="page-header__eyebrow">Cadre Tools</span>
+          <h1>Inspections</h1>
+        </div>
+        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
+      </div>
+
+      <div class="inspection-tabs">
+        <button class="inspection-tab is-active" data-tab="uniform">Uniform</button>
+        <button class="inspection-tab" data-tab="room" disabled title="Coming soon">Room</button>
+      </div>
+
+      <div id="inspection-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "inspections" });
+
+    const contentEl = document.getElementById("inspection-content");
+    const refreshBtn = document.getElementById("refresh-btn");
+    const tabButtons = document.querySelectorAll(".inspection-tab");
+
+    // The 9 scored line items, matching the printed scorecard exactly.
+    // key = the UniformInspections column name written to the Sheet.
+    const SCORE_ITEMS = [
+      { key: "Haircut", label: "Haircut" },
+      { key: "CosmeticsOrShave", label: "Cosmetics or Shave" },
+      { key: "CleanlinessPress", label: "Cleanliness / Press" },
+      { key: "ShirtTuck", label: "Shirt Tuck" },
+      { key: "PatchesNametag", label: "Patches / Nametag" },
+      { key: "InsigniaRibbons", label: "Insignia & Ribbons" },
+      { key: "GigLine", label: "Gig Line" },
+      { key: "BootBlousingShoeShine", label: "Boot Blousing / Shoe Shine" },
+      { key: "MilitaryBearingCourtesy", label: "Military Bearing & Courtesy" }
+    ];
+
+    let rosterRows = [];
+    let existingInspections = {}; // keyed by StudentCapId
+    let selectedFlight = null;
+    let selectedStudent = null;
+    let currentScores = {};
+
+    const session = Auth.getSession();
+    const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
+
+    /** Empty/absent Flights on the session means "all flights" per Code.gs. */
+    function isFlightAllowed(flight) {
+      if (!allowedFlights.length) return true;
+      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
+      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+    }
+
+    function groupByFlight(rows) {
+      return rows
+        .filter(r => isFlightAllowed(r.Flight))
+        .reduce((groups, row) => {
+          const flight = row.Flight || "Unassigned";
+          (groups[flight] = groups[flight] || []).push(row);
+          return groups;
+        }, {});
+    }
+
+    function renderFlightGrid() {
+      const grouped = groupByFlight(rosterRows);
+      const flightNames = Object.keys(grouped).sort();
+
+      if (!flightNames.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">🪖</div>
+            <p>No flights available to inspect.</p>
+          </div>`;
+        return;
+      }
+
+      contentEl.innerHTML = `
+        <div class="flight-grid">
+          ${flightNames.map(flight => `
+            <button class="flight-tile" data-flight="${flight}">
+              <span class="flight-tile__name">${flight}</span>
+              <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+            </button>
+          `).join("")}
+        </div>`;
+
+      contentEl.querySelectorAll(".flight-tile").forEach(tile => {
+        tile.addEventListener("click", () => {
+          selectedFlight = tile.dataset.flight;
+          renderStudentList();
+        });
+      });
+    }
+
+    function renderStudentList() {
+      const grouped = groupByFlight(rosterRows);
+      const members = grouped[selectedFlight] || [];
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          <h2>${selectedFlight}</h2>
+        </div>
+        ${members.length ? `
+          <div class="student-list">
+            ${members.map(m => {
+              const inspected = existingInspections[String(m.CapId)];
+              return `
+                <button class="student-row" data-capid="${m.CapId}">
+                  <div>
+                    <div class="student-row__name">${m.Name || "—"}</div>
+                    <div class="student-row__meta">${m.CapId || "—"} · ${m.Rank || "—"}</div>
+                  </div>
+                  ${inspected ? `<span class="student-row__status student-row__status--done">Scored ${inspected.TotalPoints}/9</span>` : ""}
+                </button>`;
+            }).join("")}
+          </div>
+        ` : `
+          <div class="state-message">
+            <div class="state-message__icon">🪖</div>
+            <p>No cadets in this flight.</p>
+          </div>
+        `}
+      `;
+
+      document.getElementById("back-to-flights-btn").addEventListener("click", () => {
+        selectedFlight = null;
+        renderFlightGrid();
+      });
+
+      contentEl.querySelectorAll(".student-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedStudent = members.find(m => String(m.CapId) === row.dataset.capid);
+          renderScorecard();
+        });
+      });
+    }
+
+    function renderScorecard() {
+      const existing = existingInspections[String(selectedStudent.CapId)] || {};
+      currentScores = {};
+      SCORE_ITEMS.forEach(item => {
+        const v = existing[item.key];
+        currentScores[item.key] = (v === 1 || v === "1") ? 1 : ((v === 0 || v === "0") ? 0 : null);
+      });
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString("en-CA"); // YYYY-MM-DD, from the computer's clock
+      const timestampStr = now.toISOString();
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-students-btn">← Back</button>
+          <h2>${selectedStudent.Name || "—"}</h2>
+        </div>
+
+        <div class="scorecard-meta">
+          <div class="scorecard-meta__item"><span>Student CAP ID</span>${selectedStudent.CapId || "—"}</div>
+          <div class="scorecard-meta__item"><span>Flight</span>${selectedFlight}</div>
+          <div class="scorecard-meta__item"><span>Inspecting Position</span>${session.Position}</div>
+          <div class="scorecard-meta__item"><span>Date</span>${dateStr}</div>
+        </div>
+
+        <div class="scorecard-section">
+          <h3>Personal Appearance / Military Bearing</h3>
+          ${SCORE_ITEMS.map(item => `
+            <div class="scorecard-item">
+              <span class="scorecard-item__label">${item.label}</span>
+              <div class="scorecard-toggle" data-key="${item.key}">
+                <button type="button" class="score-btn value-0" data-value="0">0</button>
+                <button type="button" class="score-btn value-1" data-value="1">1</button>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+
+        <div class="scorecard-total">
+          <span>Total points</span>
+          <span id="total-points-display">${computeTotal()} / ${SCORE_ITEMS.length}</span>
+        </div>
+
+        <div class="scorecard-section scorecard-notes">
+          <h3>Notes</h3>
+          <textarea id="notes-input" placeholder="Optional notes…">${existing.Notes || ""}</textarea>
+        </div>
+
+        <button class="btn btn--primary" id="submit-scorecard-btn">Save Inspection</button>
+      `;
+
+      document.getElementById("back-to-students-btn").addEventListener("click", () => {
+        selectedStudent = null;
+        renderStudentList();
+      });
+
+      SCORE_ITEMS.forEach(item => updateToggleUI(item.key));
+
+      contentEl.querySelectorAll(".scorecard-toggle").forEach(toggle => {
+        const key = toggle.dataset.key;
+        toggle.querySelectorAll(".score-btn").forEach(btn => {
+          btn.addEventListener("click", () => {
+            currentScores[key] = Number(btn.dataset.value);
+            updateToggleUI(key);
+            document.getElementById("total-points-display").textContent = `${computeTotal()} / ${SCORE_ITEMS.length}`;
+          });
+        });
+      });
+
+      document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitScorecard(dateStr, timestampStr));
+    }
+
+    function updateToggleUI(key) {
+      const toggle = contentEl.querySelector(`.scorecard-toggle[data-key="${key}"]`);
+      if (!toggle) return;
+      toggle.querySelectorAll(".score-btn").forEach(btn => {
+        const selected = Number(btn.dataset.value) === currentScores[key];
+        btn.classList.toggle("is-selected", selected);
+      });
+    }
+
+    function computeTotal() {
+      return SCORE_ITEMS.reduce((sum, item) => sum + (currentScores[item.key] === 1 ? 1 : 0), 0);
+    }
+
+    async function submitScorecard(dateStr, timestampStr) {
+      const unscored = SCORE_ITEMS.filter(item => currentScores[item.key] !== 0 && currentScores[item.key] !== 1);
+      if (unscored.length) {
+        Shell.showToast(`Score every item before saving (missing: ${unscored.map(i => i.label).join(", ")}).`, { type: "error" });
+        return;
+      }
+
+      const submitBtn = document.getElementById("submit-scorecard-btn");
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Saving…";
+
+      const row = {
+        StudentCapId: selectedStudent.CapId,
+        StudentName: selectedStudent.Name,
+        Flight: selectedFlight,
+        InspectingPosition: session.Position,
+        Date: dateStr,
+        Timestamp: timestampStr,
+        Notes: document.getElementById("notes-input").value.trim()
+      };
+      SCORE_ITEMS.forEach(item => { row[item.key] = currentScores[item.key]; });
+      row.TotalPoints = computeTotal();
+
+      try {
+        await Api.writeRow("UniformInspections", row, { matchColumn: "StudentCapId" });
+        existingInspections[String(selectedStudent.CapId)] = row;
+        Shell.showToast("Inspection saved.", { type: "success" });
+        selectedStudent = null;
+        renderStudentList();
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        submitBtn.disabled = false;
+        submitBtn.textContent = "Save Inspection";
+      }
+    }
+
+    function renderRoomPlaceholder() {
+      contentEl.innerHTML = `
+        <div class="room-placeholder">
+          <div class="state-message__icon">🧹</div>
+          <p>Room inspections aren't set up yet — check back soon.</p>
+        </div>`;
+    }
+
+    async function load() {
+      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
+      try {
+        const [rosterData, inspectionData] = await Promise.all([
+          Api.getSheet("Roster"),
+          Api.getSheet("UniformInspections")
+        ]);
+        rosterRows = rosterData.rows || [];
+        existingInspections = {};
+        (inspectionData.rows || []).forEach(row => {
+          existingInspections[String(row.StudentCapId)] = row;
+        });
+        selectedFlight = null;
+        selectedStudent = null;
+        renderFlightGrid();
+      } catch (err) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">⚠️</div>
+            <p>${err.message}</p>
+          </div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (btn.disabled) return;
+        tabButtons.forEach(b => b.classList.remove("is-active"));
+        btn.classList.add("is-active");
+        if (btn.dataset.tab === "uniform") {
+          selectedFlight = null;
+          selectedStudent = null;
+          renderFlightGrid();
+        } else {
+          renderRoomPlaceholder();
+        }
+      });
+    });
+
+    refreshBtn.addEventListener("click", load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>
