@@ -120,7 +120,7 @@
       <form id="login-form" novalidate>
         <div class="field field--position">
           <label for="position-select">Position</label>
-          <select id="position-select" name="position" required>
+          <select id="position-select" name="position" required disabled>
             <option value="" disabled selected>Loading positions…</option>
           </select>
         </div>
@@ -184,6 +184,7 @@
           <option value="" disabled selected>Select your position…</option>
           ${positions.map(p => `<option value="${p}">${p}</option>`).join("")}
         `;
+        positionSelect.disabled = false;
       } catch (err) {
         positionSelect.innerHTML = `<option value="" disabled selected>Couldn't load positions</option>`;
         errorBox.textContent = err.message;
@@ -192,6 +193,12 @@
         Shell.enhanceSelect(positionSelect);
       }
     }
+
+    // Enhance immediately (showing the disabled custom-styled trigger
+    // with its "Loading positions…" placeholder) rather than only after
+    // loadPositions() resolves — otherwise the plain native <select>
+    // briefly flashes before the themed dropdown takes over.
+    Shell.enhanceSelect(positionSelect);
 
     positionSelect.addEventListener("change", updatePasswordFieldVisibility);
 

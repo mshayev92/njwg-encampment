@@ -212,19 +212,31 @@
       if (postBtn) postBtn.addEventListener("click", postAnnouncement);
     }
 
+    /**
+     * Updates local state and re-renders immediately rather than
+     * re-fetching from the server — Api.writeRow() is optimistic (it
+     * resolves before the real network write actually lands), so a
+     * re-fetch right after it can race the write and read back the OLD
+     * data, making the sync pill flip to "Synced" while nothing visibly
+     * changed. Matches the pattern roster.html/schedule.html already
+     * use for the same reason.
+     */
     async function toggleBlackFlag() {
       const active = blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true");
       const toggleBtn = document.getElementById("toggle-flag-btn");
       toggleBtn.disabled = true;
 
+      const newStatus = {
+        RecordKey: "singleton",
+        Active: !active,
+        UpdatedBy: session.Position,
+        UpdatedAt: new Date().toISOString()
+      };
+
       try {
-        await Api.writeRow("BlackFlagStatus", {
-          RecordKey: "singleton",
-          Active: !active,
-          UpdatedBy: session.Position,
-          UpdatedAt: new Date().toISOString()
-        }, { matchColumn: "RecordKey" });
-        await load();
+        await Api.writeRow("BlackFlagStatus", newStatus, { matchColumn: "RecordKey" });
+        blackFlagStatus = newStatus;
+        render();
         Shell.refreshGlobalAlerts();
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
@@ -244,14 +256,17 @@
       postBtn.disabled = true;
       postBtn.textContent = "Posting…";
 
+      const newAnnouncement = {
+        Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        Timestamp: new Date().toISOString(),
+        Position: session.Position,
+        Message: message
+      };
+
       try {
-        await Api.writeRow("Announcements", {
-          Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          Timestamp: new Date().toISOString(),
-          Position: session.Position,
-          Message: message
-        });
-        await load();
+        await Api.writeRow("Announcements", newAnnouncement);
+        announcements = [newAnnouncement, ...announcements];
+        render();
         Shell.refreshGlobalAlerts();
         Shell.showToast("Announcement posted.", { type: "success" });
       } catch (err) {
