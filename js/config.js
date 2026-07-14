@@ -51,7 +51,7 @@ window.APP_CONFIG = {
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.
-  ENCAMPMENT_START_DATE: "2026-07-19",
+  ENCAMPMENT_START_DATE: "2026-07-12",
   ENCAMPMENT_END_DATE: "2026-07-26",
 
   UNIT_NAME: "NJWG CAP Encampment",
