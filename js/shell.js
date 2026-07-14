@@ -132,9 +132,9 @@ const Shell = (() => {
       <h1 class="app-header__title">${title}</h1>
       <div class="app-header__user">
         ${session ? `
-          <span id="sync-indicator" class="sync-indicator" style="display:none;">
+          <span id="sync-indicator" class="sync-indicator sync-indicator--synced">
             <span class="sync-indicator__dot"></span>
-            <span id="sync-indicator__label"></span>
+            <span id="sync-indicator__label">Synced</span>
           </span>
           <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">Refresh</button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
@@ -177,17 +177,18 @@ const Shell = (() => {
 
     Api.onSyncStatusChange((status, pending) => {
       el.classList.remove("sync-indicator--syncing", "sync-indicator--synced", "sync-indicator--error");
-      if (status === "idle") {
-        el.style.display = "none";
+      // "idle" (nothing queued/in flight) reads as the resting "Synced"
+      // state per the design's always-visible sync pill, rather than
+      // being hidden — there's no meaningful difference to the user
+      // between "just synced" and "nothing to sync."
+      if (status === "idle" || status === "synced") {
+        el.classList.add("sync-indicator--synced");
+        label.textContent = "Synced";
         return;
       }
-      el.style.display = "inline-flex";
       if (status === "syncing") {
         el.classList.add("sync-indicator--syncing");
         label.textContent = pending > 1 ? `Saving ${pending}…` : "Saving…";
-      } else if (status === "synced") {
-        el.classList.add("sync-indicator--synced");
-        label.textContent = "Saved";
       } else if (status === "error") {
         el.classList.add("sync-indicator--error");
         label.textContent = "Sync failed — tap Refresh";
@@ -449,6 +450,175 @@ const Shell = (() => {
     });
   }
 
+  // ---- Custom dropdown (replaces native <select>) -----------------------
+
+  /**
+   * Progressively enhances a native <select> into the themed custom
+   * dropdown (see .dropdown/.dropdown__trigger/.dropdown__menu in
+   * app.css) while keeping the underlying <select> as the source of
+   * truth: its value stays in sync and a real "change" event still
+   * fires on it, so existing code that reads selectEl.value or listens
+   * for "change" keeps working untouched.
+   *
+   * Safe to call again on the same <select> after its options change
+   * (e.g. after an async load repopulates it) — it tears down any
+   * previous wrapper first.
+   */
+  function enhanceSelect(selectEl) {
+    if (!selectEl) return null;
+
+    const previous = selectEl.previousElementSibling;
+    if (previous && previous.classList && previous.classList.contains("dropdown") && previous.dataset.forSelect === selectEl.id) {
+      previous.remove();
+    }
+
+    selectEl.style.display = "none";
+
+    const wrap = document.createElement("div");
+    wrap.className = "dropdown";
+    if (selectEl.id) wrap.dataset.forSelect = selectEl.id;
+
+    const options = Array.from(selectEl.options);
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "dropdown__trigger";
+    trigger.disabled = selectEl.disabled;
+
+    const label = document.createElement("span");
+    const chevron = document.createElement("span");
+    chevron.className = "dropdown__chevron";
+    chevron.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M6 9l6 6 6-6"/></svg>';
+    trigger.append(label, chevron);
+
+    const menu = document.createElement("div");
+    menu.className = "dropdown__menu";
+    menu.style.display = "none";
+
+    function selectedOption() {
+      return options.find(o => o.value === selectEl.value) || options.find(o => o.selected) || null;
+    }
+
+    function syncLabel() {
+      const opt = selectedOption();
+      label.textContent = opt ? opt.textContent : "Select…";
+    }
+
+    function close() {
+      wrap.classList.remove("is-open");
+      menu.style.display = "none";
+      document.removeEventListener("click", onOutsideClick, true);
+      document.removeEventListener("keydown", onKeydown);
+    }
+
+    function open() {
+      wrap.classList.add("is-open");
+      menu.style.display = "block";
+      document.addEventListener("click", onOutsideClick, true);
+      document.addEventListener("keydown", onKeydown);
+    }
+
+    function onOutsideClick(e) {
+      if (!wrap.contains(e.target)) close();
+    }
+
+    function onKeydown(e) {
+      if (e.key === "Escape") close();
+    }
+
+    trigger.addEventListener("click", () => {
+      if (trigger.disabled) return;
+      if (wrap.classList.contains("is-open")) close(); else open();
+    });
+
+    options.forEach(opt => {
+      if (opt.disabled) return;
+      const row = document.createElement("div");
+      row.className = "dropdown__option";
+      row.setAttribute("role", "option");
+      row.textContent = opt.textContent;
+      row.addEventListener("click", () => {
+        selectEl.value = opt.value;
+        selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+        syncLabel();
+        close();
+      });
+      menu.appendChild(row);
+    });
+
+    wrap.append(trigger, menu);
+    selectEl.parentNode.insertBefore(wrap, selectEl);
+    syncLabel();
+
+    return { refresh: () => enhanceSelect(selectEl), close };
+  }
+
+  // ---- Custom context menu (replaces native right-click menu) -----------
+
+  let contextMenuEl_ = null;
+
+  function closeContextMenu_() {
+    if (contextMenuEl_) {
+      contextMenuEl_.remove();
+      contextMenuEl_ = null;
+      document.removeEventListener("click", closeContextMenu_, true);
+      document.removeEventListener("keydown", onContextMenuKeydown_);
+    }
+  }
+
+  function onContextMenuKeydown_(e) {
+    if (e.key === "Escape") closeContextMenu_();
+  }
+
+  /**
+   * Opens a themed context menu (see .context-menu in app.css) anchored
+   * at the given point. items is an array of either:
+   *   { label, icon: '<svg>...</svg>', onSelect: fn, danger: true|false }
+   *   or the string "divider" for a separator line.
+   * Usage: el.addEventListener("contextmenu", (e) => {
+   *   e.preventDefault();
+   *   Shell.openContextMenu(e.clientX, e.clientY, [...items]);
+   * });
+   */
+  function openContextMenu(x, y, items) {
+    closeContextMenu_();
+
+    const menu = document.createElement("div");
+    menu.className = "context-menu";
+    menu.style.position = "fixed";
+    menu.style.zIndex = "var(--z-overlay)";
+
+    items.forEach(item => {
+      if (item === "divider") {
+        const divider = document.createElement("div");
+        divider.className = "context-menu__divider";
+        menu.appendChild(divider);
+        return;
+      }
+      const row = document.createElement("div");
+      row.className = "context-menu__item" + (item.danger ? " context-menu__item--danger" : "");
+      row.innerHTML = `${item.icon || ""}<span>${item.label}</span>`;
+      row.addEventListener("click", () => {
+        closeContextMenu_();
+        if (item.onSelect) item.onSelect();
+      });
+      menu.appendChild(row);
+    });
+
+    document.body.appendChild(menu);
+
+    // Clamp so the menu never renders off the right/bottom edge.
+    const rect = menu.getBoundingClientRect();
+    const left = Math.min(x, window.innerWidth - rect.width - 8);
+    const top = Math.min(y, window.innerHeight - rect.height - 8);
+    menu.style.left = `${Math.max(4, left)}px`;
+    menu.style.top = `${Math.max(4, top)}px`;
+
+    contextMenuEl_ = menu;
+    setTimeout(() => document.addEventListener("click", closeContextMenu_, true), 0);
+    document.addEventListener("keydown", onContextMenuKeydown_);
+  }
+
   // ---- Custom modal (replaces native confirm()) -------------------------
 
   /**
@@ -556,6 +726,7 @@ const Shell = (() => {
   return {
     init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
-    confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh
+    confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
+    enhanceSelect, openContextMenu
   };
 })();

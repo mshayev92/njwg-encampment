@@ -108,20 +108,7 @@
 
     .roster-row-actions {
       display: flex;
-      gap: var(--space-2);
-    }
-    .roster-row-actions button {
-      background: none;
-      border: none;
-      cursor: pointer;
-      color: var(--ink-600);
-      padding: var(--space-1) var(--space-2);
-      font-size: var(--fs-xs);
-      border-radius: var(--radius-sm);
-    }
-    .roster-row-actions button:hover {
-      background: var(--surface-sunken);
-      color: var(--indigo-900);
+      justify-content: flex-end;
     }
   </style>
 </head>
@@ -133,10 +120,6 @@
     <div class="duty-strip" id="duty-strip"></div>
 
     <main class="app-main">
-      <div class="page-header" style="justify-content: flex-end;">
-        <button class="btn btn--ghost" id="refresh-btn">Refresh</button>
-      </div>
-
       <div class="roster-toolbar">
         <input type="search" id="roster-search" placeholder="Search by name, CAP ID, or flight…">
       </div>
@@ -160,7 +143,6 @@
     Shell.init({ activePage: "roster" });
 
     const contentEl = document.getElementById("roster-content");
-    const refreshBtn = document.getElementById("refresh-btn");
     const searchInput = document.getElementById("roster-search");
     const formContainer = document.getElementById("roster-form-container");
 
@@ -241,8 +223,7 @@
                     <td data-label="Rank">${m.Rank || "—"}</td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
-                        <button data-action="edit" data-capid="${m.CapId}" data-tooltip="Edit this cadet">Edit</button>
-                        <button data-action="delete" data-capid="${m.CapId}" data-tooltip="Remove from roster">Remove</button>
+                        <button class="btn btn--ghost" data-action="row-menu" data-capid="${m.CapId}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
                       </td>
                     ` : ""}
                   </tr>
@@ -261,16 +242,25 @@
       const addBtn = document.getElementById("add-cadet-btn");
       if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
 
-      contentEl.querySelectorAll("[data-action='edit']").forEach(btn => {
-        btn.addEventListener("click", () => {
+      contentEl.querySelectorAll("[data-action='row-menu']").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
           const m = allRows.find(r => String(r.CapId) === btn.dataset.capid);
-          openForm(m, flight);
-        });
-      });
-      contentEl.querySelectorAll("[data-action='delete']").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const m = allRows.find(r => String(r.CapId) === btn.dataset.capid);
-          deleteStudent(m);
+          const rect = btn.getBoundingClientRect();
+          Shell.openContextMenu(rect.right, rect.bottom, [
+            {
+              label: "Edit row",
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+              onSelect: () => openForm(m, flight)
+            },
+            "divider",
+            {
+              label: "Remove",
+              danger: true,
+              icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>',
+              onSelect: () => deleteStudent(m)
+            }
+          ]);
         });
       });
       Shell.wireTooltips(contentEl);
@@ -445,7 +435,6 @@
       });
     }
 
-    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
     searchInput.addEventListener("input", applyFilter);
     Shell.registerRefresh(load);
     load();
