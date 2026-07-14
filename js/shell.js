@@ -187,7 +187,7 @@ const Shell = (() => {
       }
       if (status === "syncing") {
         el.classList.add("sync-indicator--syncing");
-        label.textContent = pending > 1 ? `Saving ${pending}…` : "Saving…";
+        label.textContent = pending > 1 ? `Pending (${pending})` : "Pending…";
       } else if (status === "error") {
         el.classList.add("sync-indicator--error");
         label.textContent = "Sync failed — tap Refresh";
@@ -693,6 +693,12 @@ const Shell = (() => {
       loadGlobalAlerts_();
       // Keep the banner/badge reasonably fresh without a full reload.
       setInterval(loadGlobalAlerts_, 2 * 60 * 1000);
+      // Warm every sheet ANY page reads from, not just this one — so by
+      // the time someone clicks to another page, its data is already
+      // sitting in the persisted cache and renders instantly instead of
+      // making them wait on the network again.
+      Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
+      setInterval(() => Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []), 60 * 1000);
     }
   }
 

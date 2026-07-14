@@ -89,5 +89,12 @@ window.APP_CONFIG = {
     { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" }
     // Add future pages here, e.g.:
     // { id: "forms", label: "Forms", href: "pages/forms.html", icon: "file" },
-  ]
+  ],
+
+  // Every sheet any page reads from, warmed in the background on every
+  // page load (see Shell.init -> Api.warmCache) so navigating to a page
+  // you haven't visited yet still renders instantly from cache instead
+  // of waiting on the network. Add a sheet here whenever a new page
+  // starts reading from one.
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "Announcements", "BlackFlagStatus"]
 };

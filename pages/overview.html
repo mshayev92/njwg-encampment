@@ -183,28 +183,55 @@
       `;
     }
 
-    async function load() {
-      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
-      try {
-        const [weather, rosterData] = await Promise.all([
-          fetchWeather().catch(() => null),
-          Api.getSheet("Roster")
-        ]);
+    // Weather and roster come from two independent sources (a live
+    // fetch vs. the persisted Api cache) that can resolve at different
+    // times — track the latest of each and re-render the combined view
+    // whenever either updates, rather than waiting on both together.
+    let lastWeather = null;
+    let lastRosterRows = null;
 
-        contentEl.innerHTML = `
-          <div class="overview-grid">
-            ${renderWeatherCard(weather)}
-          </div>
-          ${renderFlightStats(rosterData.rows || [])}
-        `;
-      } catch (err) {
-        contentEl.innerHTML = `
-          <div class="state-message">
-            <div class="state-message__icon">⚠️</div>
-            <p>${err.message}</p>
-          </div>`;
-        Shell.showToast(err.message, { type: "error" });
+    function renderAll() {
+      if (lastRosterRows === null) {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
+        return;
       }
+      contentEl.innerHTML = `
+        <div class="overview-grid">
+          ${renderWeatherCard(lastWeather)}
+        </div>
+        ${renderFlightStats(lastRosterRows)}
+      `;
+    }
+
+    function load() {
+      // Roster: render instantly from the persisted cache (near-instant
+      // on any page after the first, since Shell.init warms it), then
+      // silently refresh in the background.
+      const { data: cached, ready } = Api.getSheetCached("Roster", (fresh) => {
+        lastRosterRows = fresh.rows || [];
+        renderAll();
+      });
+
+      if (cached) {
+        lastRosterRows = cached.rows || [];
+      }
+      renderAll();
+
+      ready.catch((err) => {
+        if (lastRosterRows === null) {
+          contentEl.innerHTML = `
+            <div class="state-message">
+              <div class="state-message__icon">⚠️</div>
+              <p>${err.message}</p>
+            </div>`;
+        }
+        Shell.showToast(err.message, { type: "error" });
+      });
+
+      // Weather has no backend cache of its own (it's a direct call to
+      // Open-Meteo, not the Apps Script) — just fetch it every load and
+      // patch it into whatever's already rendered.
+      fetchWeather().then((w) => { lastWeather = w; }).catch(() => { lastWeather = null; }).finally(renderAll);
     }
 
     Shell.registerRefresh(load);

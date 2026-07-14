@@ -172,6 +172,12 @@ const Auth = (() => {
 
   function logout() {
     clearSession();
+    // The read cache now persists across page loads (see js/api.js) so
+    // it survives navigation — but it must NOT survive a logout, or the
+    // next person to sign in on this device would instantly render the
+    // PREVIOUS position's cached Roster/Schedule/etc. before their own
+    // session's read even lands.
+    if (typeof Api !== "undefined" && Api.clearCache) Api.clearCache();
     window.location.href = `${window.APP_BASE_PATH}index.html`;
   }
 
@@ -207,6 +213,10 @@ const Auth = (() => {
     const last = Number(localStorage.getItem(IDLE_LAST_ACTIVE_KEY) || 0);
     if (last && Date.now() - last > IDLE_TIMEOUT_MS) {
       clearSession();
+      // Same reasoning as logout() — an idle-timed-out session shouldn't
+      // leave its cached reads sitting around for whoever picks this
+      // shared device up next.
+      if (typeof Api !== "undefined" && Api.clearCache) Api.clearCache();
     }
     touchActivity();
   }
