@@ -144,6 +144,7 @@
     const contentEl = document.getElementById("roster-content");
     const searchInput = document.getElementById("roster-search");
     const formContainer = document.getElementById("roster-form-container");
+    const esc = Shell.escapeHtml;
 
     // Viewing this page only requires "roster" in Pages. Editing
     // additionally requires "edit-roster" — a separate, explicit grant
@@ -184,8 +185,8 @@
       contentEl.innerHTML = `
         <div class="flight-grid">
           ${flightNames.map(flight => `
-            <button class="flight-tile" data-flight="${flight}">
-              <span class="flight-tile__name">${flight}</span>
+            <button class="flight-tile" data-flight="${esc(flight)}">
+              <span class="flight-tile__name">${esc(flight)}</span>
               <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
             </button>
           `).join("")}
@@ -205,7 +206,7 @@
       contentEl.innerHTML = `
         <div class="flight-detail-header">
           <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
-          <h2>${flight}</h2>
+          <h2>${esc(flight)}</h2>
           ${canEditRoster ? `<button class="btn btn--ghost" id="add-cadet-btn" style="margin-left:auto;">+ Add Cadet</button>` : ""}
         </div>
         ${members.length ? `
@@ -217,12 +218,12 @@
               <tbody>
                 ${members.map(m => `
                   <tr>
-                    <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
-                    <td data-label="Name">${m.Name || "—"}</td>
-                    <td data-label="Rank">${m.Rank || "—"}</td>
+                    <td data-label="CAP ID" class="mono">${esc(m.CapId) || "—"}</td>
+                    <td data-label="Name">${esc(m.Name) || "—"}</td>
+                    <td data-label="Rank">${esc(m.Rank) || "—"}</td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
-                        <button class="btn btn--ghost" data-action="row-menu" data-capid="${m.CapId}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
+                        <button class="btn btn--ghost" data-action="row-menu" data-capid="${esc(m.CapId)}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
                       </td>
                     ` : ""}
                   </tr>
@@ -320,10 +321,10 @@
             ${student ? "Edit Cadet" : "Add Cadet"}
           </h3>
           <div class="roster-form">
-            <div class="field"><label for="f-capid">CAP ID</label><input id="f-capid" value="${student?.CapId || ""}" ${student ? "readonly" : ""}></div>
-            <div class="field"><label for="f-name">Name</label><input id="f-name" value="${student?.Name || ""}"></div>
-            <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${student?.Rank || ""}"></div>
-            <div class="field"><label for="f-flight">Flight</label><input id="f-flight" value="${student?.Flight || flightContext || ""}"></div>
+            <div class="field"><label for="f-capid">CAP ID</label><input id="f-capid" value="${esc(student?.CapId || "")}" ${student ? "readonly" : ""}></div>
+            <div class="field"><label for="f-name">Name</label><input id="f-name" value="${esc(student?.Name || "")}"></div>
+            <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${esc(student?.Rank || "")}"></div>
+            <div class="field"><label for="f-flight">Flight</label><input id="f-flight" value="${esc(student?.Flight || flightContext || "")}"></div>
             <div class="roster-form-actions">
               <button class="btn btn--primary" id="save-cadet-btn">Save</button>
               <button class="btn btn--ghost" id="cancel-cadet-btn">Cancel</button>
@@ -387,7 +388,7 @@
       if (!student) return;
       const confirmed = await Shell.confirm({
         title: "Remove cadet?",
-        message: `Remove ${student.Name || student.CapId} from the roster? This does not delete their inspection history.`,
+        message: `Remove ${esc(student.Name || student.CapId)} from the roster? This does not delete their inspection history.`,
         confirmLabel: "Remove",
       });
       if (!confirmed) return;
