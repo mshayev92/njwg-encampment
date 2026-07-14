@@ -8,7 +8,7 @@
    IMPORTANT — because the site is hosted publicly (GitHub Pages),
    that /exec URL is not secret: anyone can view source and see it,
    and anyone can call it directly. So neither a passphrase nor a
-   CAP ID is trusted as ongoing authentication — each is exchanged
+   position is trusted as ongoing authentication — each is exchanged
    ONCE for a signed, expiring token (device token / session token,
    see js/auth.js), and this client attaches BOTH tokens to every
    read/write. The Apps Script backend verifies both tokens'
@@ -36,9 +36,10 @@ const Api = (() => {
    *
    * requireDevice/requireSession control which tokens are attached and
    * required for this particular call:
-   *   - deviceLogin: neither (that's the call that ISSUES the device token)
-   *   - login:       device token only (device already unlocked, no person yet)
-   *   - read/write:  both device token and session token
+   *   - deviceLogin:    neither (that's the call that ISSUES the device token)
+   *   - listPositions:  device token only (device already unlocked, no position chosen yet)
+   *   - login:          device token only (device already unlocked, no session yet)
+   *   - read/write:     both device token and session token
    */
   async function request(action, { method = "GET", params = {}, body = null, requireDevice = true, requireSession = true } = {}) {
     if (!BASE_URL || BASE_URL.includes("PASTE_YOUR_DEPLOYMENT_ID_HERE")) {
@@ -104,8 +105,8 @@ const Api = (() => {
   /**
    * If the backend rejected a device or session token, clear the
    * relevant local state and bounce to the right gate — device errors
-   * go to the passphrase screen, session errors go to CAP ID login —
-   * rather than leaving the user stuck on a silent failure.
+   * go to the passphrase screen, session errors go to the position
+   * picker — rather than leaving the user stuck on a silent failure.
    */
   function handleAuthFailure_(message) {
     if (typeof Auth === "undefined") return;
@@ -153,13 +154,28 @@ const Api = (() => {
     },
 
     /**
-     * LAYER 2 — exchange a CAP ID for a per-person session token.
-     * Requires the device token (already unlocked) but no session yet.
+     * Fetches the list of valid position names (e.g. "Alpha Flight",
+     * "CCT") from StaffAccess, to populate the login dropdown. Requires
+     * the device to already be unlocked but no session yet. Returns
+     * only position names — never Role, Pages, or anything else.
      */
-    login(capId) {
+    listPositions() {
+      return request("listPositions", {
+        requireDevice: true,
+        requireSession: false
+      });
+    },
+
+    /**
+     * LAYER 2 — exchange a chosen position (plus password, for
+     * password-protected positions like CCT/Administrator) for a
+     * per-position session token. Requires the device token (already
+     * unlocked) but no session yet.
+     */
+    login(position, password) {
       return request("login", {
         method: "POST",
-        body: { capId },
+        body: { position, password },
         requireDevice: true,
         requireSession: false
       });
