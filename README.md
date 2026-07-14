@@ -1,4 +1,4 @@
-# NJWG CAP Encampment App
+# NJWG Encampment App
 
 A responsive, installable (PWA) tool for encampment **staff** — schedule, roster, and future features — backed by a private Google Sheet with **no API key required**.
 
@@ -82,10 +82,15 @@ njwg-encampment/
 │   └── roster.html          # Feature page (always visible to any signed-in position)
 ├── apps-script/
 │   └── Code.gs              # Reference copy of the backend (real copy lives IN the Sheet)
-└── icons/                   # PWA icons (add icon-192.png, icon-512.png, icon-512-maskable.png)
+└── icons/                   # App icons/favicons — generated from the NJ Wing patch:
+    ├── icon-192.png          #   used as the nav-rail crest image too, not just PWA install
+    ├── icon-512.png
+    ├── icon-512-maskable.png #   extra safe-zone padding so Android's crop doesn't clip it
+    ├── apple-touch-icon.png
+    └── favicon.ico
 ```
 
-Every page follows the same pattern: load `config.js` → `api.js` → `auth.js` → `shell.js`, then call `Shell.init({ activePage: '...' })`. `Shell.init` transparently enforces the device gate, the per-position session, AND (for every page except Roster) whether this position is allowed to see this specific page.
+Every page follows the same pattern: load `config.js` → `api.js` → `auth.js` → `shell.js`, then call `Shell.init({ activePage: '...' })`. `Shell.init` transparently enforces the device gate, the per-position session, AND (for every page except Roster) whether this position is allowed to see this specific page — and also renders the sync indicator, wires document-wide tooltips, and sets up the header's hard-refresh button (see **Performance model** below).
 
 ## Part 1 — Connect the app to your Google Sheet (no API key)
 
@@ -186,3 +191,28 @@ The Inspections page's **Trends** tab uses this history to show:
 - Pass-rate-by-item across all flights, to spot which specific line items (haircut, gig line, etc.) are commonly failing
 
 A cadet's inspection history (all past scorecards) is browsable from their row in the Uniform tab — clicking a past date reopens that day's scorecard for viewing or correction.
+
+## Visual identity
+
+The palette, icons, and favicons are derived directly from the NJ Wing patch (deep indigo field `#0d1250`, garnet-red New Jersey silhouette `#a8172c`, wing/border gold `#f0b429`, off-white ribbon). See `css/tokens.css` for the full token set — colors were sampled from the actual patch artwork, not guessed. `--navy-*` variable names from the old palette are kept as aliases pointing at the new `--indigo-*` scale so nothing silently breaks, but all current CSS uses the `--indigo-*` names directly.
+
+Custom browser chrome replaces several native, unstylable browser UI elements app-wide:
+- **Scrollbars** — thin gold-on-indigo/cream track, via `scrollbar-color` (Firefox) and `::-webkit-scrollbar-*` (Chrome/Safari/Edge), in `css/app.css`.
+- **Confirmation dialogs** — `Shell.confirm({ title, message, confirmLabel, danger })` returns a `Promise<boolean>`, replacing `window.confirm()`, which can't be restyled and looks like OS chrome. Used anywhere a destructive action (removing a cadet, deleting a schedule item) needs confirmation.
+- **Tooltips** — any element with `data-tooltip="..."` gets a themed hover/focus bubble (see `wireTooltips_` in `js/shell.js`) instead of the native `title=""` tooltip. `Shell.init()` wires the whole document automatically; call `Shell.wireTooltips(container)` after injecting new dynamic HTML (e.g. after a table re-renders) to pick up new `data-tooltip` elements.
+- **Toasts and the sync indicator** — themed from the start, no native equivalent existed.
+
+Icons/favicons live in `icons/`: `favicon.ico` (16/32/48 multi-res), `icon-192.png`, `icon-512.png`, `icon-512-maskable.png` (extra safe-zone padding so Android's circular/squircle crop never clips the shield), and `apple-touch-icon.png`. Regenerate all of these together if the patch art ever changes, so they stay visually consistent.
+
+## Performance model: instant renders, background sync
+
+The app now follows a **stale-while-revalidate** read pattern and **optimistic** writes, implemented in `js/api.js`, to avoid the old behavior of a visible loading spinner every time a page needed data:
+
+- **Reads** — `Api.getSheetCached(sheetName, onFresh)` returns cached data **synchronously** if this page has fetched that sheet before this session, so a repeat view of Schedule/Roster/Inspections renders instantly instead of waiting on the network. A background refetch always happens regardless of whether cache existed; `onFresh(data)` fires if/when it resolves, so the page can quietly re-render only if something actually changed. The very first load of a sheet in a session still shows the loading spinner — there's nothing to show instantly yet.
+- **Writes** — `Api.writeRow()`/`Api.deleteRow()` are optimistic **by default**: they return immediately once queued, without waiting for the server round-trip. Callers update their own in-memory rows and re-render right away, rather than re-fetching after `await`. Pass `{ optimistic: false }` if a caller genuinely needs to know the server's result before proceeding (rare — only use this if a permission error needs to be caught before the UI changes).
+- **Sync status** — because writes no longer block, the header shows a small sync indicator (queued → "Saving…" → "Saved", or "Sync failed — tap Refresh" if the background write ultimately fails after one retry) via `Api.onSyncStatusChange()`. This was a deliberate choice over either silent background sync (a failure would surface too late) or blocking on every write (defeats the whole point) — the person always knows whether their last save actually landed.
+- **Hard refresh** — every page's own "Refresh" button, and the header's global refresh button, both call `Shell.hardRefresh()`, which clears the entire read cache and re-runs that page's `load()` — guaranteeing a real, visible "fetch everything again," distinct from the automatic instant-cached-render every page does on normal navigation. Pages register their own reload logic via `Shell.registerRefresh(loadFn)` near the bottom of their script.
+
+**One important interaction to know about:** because writes are optimistic, a page's own `load()` should never be called again immediately after a save/delete to "confirm" it — that would refetch from the server before the background write has necessarily landed, undoing the local optimistic update and showing stale data for a moment. Every page's save/delete handlers were rewritten to update their own in-memory array (`scheduleRows`, `allRows`, `inspectionsByStudent`, etc.) directly and re-render from that, rather than re-querying the sheet.
+
+**Also important:** a background refresh callback (`onFresh`) never re-renders an in-progress, unsaved form (e.g. a uniform scorecard mid-scoring) — see `renderActiveView()`'s deliberate exclusion in `pages/inspections.html` — since silently replacing the screen with fresh server data would discard whatever the person hasn't saved yet.
