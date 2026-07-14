@@ -167,10 +167,21 @@
     // Must have already unlocked this device with the passphrase.
     Auth.requireDeviceGate();
 
+    // Where to send a signed-in user by default: the FIRST page their
+    // position is actually allowed to see, not a hardcoded page they
+    // might not have access to (which would load, toast "no access", and
+    // bounce them elsewhere — a visible flash on every login).
+    function defaultLandingHref() {
+      const allowed = Shell.getAllowedNavItems();
+      return allowed.length
+        ? `${window.APP_BASE_PATH}${allowed[0].href}`
+        : `${window.APP_BASE_PATH}pages/schedule.html`;
+    }
+
     // If already logged in, skip straight past this page.
     if (Auth.getSession()) {
       const params = new URLSearchParams(window.location.search);
-      window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
+      window.location.href = params.get("returnTo") || defaultLandingHref();
     }
 
     async function loadPositions() {
@@ -182,7 +193,7 @@
         }
         positionSelect.innerHTML = `
           <option value="" disabled selected>Select your position…</option>
-          ${positions.map(p => `<option value="${p}">${p}</option>`).join("")}
+          ${positions.map(p => `<option value="${Shell.escapeHtml(p)}">${Shell.escapeHtml(p)}</option>`).join("")}
         `;
         positionSelect.disabled = false;
       } catch (err) {
@@ -211,7 +222,7 @@
       try {
         await Auth.login(positionSelect.value, passwordInput.value);
         const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}pages/schedule.html`;
+        window.location.href = params.get("returnTo") || defaultLandingHref();
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.classList.add("is-visible");

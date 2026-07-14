@@ -74,6 +74,7 @@
     const contentEl = document.getElementById("schedule-content");
     const addItemBtn = document.getElementById("add-item-btn");
     const formContainer = document.getElementById("schedule-form-container");
+    const esc = Shell.escapeHtml;
 
     // Viewing this page only requires "schedule" in Pages. Editing
     // additionally requires "edit-schedule" — a separate, explicit
@@ -109,7 +110,7 @@
       const grouped = groupByDay(rows);
       contentEl.innerHTML = Object.entries(grouped).map(([day, items]) => `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--indigo-900);">${day}</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--indigo-900);">${esc(day)}</h2>
           <table class="data-table">
             <thead>
               <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th>${canEditSchedule ? "<th></th>" : ""}</tr>
@@ -117,10 +118,10 @@
             <tbody>
               ${items.map((item, i) => `
                 <tr>
-                  <td data-label="Time" class="mono">${item.Time || "—"}</td>
-                  <td data-label="Activity">${item.Activity || "—"}</td>
-                  <td data-label="Location">${item.Location || "—"}</td>
-                  <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${item.Flight}</span>` : "—"}</td>
+                  <td data-label="Time" class="mono">${esc(item.Time) || "—"}</td>
+                  <td data-label="Activity">${esc(item.Activity) || "—"}</td>
+                  <td data-label="Location">${esc(item.Location) || "—"}</td>
+                  <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${esc(item.Flight)}</span>` : "—"}</td>
                   ${canEditSchedule ? `
                     <td data-label="" class="schedule-item-row">
                       <button class="btn btn--ghost" data-index="${scheduleRows.indexOf(item)}" data-action="row-menu" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
@@ -174,11 +175,11 @@
             ${editingRow ? "Edit Schedule Item" : "Add Schedule Item"}
           </h3>
           <div class="schedule-form">
-            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${editingRow?.Day || ""}" placeholder="e.g. Monday"></div>
-            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${editingRow?.Time || ""}" placeholder="e.g. 0600"></div>
-            <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${editingRow?.Activity || ""}"></div>
-            <div class="field"><label for="f-location">Location</label><input id="f-location" value="${editingRow?.Location || ""}"></div>
-            <div class="field"><label for="f-flight">Flight (optional)</label><input id="f-flight" value="${editingRow?.Flight || ""}" placeholder="blank = all flights"></div>
+            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${esc(editingRow?.Day || "")}" placeholder="e.g. Monday"></div>
+            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${esc(editingRow?.Time || "")}" placeholder="e.g. 0600"></div>
+            <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(editingRow?.Activity || "")}"></div>
+            <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(editingRow?.Location || "")}"></div>
+            <div class="field"><label for="f-flight">Flight (optional)</label><input id="f-flight" value="${esc(editingRow?.Flight || "")}" placeholder="blank = all flights"></div>
             <div class="schedule-form-actions">
               <button class="btn btn--primary" id="save-item-btn">Save</button>
               <button class="btn btn--ghost" id="cancel-item-btn">Cancel</button>
@@ -246,7 +247,7 @@
     async function deleteItem(row) {
       const confirmed = await Shell.confirm({
         title: "Remove schedule item?",
-        message: `Remove "${row.Activity}" on ${row.Day}${row.Time ? ` at ${row.Time}` : ""}?`,
+        message: `Remove "${esc(row.Activity)}" on ${esc(row.Day)}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
         confirmLabel: "Remove",
       });
       if (!confirmed) return;
@@ -257,45 +258,16 @@
       render(scheduleRows);
     }
 
-    /**
-     * Instant-then-revalidate load: renders whatever's cached
-     * IMMEDIATELY (no spinner, no wait) if this page has already loaded
-     * Schedule data this session, while a background refetch quietly
-     * checks for anything newer and re-renders only if it differs. On
-     * a true first load (nothing cached yet) this shows the spinner
-     * exactly as before — there's nothing to show instantly yet.
-     */
-    function load() {
-      const { data: cached, ready } = Api.getSheetCached("Schedule", (fresh) => {
-        scheduleRows = fresh.rows || [];
-        render(scheduleRows);
-      });
-
-      if (cached) {
-        scheduleRows = cached.rows || [];
-        render(scheduleRows);
-      } else {
-        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading schedule…</p></div>`;
-      }
-
-      return ready.then((data) => {
-        scheduleRows = data.rows || [];
-        render(scheduleRows);
-      }).catch((err) => {
-        if (!cached) {
-          contentEl.innerHTML = `
-            <div class="state-message">
-              <div class="state-message__icon">⚠️</div>
-              <p>${err.message}</p>
-            </div>`;
-        }
-        Shell.showToast(err.message, { type: "error" });
-      });
-    }
-
     addItemBtn.addEventListener("click", () => openForm(null));
-    Shell.registerRefresh(load);
-    load();
+
+    // Instant-then-revalidate load, spinner, error state, and Refresh
+    // wiring are all handled by Shell.mountSheet — see js/shell.js. This
+    // is the pattern new single-sheet pages should follow.
+    Shell.mountSheet("Schedule", {
+      container: contentEl,
+      loadingText: "Loading schedule…",
+      render: (rows) => { scheduleRows = rows; render(scheduleRows); }
+    });
   </script>
 
   <script>
