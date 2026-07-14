@@ -5,10 +5,11 @@
    data should always come from the network when available.
    ============================================================ */
 
-// Bumped for the v2 redesign (new palette, icons, custom chrome) —
-// changing this forces every device to drop its old cached shell
-// instead of continuing to serve stale navy/gold assets after deploy.
-const CACHE_NAME = "njwg-encampment-v2";
+// Bumped for the v3 shell redesign (collapsible nav rail, consolidated
+// header, new component styles) — changing this forces every device to
+// drop its old cached shell instead of continuing to serve the stale
+// pre-redesign markup/CSS/JS after deploy.
+const CACHE_NAME = "njwg-encampment-v3";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
