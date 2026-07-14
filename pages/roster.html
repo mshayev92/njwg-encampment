@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Roster — NJWG CAP Encampment</title>
-  <meta name="theme-color" content="#0b2545">
+  <title>Roster — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
   <link rel="manifest" href="../manifest.json">
-  <link rel="icon" href="../icons/icon-192.png">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -63,7 +65,7 @@
       display: block;
       font-family: var(--font-display);
       font-size: var(--fs-md);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin-bottom: var(--space-2);
     }
 
@@ -87,7 +89,7 @@
 
     .flight-detail-header h2 {
       font-size: var(--fs-lg);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin: 0;
     }
 
@@ -119,7 +121,7 @@
     }
     .roster-row-actions button:hover {
       background: var(--surface-sunken);
-      color: var(--navy-900);
+      color: var(--indigo-900);
     }
   </style>
 </head>
@@ -243,8 +245,8 @@
                     <td data-label="Rank">${m.Rank || "—"}</td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
-                        <button data-action="edit" data-capid="${m.CapId}">Edit</button>
-                        <button data-action="delete" data-capid="${m.CapId}">Remove</button>
+                        <button data-action="edit" data-capid="${m.CapId}" data-tooltip="Edit this cadet">Edit</button>
+                        <button data-action="delete" data-capid="${m.CapId}" data-tooltip="Remove from roster">Remove</button>
                       </td>
                     ` : ""}
                   </tr>
@@ -275,6 +277,7 @@
           deleteStudent(m);
         });
       });
+      Shell.wireTooltips(contentEl);
 
       const backBtn = document.getElementById("back-to-flights-btn");
       if (backBtn) {
@@ -354,7 +357,13 @@
       formContainer.innerHTML = "";
     }
 
-    async function saveStudent() {
+    /**
+     * Optimistic save: updates allRows and re-renders INSTANTLY, then
+     * fires the real write in the background. See the sync indicator
+     * in the header for whether it actually landed — this function
+     * doesn't wait to find out before showing success.
+     */
+    function saveStudent() {
       const row = {
         CapId: document.getElementById("f-capid").value.trim(),
         Name: document.getElementById("f-name").value.trim(),
@@ -367,61 +376,82 @@
         return;
       }
 
-      // Adding new: block a duplicate CapId client-side (backend would
-      // otherwise just append a second row with the same id, since
-      // matchColumn only updates-in-place for an EXISTING match).
+      // Adding new: block a duplicate CapId client-side (the backend
+      // would otherwise just append a second row with the same id,
+      // since matchColumn only updates-in-place for an EXISTING match).
       if (!editingCapId && allRows.some(r => String(r.CapId).toLowerCase() === row.CapId.toLowerCase())) {
         Shell.showToast("A cadet with that CAP ID already exists.", { type: "error" });
         return;
       }
 
-      const saveBtn = document.getElementById("save-cadet-btn");
-      saveBtn.disabled = true;
-      saveBtn.textContent = "Saving…";
+      Api.writeRow("Roster", row, { matchColumn: "CapId" });
 
-      try {
-        await Api.writeRow("Roster", row, { matchColumn: "CapId" });
-        closeForm();
-        Shell.showToast(editingCapId ? "Cadet updated." : "Cadet added.", { type: "success" });
-        load();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save";
+      if (editingCapId) {
+        const idx = allRows.findIndex(r => String(r.CapId) === editingCapId);
+        if (idx >= 0) allRows[idx] = row;
+      } else {
+        allRows.push(row);
       }
+
+      closeForm();
+      Shell.showToast(editingCapId ? "Cadet updated." : "Cadet added.", { type: "success" });
+      render(allRows);
     }
 
     async function deleteStudent(student) {
       if (!student) return;
-      if (!confirm(`Remove ${student.Name || student.CapId} from the roster? This does not delete their inspection history.`)) return;
-      try {
-        await Api.deleteRow("Roster", student, { matchColumn: "CapId" });
-        Shell.showToast("Cadet removed.", { type: "success" });
-        load();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-      }
+      const confirmed = await Shell.confirm({
+        title: "Remove cadet?",
+        message: `Remove ${student.Name || student.CapId} from the roster? This does not delete their inspection history.`,
+        confirmLabel: "Remove",
+      });
+      if (!confirmed) return;
+
+      Api.deleteRow("Roster", student, { matchColumn: "CapId" });
+      allRows = allRows.filter(r => r !== student);
+      Shell.showToast("Cadet removed.", { type: "success" });
+      render(allRows);
     }
 
-    async function load() {
-      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
-      try {
-        const data = await Api.getSheet("Roster");
-        allRows = data.rows || [];
+    /**
+     * Instant-then-revalidate load: shows cached Roster data right away
+     * if this page has fetched it before this session, while quietly
+     * refetching in the background and re-rendering only if something
+     * changed. First-ever load still shows the spinner briefly, same
+     * as before — there's no cache yet to show instantly.
+     */
+    function load() {
+      const { data: cached, ready } = Api.getSheetCached("Roster", (fresh) => {
+        allRows = fresh.rows || [];
+        render(allRows);
+      });
+
+      if (cached) {
+        allRows = cached.rows || [];
         selectedFlight = null;
         render(allRows);
-      } catch (err) {
-        contentEl.innerHTML = `
-          <div class="state-message">
-            <div class="state-message__icon">⚠️</div>
-            <p>${err.message}</p>
-          </div>`;
-        Shell.showToast(err.message, { type: "error" });
+      } else {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
       }
+
+      return ready.then((data) => {
+        allRows = data.rows || [];
+        if (!cached) { selectedFlight = null; render(allRows); }
+      }).catch((err) => {
+        if (!cached) {
+          contentEl.innerHTML = `
+            <div class="state-message">
+              <div class="state-message__icon">⚠️</div>
+              <p>${err.message}</p>
+            </div>`;
+        }
+        Shell.showToast(err.message, { type: "error" });
+      });
     }
 
-    refreshBtn.addEventListener("click", load);
+    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
     searchInput.addEventListener("input", applyFilter);
+    Shell.registerRefresh(load);
     load();
   </script>
 

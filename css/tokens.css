@@ -1,40 +1,54 @@
 /* ============================================================
-   NJWG CAP ENCAMPMENT — DESIGN TOKENS
-   Universal variables used across every page.
+   NJWG ENCAMPMENT — DESIGN TOKENS
+   Palette derived directly from the NJ Wing patch: deep indigo field,
+   garnet-red New Jersey silhouette, warm gold wings/border, and an
+   off-white ribbon. Universal variables used across every page.
    Load this file FIRST, before app.css or any page-specific CSS.
    ============================================================ */
 
 :root {
-  /* ---- Color: core ---- */
-  --navy-950:        #08192f;   /* deepest surface / header on scroll */
-  --navy-900:        #0b2545;   /* primary brand navy */
-  --navy-700:        #13315c;   /* elevated surfaces, cards on dark */
-  --navy-500:        #2a4d7a;   /* borders on dark, secondary buttons */
-  --steel-300:       #8fa6c7;   /* muted text on dark, dividers */
-  --steel-100:       #dbe4f0;   /* light borders, hairlines on light */
+  /* ---- Color: core (sampled from the actual patch artwork) ---- */
+  --indigo-950:      #080a38;   /* deepest surface / header on scroll */
+  --indigo-900:      #0d1250;   /* primary brand indigo — patch field */
+  --indigo-700:      #182169;   /* elevated surfaces, cards on dark */
+  --indigo-500:      #2c3a8c;   /* borders on dark, secondary buttons */
+  --steel-300:       #9aa5d9;   /* muted text on dark, dividers */
+  --steel-100:       #dde1f5;   /* light borders, hairlines on light */
 
-  --gold-500:        #c9a227;   /* brass/insignia accent — sparing use */
-  --gold-600:        #a9840f;   /* gold hover/active state */
-  --gold-100:        #f4ecd2;   /* gold tint background (badges) */
+  --gold-500:        #f0b429;   /* patch wing/border gold — primary accent */
+  --gold-600:        #c2900f;   /* gold hover/active state */
+  --gold-100:        #faecc8;   /* gold tint background (badges) */
 
-  --red-600:         #b3261e;   /* errors, urgent/overdue */
+  --garnet-600:      #a8172c;   /* patch NJ-silhouette red — urgent/alert accent */
+  --garnet-100:       #f7e4e6;   /* garnet tint background */
+
+  --red-600:         #b3261e;   /* errors, overdue (distinct from garnet, semantic-only) */
   --red-100:         #fbe9e7;   /* error background tint */
   --green-600:       #1e6b3e;   /* success, confirmed status */
   --green-100:       #e6f3ea;   /* success background tint */
   --amber-600:       #96650a;   /* warning / pending status */
   --amber-100:       #fbf0d9;   /* warning background tint */
 
-  --bg:              #f5f7fa;   /* app background */
+  --bg:              #f4f5fa;   /* app background — cool-toned, not neutral gray */
   --surface:         #ffffff;   /* cards, panels */
-  --surface-sunken:  #eef1f6;   /* input backgrounds, table stripes */
+  --surface-sunken:  #ebedf7;   /* input backgrounds, table stripes */
+  --ribbon-white:    #faf8f2;   /* patch ribbon off-white — used for light chrome accents */
 
-  --ink-900:         #101826;   /* primary text */
-  --ink-600:         #45526b;   /* secondary text */
-  --ink-400:         #96a2b8;   /* placeholder / disabled text */
-  --line:            #d7deea;   /* standard hairline border */
+  --ink-900:         #12142e;   /* primary text */
+  --ink-600:         #454a6b;   /* secondary text */
+  --ink-400:         #969ab8;   /* placeholder / disabled text */
+  --line:            #d9dcef;   /* standard hairline border */
+
+  /* Backward-compatible aliases (older component CSS references
+     --navy-*; keep these pointed at the new indigo scale so nothing
+     silently breaks while every file migrates). */
+  --navy-950: var(--indigo-950);
+  --navy-900: var(--indigo-900);
+  --navy-700: var(--indigo-700);
+  --navy-500: var(--indigo-500);
 
   /* ---- Typography ---- */
-  --font-display: "Oswald", "Arial Narrow", sans-serif;   /* headers, nav, labels, duty strip */
+  --font-display: "Oswald", "Arial Narrow", sans-serif;   /* headers, nav, labels, duty strip — echoes the ribbon lettering */
   --font-body:    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; /* body copy, forms */
   --font-mono:    "JetBrains Mono", "SFMono-Regular", Consolas, monospace; /* IDs, times, table figures */
 
@@ -68,9 +82,10 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
-  --shadow-sm: 0 1px 2px rgba(11, 37, 69, 0.06), 0 1px 1px rgba(11, 37, 69, 0.04);
-  --shadow-md: 0 4px 12px rgba(11, 37, 69, 0.10), 0 1px 3px rgba(11, 37, 69, 0.08);
-  --shadow-lg: 0 12px 32px rgba(11, 37, 69, 0.16);
+  --shadow-sm: 0 1px 2px rgba(8, 10, 56, 0.07), 0 1px 1px rgba(8, 10, 56, 0.05);
+  --shadow-md: 0 4px 12px rgba(8, 10, 56, 0.12), 0 1px 3px rgba(8, 10, 56, 0.09);
+  --shadow-lg: 0 12px 32px rgba(8, 10, 56, 0.20);
+  --shadow-gold-glow: 0 0 0 1px rgba(240, 180, 41, 0.35), 0 4px 16px rgba(240, 180, 41, 0.18);
 
   /* ---- Layout ---- */
   --nav-rail-width: 232px;
@@ -90,6 +105,7 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
+  --z-tooltip: 600;
 }
 
 /* Reduced motion: respected globally */

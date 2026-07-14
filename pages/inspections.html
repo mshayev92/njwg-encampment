@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Inspections — NJWG CAP Encampment</title>
-  <meta name="theme-color" content="#0b2545">
+  <title>Inspections — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
   <link rel="manifest" href="../manifest.json">
-  <link rel="icon" href="../icons/icon-192.png">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -37,7 +39,7 @@
     }
 
     .inspection-tab.is-active {
-      color: var(--navy-900);
+      color: var(--indigo-900);
       border-bottom-color: var(--gold-500);
     }
 
@@ -74,7 +76,7 @@
       display: block;
       font-family: var(--font-display);
       font-size: var(--fs-md);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin-bottom: var(--space-2);
     }
 
@@ -115,7 +117,7 @@
 
     .student-row__name {
       font-weight: 600;
-      color: var(--navy-900);
+      color: var(--indigo-900);
     }
 
     .student-row__meta {
@@ -147,7 +149,7 @@
 
     .detail-header h2 {
       font-size: var(--fs-lg);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin: 0;
     }
 
@@ -229,7 +231,7 @@
       align-items: center;
       justify-content: space-between;
       padding: var(--space-4);
-      background: var(--navy-900);
+      background: var(--indigo-900);
       color: var(--surface);
       border-radius: var(--radius-md);
       font-family: var(--font-display);
@@ -277,7 +279,7 @@
     .history-row__date {
       font-family: var(--font-mono);
       font-size: var(--fs-sm);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       font-weight: 600;
     }
 
@@ -327,7 +329,7 @@
     .flight-avg-card__name {
       font-family: var(--font-display);
       font-size: var(--fs-sm);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       text-transform: uppercase;
       letter-spacing: var(--tracking-wide);
       margin-bottom: var(--space-2);
@@ -336,7 +338,7 @@
     .flight-avg-card__value {
       font-family: var(--font-display);
       font-size: var(--fs-2xl);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       line-height: 1;
     }
 
@@ -425,7 +427,7 @@
       <div class="inspection-tabs">
         <button class="inspection-tab is-active" data-tab="uniform">Uniform</button>
         <button class="inspection-tab" data-tab="trends">Trends</button>
-        <button class="inspection-tab" data-tab="room" disabled title="Coming soon">Room</button>
+        <button class="inspection-tab" data-tab="room" disabled data-tooltip="Coming soon">Room</button>
       </div>
 
       <div id="inspection-content">
@@ -469,6 +471,10 @@
     let selectedStudent = null;
     let selectedInspectionDate = null; // null = new inspection; a Date string = editing/viewing that day's entry
     let currentScores = {};
+    // Explicit view-mode flag so a background refresh can re-render
+    // whatever's on screen without guessing from the DOM. One of:
+    // "flights" | "students" | "history" | "scorecard"
+    let currentView = "flights";
 
     const session = Auth.getSession();
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
@@ -491,6 +497,7 @@
     }
 
     function renderFlightGrid() {
+      currentView = "flights";
       const grouped = groupByFlight(rosterRows);
       const flightNames = Object.keys(grouped).sort();
 
@@ -522,6 +529,7 @@
     }
 
     function renderStudentList() {
+      currentView = "students";
       const grouped = groupByFlight(rosterRows);
       const members = grouped[selectedFlight] || [];
 
@@ -574,6 +582,7 @@
      * today's entry in place if one already exists for today).
      */
     function renderHistory() {
+      currentView = "history";
       const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
       const todayStr = new Date().toLocaleDateString("en-CA");
       const hasToday = history.some(h => h.Date === todayStr);
@@ -633,6 +642,7 @@
     }
 
     function renderScorecard() {
+      currentView = "scorecard";
       const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
       const existing = selectedInspectionDate
         ? (history.find(h => h.Date === selectedInspectionDate) || {})
@@ -722,16 +732,12 @@
       return SCORE_ITEMS.reduce((sum, item) => sum + (currentScores[item.key] === 1 ? 1 : 0), 0);
     }
 
-    async function submitScorecard(dateStr, timestampStr) {
+    function submitScorecard(dateStr, timestampStr) {
       const unscored = SCORE_ITEMS.filter(item => currentScores[item.key] !== 0 && currentScores[item.key] !== 1);
       if (unscored.length) {
         Shell.showToast(`Score every item before saving (missing: ${unscored.map(i => i.label).join(", ")}).`, { type: "error" });
         return;
       }
-
-      const submitBtn = document.getElementById("submit-scorecard-btn");
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Saving…";
 
       const row = {
         StudentCapId: selectedStudent.CapId,
@@ -745,26 +751,22 @@
       SCORE_ITEMS.forEach(item => { row[item.key] = currentScores[item.key]; });
       row.TotalPoints = computeTotal();
 
-      try {
-        // Composite match on (StudentCapId, Date): re-inspecting the
-        // SAME day updates that entry in place; a NEW day appends a
-        // fresh row, preserving history for trends.
-        await Api.writeRow("UniformInspections", row, { matchColumns: ["StudentCapId", "Date"] });
+      // Composite match on (StudentCapId, Date): re-inspecting the SAME
+      // day updates that entry in place; a NEW day appends a fresh row,
+      // preserving history for trends. Fires in the background — the
+      // header's sync indicator reflects whether it lands, but the
+      // person doesn't wait on the network to see their save reflected.
+      Api.writeRow("UniformInspections", row, { matchColumns: ["StudentCapId", "Date"] });
 
-        const capId = String(selectedStudent.CapId);
-        const list = inspectionsByStudent[capId] || (inspectionsByStudent[capId] = []);
-        const idx = list.findIndex(h => h.Date === dateStr);
-        if (idx >= 0) list[idx] = row; else list.unshift(row);
-        list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
+      const capId = String(selectedStudent.CapId);
+      const list = inspectionsByStudent[capId] || (inspectionsByStudent[capId] = []);
+      const idx = list.findIndex(h => h.Date === dateStr);
+      if (idx >= 0) list[idx] = row; else list.unshift(row);
+      list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
 
-        Shell.showToast("Inspection saved.", { type: "success" });
-        selectedInspectionDate = null;
-        renderHistory();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Save Inspection";
-      }
+      Shell.showToast("Inspection saved.", { type: "success" });
+      selectedInspectionDate = null;
+      renderHistory();
     }
 
     /**
@@ -807,6 +809,7 @@
     }
 
     function renderTrends() {
+      currentView = "trends";
       const data = computeFlightTrends(trendsBasis);
 
       contentEl.innerHTML = `
@@ -885,6 +888,7 @@
     }
 
     function renderRoomPlaceholder() {
+      currentView = "room";
       contentEl.innerHTML = `
         <div class="room-placeholder">
           <div class="state-message__icon">🧹</div>
@@ -892,35 +896,91 @@
         </div>`;
     }
 
-    async function load() {
-      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
-      try {
-        const [rosterData, inspectionData] = await Promise.all([
-          Api.getSheet("Roster"),
-          Api.getSheet("UniformInspections")
-        ]);
-        rosterRows = rosterData.rows || [];
-        allInspections = inspectionData.rows || [];
-        inspectionsByStudent = {};
-        allInspections.forEach(row => {
-          const capId = String(row.StudentCapId);
-          (inspectionsByStudent[capId] = inspectionsByStudent[capId] || []).push(row);
-        });
-        // Newest first within each student's history.
-        Object.values(inspectionsByStudent).forEach(list => list.sort((a, b) => (a.Date < b.Date ? 1 : -1)));
+    /**
+     * Rebuilds inspectionsByStudent from a fresh UniformInspections
+     * rows array — shared by both the initial cached render and the
+     * background-refresh callback so the grouping/sorting logic lives
+     * in one place.
+     */
+    function reindexInspections(rows) {
+      allInspections = rows || [];
+      inspectionsByStudent = {};
+      allInspections.forEach(row => {
+        const capId = String(row.StudentCapId);
+        (inspectionsByStudent[capId] = inspectionsByStudent[capId] || []).push(row);
+      });
+      Object.values(inspectionsByStudent).forEach(list => list.sort((a, b) => (a.Date < b.Date ? 1 : -1)));
+    }
 
-        selectedFlight = null;
-        selectedStudent = null;
-        selectedInspectionDate = null;
+    /**
+     * Re-renders whatever view is currently on screen, without resetting
+     * drill-down state (used after a background data refresh). The
+     * scorecard is deliberately EXCLUDED here — it holds in-progress,
+     * unsaved toggle state in `currentScores`, and re-rendering it from
+     * fresh server data would silently discard whatever the person is
+     * mid-way through scoring. A background refresh while the scorecard
+     * is open just updates the underlying data quietly; the person sees
+     * it next time they navigate away and back.
+     */
+    function renderActiveView() {
+      if (currentView === "trends") return renderTrends();
+      if (currentView === "room") return renderRoomPlaceholder();
+      if (currentView === "scorecard") return; // don't clobber in-progress scoring
+      if (currentView === "history" && selectedStudent) return renderHistory();
+      if (currentView === "students" && selectedFlight) return renderStudentList();
+      return renderFlightGrid();
+    }
+
+    /**
+     * Instant-then-revalidate load: renders cached Roster +
+     * UniformInspections data immediately if this page has fetched
+     * them before this session, while a background refetch checks for
+     * anything newer. First-ever load shows the spinner as before.
+     */
+    function load() {
+      let rosterCached, inspectionsCached;
+
+      const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
+        rosterRows = fresh.rows || [];
+        renderActiveView();
+      });
+      const inspectionsHandle = Api.getSheetCached("UniformInspections", (fresh) => {
+        reindexInspections(fresh.rows || []);
+        renderActiveView();
+      });
+
+      rosterCached = rosterHandle.data;
+      inspectionsCached = inspectionsHandle.data;
+
+      if (rosterCached && inspectionsCached) {
+        rosterRows = rosterCached.rows || [];
+        reindexInspections(inspectionsCached.rows || []);
         renderFlightGrid();
-      } catch (err) {
-        contentEl.innerHTML = `
-          <div class="state-message">
-            <div class="state-message__icon">⚠️</div>
-            <p>${err.message}</p>
-          </div>`;
-        Shell.showToast(err.message, { type: "error" });
+      } else {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
+
+      return Promise.all([rosterHandle.ready, inspectionsHandle.ready])
+        .then(([rosterData, inspectionData]) => {
+          rosterRows = rosterData.rows || [];
+          reindexInspections(inspectionData.rows || []);
+          if (!rosterCached || !inspectionsCached) {
+            selectedFlight = null;
+            selectedStudent = null;
+            selectedInspectionDate = null;
+            renderFlightGrid();
+          }
+        })
+        .catch((err) => {
+          if (!rosterCached || !inspectionsCached) {
+            contentEl.innerHTML = `
+              <div class="state-message">
+                <div class="state-message__icon">⚠️</div>
+                <p>${err.message}</p>
+              </div>`;
+          }
+          Shell.showToast(err.message, { type: "error" });
+        });
     }
 
     tabButtons.forEach(btn => {
@@ -940,7 +1000,8 @@
       });
     });
 
-    refreshBtn.addEventListener("click", load);
+    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
+    Shell.registerRefresh(load);
     load();
   </script>
 

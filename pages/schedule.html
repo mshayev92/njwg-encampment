@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Schedule — NJWG CAP Encampment</title>
-  <meta name="theme-color" content="#0b2545">
+  <title>Schedule — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
   <link rel="manifest" href="../manifest.json">
-  <link rel="icon" href="../icons/icon-192.png">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -33,7 +35,7 @@
     }
     .schedule-item-row__edit-btn:hover {
       background: var(--surface-sunken);
-      color: var(--navy-900);
+      color: var(--indigo-900);
     }
 
     .schedule-form {
@@ -131,7 +133,7 @@
       const grouped = groupByDay(rows);
       contentEl.innerHTML = Object.entries(grouped).map(([day, items]) => `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${day}</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--indigo-900);">${day}</h2>
           <table class="data-table">
             <thead>
               <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th>${canEditSchedule ? "<th></th>" : ""}</tr>
@@ -145,8 +147,8 @@
                   <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${item.Flight}</span>` : "—"}</td>
                   ${canEditSchedule ? `
                     <td data-label="" class="schedule-item-row">
-                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="edit">Edit</button>
-                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="delete">Delete</button>
+                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="edit" data-tooltip="Edit this item">Edit</button>
+                      <button class="schedule-item-row__edit-btn" data-index="${scheduleRows.indexOf(item)}" data-action="delete" data-tooltip="Remove this item">Delete</button>
                     </td>
                   ` : ""}
                 </tr>
@@ -162,6 +164,7 @@
       contentEl.querySelectorAll("[data-action='delete']").forEach(btn => {
         btn.addEventListener("click", () => deleteItem(scheduleRows[Number(btn.dataset.index)]));
       });
+      Shell.wireTooltips(contentEl);
     }
 
     /**
@@ -204,7 +207,16 @@
       formContainer.innerHTML = "";
     }
 
-    async function saveItem() {
+    /**
+     * Optimistic save: updates the in-memory scheduleRows and re-renders
+     * INSTANTLY, then fires the real write in the background (Api's
+     * queue) rather than awaiting the network round-trip before showing
+     * anything. The header's sync indicator (wired in Shell) reflects
+     * whether that background write is still in flight, succeeded, or
+     * failed — so a failure isn't silent, it just doesn't block the
+     * person's next action to surface.
+     */
+    function saveItem() {
       const newRow = {
         Day: document.getElementById("f-day").value.trim(),
         Time: document.getElementById("f-time").value.trim(),
@@ -218,64 +230,82 @@
         return;
       }
 
-      const saveBtn = document.getElementById("save-item-btn");
-      saveBtn.disabled = true;
-      saveBtn.textContent = "Saving…";
-
-      try {
-        if (editingRow) {
-          const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
-          if (keyChanged) {
-            // The match key itself changed (e.g. renamed the Activity) —
-            // matching on the NEW values wouldn't find the old row, so
-            // delete the old row explicitly, then add the new one.
-            await Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
-            await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
-          } else {
-            await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
-          }
+      if (editingRow) {
+        const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
+        if (keyChanged) {
+          // The match key itself changed (e.g. renamed the Activity) —
+          // matching on the NEW values wouldn't find the old row, so
+          // delete the old row explicitly, then add the new one.
+          Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
+          Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
         } else {
-          await Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+          Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
         }
-        closeForm();
-        Shell.showToast("Schedule updated.", { type: "success" });
-        load();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-        saveBtn.disabled = false;
-        saveBtn.textContent = "Save";
+        const idx = scheduleRows.indexOf(editingRow);
+        if (idx >= 0) scheduleRows[idx] = newRow;
+      } else {
+        Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+        scheduleRows.push(newRow);
       }
+
+      closeForm();
+      Shell.showToast("Schedule updated.", { type: "success" });
+      render(scheduleRows);
     }
 
     async function deleteItem(row) {
-      if (!confirm(`Remove "${row.Activity}" on ${row.Day} at ${row.Time || "—"}?`)) return;
-      try {
-        await Api.deleteRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
-        Shell.showToast("Item removed.", { type: "success" });
-        load();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-      }
+      const confirmed = await Shell.confirm({
+        title: "Remove schedule item?",
+        message: `Remove "${row.Activity}" on ${row.Day}${row.Time ? ` at ${row.Time}` : ""}?`,
+        confirmLabel: "Remove",
+      });
+      if (!confirmed) return;
+
+      Api.deleteRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
+      scheduleRows = scheduleRows.filter(r => r !== row);
+      Shell.showToast("Item removed.", { type: "success" });
+      render(scheduleRows);
     }
 
-    async function load() {
-      contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading schedule…</p></div>`;
-      try {
-        const data = await Api.getSheet("Schedule");
+    /**
+     * Instant-then-revalidate load: renders whatever's cached
+     * IMMEDIATELY (no spinner, no wait) if this page has already loaded
+     * Schedule data this session, while a background refetch quietly
+     * checks for anything newer and re-renders only if it differs. On
+     * a true first load (nothing cached yet) this shows the spinner
+     * exactly as before — there's nothing to show instantly yet.
+     */
+    function load() {
+      const { data: cached, ready } = Api.getSheetCached("Schedule", (fresh) => {
+        scheduleRows = fresh.rows || [];
+        render(scheduleRows);
+      });
+
+      if (cached) {
+        scheduleRows = cached.rows || [];
+        render(scheduleRows);
+      } else {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading schedule…</p></div>`;
+      }
+
+      return ready.then((data) => {
         scheduleRows = data.rows || [];
         render(scheduleRows);
-      } catch (err) {
-        contentEl.innerHTML = `
-          <div class="state-message">
-            <div class="state-message__icon">⚠️</div>
-            <p>${err.message}</p>
-          </div>`;
+      }).catch((err) => {
+        if (!cached) {
+          contentEl.innerHTML = `
+            <div class="state-message">
+              <div class="state-message__icon">⚠️</div>
+              <p>${err.message}</p>
+            </div>`;
+        }
         Shell.showToast(err.message, { type: "error" });
-      }
+      });
     }
 
     addItemBtn.addEventListener("click", () => openForm(null));
-    refreshBtn.addEventListener("click", load);
+    refreshBtn.addEventListener("click", () => Shell.hardRefresh());
+    Shell.registerRefresh(load);
     load();
   </script>
 

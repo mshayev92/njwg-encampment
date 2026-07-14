@@ -1,5 +1,5 @@
 /* ============================================================
-   NJWG CAP ENCAMPMENT — APP SHELL
+   NJWG ENCAMPMENT — APP SHELL
    Universal layout, navigation, and shared components.
    Requires tokens.css to be loaded first.
    ============================================================ */
@@ -16,6 +16,50 @@ html, body {
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Custom browser chrome: scrollbars, selection ----
+   Native scrollbars/selection are grey/blue by default and break the
+   patch-derived identity the instant a page overflows. These are
+   applied globally so no page can accidentally show the OS default. */
+
+::selection {
+  background: var(--gold-500);
+  color: var(--indigo-950);
+}
+
+/* Firefox */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gold-600) var(--surface-sunken);
+}
+
+/* WebKit/Blink (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--surface-sunken);
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--gold-600);
+  border-radius: 999px;
+  border: 2px solid var(--surface-sunken);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--gold-500);
+}
+/* Dark surfaces (nav rail, duty strip) get a lighter track so the
+   thumb doesn't disappear against indigo. */
+.nav-rail, .duty-strip {
+  scrollbar-color: var(--gold-500) var(--indigo-700);
+}
+.nav-rail::-webkit-scrollbar-track, .duty-strip::-webkit-scrollbar-track {
+  background: var(--indigo-700);
+}
+.nav-rail::-webkit-scrollbar-thumb, .duty-strip::-webkit-scrollbar-thumb {
+  border-color: var(--indigo-700);
 }
 
 img, svg { display: block; max-width: 100%; }
@@ -64,9 +108,10 @@ h1, h2, h3, h4 {
   align-items: center;
   justify-content: space-between;
   padding: 0 var(--space-5);
-  background: var(--navy-900);
+  background: var(--indigo-900);
   color: var(--surface);
   z-index: var(--z-header);
+  border-bottom: 1px solid rgba(240, 180, 41, 0.25);
 }
 
 .app-header__title {
@@ -91,14 +136,70 @@ h1, h2, h3, h4 {
   letter-spacing: 0.02em;
 }
 
-/* ---- Duty status strip (signature element) ---- */
+/* ---- Sync status indicator (header) ----
+   Shown next to the position name whenever a write is queued or in
+   flight, so a person always knows whether their last save actually
+   landed rather than just trusting an instant local update. */
+.sync-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  transition: background var(--duration-base) var(--ease-standard),
+              color var(--duration-base) var(--ease-standard);
+}
+
+.sync-indicator--syncing {
+  background: rgba(240, 180, 41, 0.16);
+  color: var(--gold-500);
+}
+.sync-indicator--synced {
+  background: rgba(30, 107, 62, 0.16);
+  color: #6fd39a;
+}
+.sync-indicator--error {
+  background: rgba(179, 38, 30, 0.2);
+  color: #ff9d92;
+}
+
+.sync-indicator__dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.sync-indicator--syncing .sync-indicator__dot {
+  animation: sync-pulse 1s ease-in-out infinite;
+}
+
+@keyframes sync-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+/* ---- Duty status strip (signature element) ----
+   The faint diagonal wing-feather texture behind the strip nods to
+   the patch's wings without competing with the (higher-contrast)
+   foreground text. */
 .duty-strip {
   grid-area: duty;
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-5);
   padding: 0 var(--space-5);
-  background: linear-gradient(90deg, var(--navy-700) 0%, var(--navy-900) 100%);
+  background:
+    repeating-linear-gradient(
+      118deg,
+      rgba(240, 180, 41, 0.05) 0px, rgba(240, 180, 41, 0.05) 2px,
+      transparent 2px, transparent 14px
+    ),
+    linear-gradient(90deg, var(--indigo-700) 0%, var(--indigo-900) 100%);
   border-bottom: 2px solid var(--gold-500);
   color: var(--surface);
   font-family: var(--font-mono);
@@ -119,7 +220,7 @@ h1, h2, h3, h4 {
 .duty-strip__divider {
   width: 1px;
   height: 16px;
-  background: var(--navy-500);
+  background: var(--indigo-500);
 }
 
 .duty-strip__now-label {
@@ -136,7 +237,7 @@ h1, h2, h3, h4 {
 /* ---- Nav rail (desktop) ---- */
 .nav-rail {
   grid-area: nav;
-  background: var(--navy-950);
+  background: var(--indigo-950);
   color: var(--steel-300);
   display: flex;
   flex-direction: column;
@@ -149,20 +250,39 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: var(--space-3);
   padding: 0 var(--space-2) var(--space-5);
-  margin-bottom: var(--space-3);
-  border-bottom: 1px solid var(--navy-700);
+  margin-bottom: var(--space-4);
+  position: relative;
+}
+
+/* Wing-motif divider: the page's one recurring signature device — two
+   thin diverging lines fanning from a center point, echoing the
+   patch's wings. Used sparingly: here, and atop a few key cards. */
+.nav-rail__crest::after {
+  content: "";
+  position: absolute;
+  left: var(--space-2);
+  right: var(--space-2);
+  bottom: 0;
+  height: 10px;
+  background:
+    linear-gradient(100deg, transparent 48%, var(--gold-500) 49%, var(--gold-500) 50%, transparent 51%),
+    linear-gradient(80deg, transparent 48%, var(--gold-500) 49%, var(--gold-500) 50%, transparent 51%);
+  background-size: 50% 100%, 50% 100%;
+  background-position: left center, right center;
+  background-repeat: no-repeat;
+  opacity: 0.55;
 }
 
 .nav-rail__crest-mark {
-  width: 36px; height: 36px;
-  border-radius: 50%;
-  background: var(--gold-500);
-  display: flex; align-items: center; justify-content: center;
-  font-family: var(--font-display);
-  font-weight: 700;
-  color: var(--navy-950);
-  font-size: var(--fs-sm);
+  width: 40px; height: 40px;
   flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.nav-rail__crest-mark img {
+  width: 100%; height: 100%;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
 }
 
 .nav-rail__crest-text {
@@ -184,17 +304,18 @@ h1, h2, h3, h4 {
   color: var(--steel-300);
   font-size: var(--fs-sm);
   font-weight: 500;
+  position: relative;
   transition: background var(--duration-fast) var(--ease-standard),
               color var(--duration-fast) var(--ease-standard);
 }
 
 .nav-rail__link:hover {
-  background: var(--navy-700);
+  background: var(--indigo-700);
   color: var(--surface);
 }
 
 .nav-rail__link[aria-current="page"] {
-  background: var(--navy-700);
+  background: var(--indigo-700);
   color: var(--surface);
   box-shadow: inset 3px 0 0 var(--gold-500);
 }
@@ -233,16 +354,36 @@ h1, h2, h3, h4 {
 
 .page-header h1 {
   font-size: var(--fs-2xl);
-  color: var(--navy-900);
+  color: var(--indigo-900);
 }
 
-/* ---- Card ---- */
+/* ---- Card ----
+   A thin gold hairline draws in from the center on hover/focus-within,
+   echoing the patch's wing-fan motif without repeating it outright. */
 .card {
+  position: relative;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--space-5);
   box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 50%;
+  width: 0;
+  height: 2px;
+  background: var(--gold-500);
+  transform: translateX(-50%);
+  transition: width var(--duration-base) var(--ease-standard);
+}
+
+.card:hover::before,
+.card:focus-within::before {
+  width: 64px;
 }
 
 .card + .card { margin-top: var(--space-4); }
@@ -260,20 +401,21 @@ h1, h2, h3, h4 {
   font-weight: 600;
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard),
+              border-color var(--duration-fast) var(--ease-standard),
               transform var(--duration-fast) var(--ease-standard);
 }
 
 .btn:active { transform: translateY(1px); }
 
 .btn--primary {
-  background: var(--navy-900);
+  background: var(--indigo-900);
   color: var(--surface);
 }
-.btn--primary:hover { background: var(--navy-700); }
+.btn--primary:hover { background: var(--indigo-700); }
 
 .btn--gold {
   background: var(--gold-500);
-  color: var(--navy-950);
+  color: var(--indigo-950);
 }
 .btn--gold:hover { background: var(--gold-600); }
 
@@ -282,11 +424,26 @@ h1, h2, h3, h4 {
   border-color: var(--line);
   color: var(--ink-900);
 }
-.btn--ghost:hover { background: var(--surface-sunken); }
+.btn--ghost:hover { background: var(--surface-sunken); border-color: var(--ink-400); }
+
+.btn--danger {
+  background: transparent;
+  border-color: var(--red-600);
+  color: var(--red-600);
+}
+.btn--danger:hover { background: var(--red-100); }
 
 .btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* Applied to the header refresh button while a hard refresh is in
+   flight — spins the icon inside it so the action feels acknowledged
+   immediately, distinct from the sync indicator (which reflects
+   writes, not this manual re-fetch-everything action). */
+.is-spinning svg {
+  animation: spin 0.7s linear infinite;
 }
 
 /* ---- Form fields ---- */
@@ -317,7 +474,7 @@ h1, h2, h3, h4 {
 
 .field input:focus, .field select:focus, .field textarea:focus {
   background: var(--surface);
-  border-color: var(--navy-500);
+  border-color: var(--indigo-500);
 }
 
 .field--capid input {
@@ -342,6 +499,7 @@ h1, h2, h3, h4 {
 .badge--warning { background: var(--amber-100); color: var(--amber-600); }
 .badge--error   { background: var(--red-100);   color: var(--red-600); }
 .badge--gold    { background: var(--gold-100);  color: var(--gold-600); }
+.badge--garnet  { background: var(--garnet-100); color: var(--garnet-600); }
 
 /* ---- Data table ---- */
 .data-table {
@@ -383,14 +541,37 @@ h1, h2, h3, h4 {
 
 .state-message__icon { font-size: var(--fs-3xl); opacity: 0.4; }
 
+/* Spinner: a stylized take on the wing-motif — two arcs sweeping from
+   a shared point rather than a plain ring, so even the loading state
+   carries the identity. */
 .spinner {
-  width: 24px; height: 24px;
-  border: 3px solid var(--line);
-  border-top-color: var(--navy-900);
+  width: 28px; height: 28px;
+  position: relative;
+  animation: spin 0.9s linear infinite;
+}
+.spinner::before, .spinner::after {
+  content: "";
+  position: absolute;
+  inset: 0;
   border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  border: 3px solid transparent;
+}
+.spinner::before {
+  border-top-color: var(--gold-500);
+  border-right-color: var(--gold-500);
+}
+.spinner::after {
+  border-bottom-color: var(--indigo-500);
+  opacity: 0.5;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Small inline spinner variant, for buttons mid-save. */
+.spinner--sm {
+  width: 14px; height: 14px;
+  border-width: 2px;
+}
+.spinner--sm::before, .spinner--sm::after { border-width: 2px; }
 
 /* ---- Toast ---- */
 .toast {
@@ -398,7 +579,7 @@ h1, h2, h3, h4 {
   bottom: var(--space-6);
   left: 50%;
   transform: translateX(-50%);
-  background: var(--navy-950);
+  background: var(--indigo-950);
   color: var(--surface);
   padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-md);
@@ -408,9 +589,111 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  border: 1px solid rgba(240, 180, 41, 0.2);
+  animation: toast-in var(--duration-base) var(--ease-standard);
 }
-.toast--error { box-shadow: inset 0 0 0 1px var(--red-600); }
-.toast--success { box-shadow: inset 0 0 0 1px var(--green-600); }
+.toast--error { box-shadow: inset 0 0 0 1px var(--red-600), var(--shadow-lg); }
+.toast--success { box-shadow: inset 0 0 0 1px var(--green-600), var(--shadow-lg); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---- Custom modal (replaces native confirm()/alert()) ----
+   Native browser dialogs can't be restyled and break the visual
+   identity completely (OS-chrome grey box). Shell.confirm() renders
+   this instead — see js/shell.js. */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(8, 10, 56, 0.55);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  z-index: var(--z-modal);
+  animation: overlay-in var(--duration-base) var(--ease-standard);
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  position: relative;
+  animation: modal-in var(--duration-base) var(--ease-standard);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.modal-card__icon {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-lg);
+  margin-bottom: var(--space-4);
+}
+.modal-card__icon--danger { background: var(--red-100); color: var(--red-600); }
+.modal-card__icon--info { background: var(--gold-100); color: var(--gold-600); }
+
+.modal-card h3 {
+  font-size: var(--fs-md);
+  color: var(--ink-900);
+  margin-bottom: var(--space-2);
+}
+
+.modal-card p {
+  font-size: var(--fs-sm);
+  color: var(--ink-600);
+  margin: 0 0 var(--space-5);
+  line-height: var(--lh-normal);
+}
+
+.modal-card__actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+}
+
+/* ---- Custom tooltip (replaces native title="" browser tooltip) ----
+   Native title tooltips are slow to appear, OS-styled, and don't
+   respect the app's type/color system. Elements opt in with
+   data-tooltip="..." — see js/shell.js for the hover/focus wiring. */
+.tooltip-bubble {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  background: var(--indigo-950);
+  color: var(--surface);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  letter-spacing: var(--tracking-wide);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  border-top: 2px solid var(--gold-500);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+  max-width: 220px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity var(--duration-fast) var(--ease-standard),
+              transform var(--duration-fast) var(--ease-standard);
+}
+.tooltip-bubble.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
 
 /* ============================================================
    RESPONSIVE
@@ -442,7 +725,7 @@ h1, h2, h3, h4 {
     align-items: center;
     justify-content: space-around;
     padding: var(--space-2);
-    border-top: 1px solid var(--navy-700);
+    border-top: 1px solid var(--indigo-700);
     position: sticky;
     bottom: 0;
     z-index: var(--z-nav);

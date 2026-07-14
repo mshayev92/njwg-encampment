@@ -1,5 +1,5 @@
 /* ============================================================
-   NJWG CAP ENCAMPMENT — GLOBAL CONFIG
+   NJWG ENCAMPMENT — GLOBAL CONFIG
    Edit this file to point the app at your Apps Script deployment.
    Every page loads this file before api.js.
    ============================================================ */
@@ -54,7 +54,7 @@ window.APP_CONFIG = {
   ENCAMPMENT_START_DATE: "2026-07-12",
   ENCAMPMENT_END_DATE: "2026-07-26",
 
-  UNIT_NAME: "NJWG CAP Encampment",
+  UNIT_NAME: "NJWG Encampment",
   UNIT_SHORT: "NJWG",
 
   // sessionStorage key for the per-person session (CAP ID + token).

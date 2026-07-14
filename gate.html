@@ -3,10 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Device Access — NJWG CAP Encampment</title>
-  <meta name="theme-color" content="#0b2545">
+  <title>Device Access — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
   <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/favicon.ico" sizes="any">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -21,8 +23,12 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: var(--navy-950);
       padding: var(--space-5);
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 800px 500px at 50% -10%, rgba(240, 180, 41, 0.14) 0%, transparent 60%),
+        var(--indigo-950);
     }
 
     .gate-card {
@@ -33,18 +39,21 @@
       padding: var(--space-7) var(--space-6);
       box-shadow: var(--shadow-lg);
       text-align: center;
+      position: relative;
+      z-index: 1;
+      border-top: 3px solid var(--gold-500);
     }
 
     .gate-card__mark {
-      width: 64px; height: 64px;
+      width: 84px; height: 84px;
       margin: 0 auto var(--space-4);
-      border-radius: 50%;
-      background: var(--gold-500);
       display: flex; align-items: center; justify-content: center;
-      font-family: var(--font-display);
-      font-weight: 700;
-      font-size: var(--fs-lg);
-      color: var(--navy-950);
+    }
+
+    .gate-card__mark img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 10px rgba(13, 18, 80, 0.25));
     }
 
     .gate-card__eyebrow {
@@ -57,7 +66,7 @@
 
     .gate-card h1 {
       font-size: var(--fs-xl);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin-bottom: var(--space-2);
     }
 
@@ -105,7 +114,7 @@
       display: block;
       font-family: var(--font-display);
       font-size: var(--fs-sm);
-      color: var(--navy-900);
+      color: var(--indigo-900);
       margin-bottom: var(--space-1);
     }
 
@@ -126,8 +135,8 @@
 
   <div class="gate-screen">
     <div class="gate-card">
-      <div class="gate-card__mark">NJ</div>
-      <span class="gate-card__eyebrow">NJWG CAP Encampment</span>
+      <div class="gate-card__mark"><img src="icons/icon-192.png" alt="NJ Wing"></div>
+      <span class="gate-card__eyebrow">NJWG Encampment</span>
       <h1>Device Access</h1>
       <p class="gate-card__hint">Enter the encampment passphrase given out at check-in. You'll only need to do this once per device.</p>
 

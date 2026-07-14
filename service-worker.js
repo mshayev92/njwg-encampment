@@ -1,11 +1,14 @@
 /* ============================================================
-   NJWG CAP ENCAMPMENT — SERVICE WORKER
+   NJWG ENCAMPMENT — SERVICE WORKER
    Caches the app shell (HTML/CSS/JS) for offline use.
    Does NOT cache Apps Script API responses — schedule/roster
    data should always come from the network when available.
    ============================================================ */
 
-const CACHE_NAME = "njwg-encampment-v1";
+// Bumped for the v2 redesign (new palette, icons, custom chrome) —
+// changing this forces every device to drop its old cached shell
+// instead of continuing to serve stale navy/gold assets after deploy.
+const CACHE_NAME = "njwg-encampment-v2";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -28,7 +31,12 @@ const APP_SHELL = [
   "./pages/roster.html",
   "./pages/inspections.html",
   "./pages/overview.html",
-  "./pages/announcements.html"
+  "./pages/announcements.html",
+  "./icons/icon-192.png",
+  "./icons/icon-512.png",
+  "./icons/icon-512-maskable.png",
+  "./icons/apple-touch-icon.png",
+  "./icons/favicon.ico"
 ].map((path) => new URL(path, self.location.href).href);
 
 self.addEventListener("install", (event) => {
