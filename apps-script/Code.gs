@@ -19,90 +19,174 @@
  *   layers:
  *
  *   LAYER 1 — DEVICE GATE (passphrase):
- *     A single long shared passphrase, given out to cadre at check-in,
- *     unlocks a DEVICE for either the rest of the encampment (personal
- *     device) or a short window (shared/desk device — see js/config.js
- *     DEVICE_GATE settings). This keeps random internet traffic out
- *     entirely. The passphrase is never compared in the browser — the
- *     backend only ever receives and checks a SHA-256 hash of it, and
- *     issues a signed, expiring "device token" on success. Rotate the
- *     passphrase each encampment cycle by changing PASSPHRASE_HASH below.
+ *     A single long shared passphrase, given out to staff at check-in,
+ *     unlocks a DEVICE. The passphrase is never compared in the browser
+ *     — the backend only ever receives and checks a SHA-256 hash of it,
+ *     and issues a signed, expiring "device token" on success.
  *
- *   LAYER 2 — PER-PERSON SESSION (CAP ID):
- *     Once a device is unlocked, a CAP ID is used to look up the member
- *     and issue a signed, expiring SESSION token (separate from the
- *     device token). Every read/write must present a valid session
- *     token; the backend verifies signature + expiry server-side on
- *     every call. Session tokens now expire at local midnight rather
- *     than N hours from login, so a token can't meaningfully outlive
- *     the day it was issued on regardless of what time login happened.
+ *   LAYER 2 — PER-POSITION SESSION:
+ *     No per-person login. Once a device is unlocked, the user picks a
+ *     POSITION from a dropdown — a flight ("Alpha" through "Hotel"), a
+ *     squadron ("Squadron 1" through "Squadron 4"), the Cadet Command
+ *     Team ("CCT"), or "Administrator". CCT and Administrator each
+ *     require their own password, stored as PLAINTEXT directly in the
+ *     StaffAccess sheet's Password column (see "IMPORTANT SECURITY
+ *     TRADEOFF" below). On success, a signed SESSION token is issued
+ *     carrying {position, pages, flights}. Session tokens expire at
+ *     local midnight.
  *
- *   PLUS:
- *     - Writes require Role == "Staff" in Roster.
- *     - Sensitive columns can be excluded per-role via redaction rules.
- *     - Rate limiting via CacheService slows brute-force / scraping.
- *     - Every login attempt (device gate and per-person) is logged to
- *       a LoginLog tab for after-action review.
+ *   PAGE ACCESS — EVERY PAGE IS GATED, NONE ARE AUTOMATIC:
+ *     A position sees ONLY the pages listed in its own StaffAccess
+ *     "Pages" column, including "roster", "overview", and
+ *     "announcements" — nothing is automatic.
  *
- *   This is NOT the same as real user-account security (no per-person
- *   passwords, no 2FA) — it's the strongest practical bar for a
- *   no-backend-server, CAP-ID-based system on a public static site.
- *   See README for the honest limitations.
+ *   WRITE ACCESS TO Roster/Schedule/Announcements/BlackFlagStatus:
+ *     Reading these sheets only requires an ordinary signed-in session
+ *     (any position). WRITING to any of them requires the position's
+ *     own Pages list to contain BOTH the page's normal view id (e.g.
+ *     "schedule") AND a SEPARATE edit id (e.g. "edit-schedule") — see
+ *     PAGE_WRITE_GATES. This means being able to SEE a page no longer
+ *     implies being able to EDIT it: e.g. Pages = "schedule" is
+ *     view-only, Pages = "schedule,edit-schedule" can also edit. Edit
+ *     ids are scoped per-sheet (edit-roster, edit-schedule,
+ *     edit-announcements are independent — a position can have any
+ *     combination). UniformInspections stays write:"any" for any
+ *     signed-in position, since every position that can reach
+ *     Inspections needs to submit scorecards.
  *
- * ONE-TIME SETUP — RUN THIS FIRST:
+ *   INSPECTION HISTORY:
+ *     UniformInspections now supports MULTIPLE rows per student —
+ *     writes match on the composite key (StudentCapId, Date), so
+ *     re-inspecting the same student on a NEW day appends a fresh row
+ *     instead of overwriting, while a second submission on the SAME
+ *     day still updates in place. See matchColumns in handleWrite.
+ *
+ *   FLIGHT SCOPING (Inspections and Overview):
+ *     The StaffAccess "Flights" column lists which flights a position
+ *     may see stats for/inspect — blank or "all" means every flight.
+ *     Does NOT restrict Roster.
+ *
+ *   ANNOUNCEMENTS & BLACK FLAG:
+ *     Any position with "announcements" in its Pages can both read AND
+ *     post announcements / toggle black flag status — there is no
+ *     separate write-only distinction; access is controlled entirely by
+ *     whether "announcements" appears in that position's Pages.
+ *     Announcements live in an "Announcements" sheet tab; black flag
+ *     status lives in a single row of a "BlackFlagStatus" tab (created
+ *     automatically). Every page fetches both on load to power the
+ *     header bell/banner — this uses the generic "read" action, so it
+ *     requires only an ordinary signed-in session (any position), not
+ *     specifically the announcements page permission, since the whole
+ *     point is that the badge/banner shows up everywhere regardless of
+ *     what pages a position can reach.
+ *
+ *   IMPORTANT SECURITY TRADEOFF — PLAINTEXT PASSWORDS IN THE SHEET:
+ *     CCT and Administrator passwords are stored as PLAINTEXT in the
+ *     StaffAccess tab's Password column. StaffAccess is deliberately
+ *     EXCLUDED from ALLOWED_SHEETS so no page or generic API call can
+ *     ever retrieve it — only handleLogin/handleListPositions touch it
+ *     directly. The real boundary protecting these passwords is Google
+ *     Sheet sharing permissions, not anything in this script.
+ *
+ * ONE-TIME SETUP:
  *   1. Paste this whole file into the Apps Script editor.
- *   2. Run `setupSecret` once (Run > select function > setupSecret) to
- *      generate and store the session-signing secret. Authorize when asked.
- *   3. Decide your encampment passphrase (long, e.g. 6+ random words) and
- *      run `setPassphrase` with it ONCE from the editor — see instructions
- *      on that function below. This stores only a hash, never the plaintext.
- *   4. Deploy > New deployment > Web app > Execute as: Me, Access: Anyone.
- *   5. Copy the /exec URL into js/config.js.
- *   6. Any time you edit this file, redeploy a NEW VERSION (Manage
- *      deployments > pencil icon > New version) — editing alone does not
- *      update the live endpoint.
+ *   2. Run `setupSecret` once.
+ *   3. Decide your encampment passphrase and run `setPassphrase` ONCE.
+ *   4. In StaffAccess, fill in Password for CCT/Administrator rows.
+ *   5. Deploy > New deployment > Web app > Execute as: Me, Access: Anyone.
+ *   6. Copy the /exec URL into js/config.js.
+ *   7. Redeploy a NEW VERSION any time you edit this file.
  *
  * EXPECTED SHEET STRUCTURE:
- *   - "Roster" tab: CapId, Name, Rank, Flight, Role   (Role e.g. "Cadre" or "Staff")
+ *   - "StaffAccess" tab: Position, Pages, Flights, Password
+ *       Pages: comma-separated ids, e.g. "roster,schedule,inspections,
+ *         overview,announcements" — matches NAV_ITEMS ids in
+ *         js/config.js. Nothing is automatic. To ALSO grant edit
+ *         access to Roster, Schedule, or Announcements/BlackFlag, add
+ *         the matching "edit-roster", "edit-schedule", or
+ *         "edit-announcements" id alongside the view id, e.g.
+ *         "schedule,edit-schedule,roster,inspections" — the view id
+ *         alone is view-only. Edit ids are independent of each other.
+ *       Flights: comma-separated flight names, e.g. "Alpha,Bravo".
+ *         Blank/"all" = every flight. Used by Inspections + Overview.
+ *   - "Roster" tab: CapId, Name, Rank, Flight
  *   - "Schedule" tab: Day, Time, Activity, Location, Flight
- *   - "LoginLog" tab: created automatically on first login attempt if missing.
- *   - Add more tabs/columns freely — see ALLOWED_SHEETS and SHEET_PERMISSIONS below.
+ *   - "UniformInspections" tab: auto-created on first submission.
+ *   - "Announcements" tab: auto-created on first post. Columns: Id,
+ *       Timestamp, Position, Message.
+ *   - "BlackFlagStatus" tab: auto-created on first toggle. A single
+ *       data row: Active (TRUE/FALSE), UpdatedBy, UpdatedAt.
+ *   - "LoginLog" tab: auto-created on first login attempt.
  * ============================================================
  */
 
 // ---- CONFIG ----------------------------------------------------------
 
-const ALLOWED_SHEETS = ["Roster", "Schedule"];
+// StaffAccess is deliberately NOT in this list — see security tradeoff
+// note above. Only handleLogin/handleListPositions may touch it.
+const ALLOWED_SHEETS = [
+  "Roster", "Schedule", "UniformInspections", "Announcements", "BlackFlagStatus"
+];
+
+// Positions that require a password, checked directly against the
+// StaffAccess "Password" column. Matched case-insensitively.
+const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
 
 // Device token lifetime after a correct passphrase entry.
-// The client tells us which one to use (personal vs shared device) —
-// see handleDeviceLogin below — but these are the server-side ceilings;
-// the client can never request longer than these.
-const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14; // ~2 weeks, comfortably covers one encampment
-const DEVICE_TOKEN_LIFETIME_HOURS_SHARED = 8;          // one duty day, for shared/desk devices
+const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14; // ~2 weeks
+const DEVICE_TOKEN_LIFETIME_HOURS_SHARED = 8;          // one duty day
 
-// Per-person session tokens expire at the next local midnight after
-// issuance (see issueToken_), regardless of what time login happened,
-// so a token can't meaningfully outlive the day it was issued.
-
-// Per-sheet permission rules. Every sheet must be listed.
-//   read/write: "any" | "staff" | "none"
-//   redactColumnsForNonStaff: columns stripped from reads for non-staff sessions
+// Per-sheet permission rules for the GENERIC read/write actions.
+//   read/write: "any" | "none" | "page"
+// "page" means: writable by any signed-in position, but ONLY if that
+// position's own StaffAccess Pages column contains BOTH the sheet's
+// view page id AND a separate edit page id (see PAGE_WRITE_GATES below
+// and assertPageWriteAccess_) — seeing a page no longer implies being
+// able to edit it.
 const SHEET_PERMISSIONS = {
-  Roster:   { read: "any",  write: "staff", redactColumnsForNonStaff: [] },
-  Schedule: { read: "any",  write: "staff", redactColumnsForNonStaff: [] }
+  Roster:             { read: "any", write: "page" },
+  Schedule:           { read: "any", write: "page" },
+  UniformInspections: { read: "any", write: "any" },
+  Announcements:      { read: "any", write: "page" },
+  BlackFlagStatus:    { read: "any", write: "page" }
+};
+
+// Which Pages-column id(s) gate writes to each "page"-permission sheet.
+// Writing requires BOTH ids to be present in the position's Pages
+// column: the VIEW page id (so you can't edit a page you can't even
+// see) AND a separate EDIT id (so seeing a page no longer implies
+// being able to edit it). Edit ids are scoped per-sheet on purpose —
+// e.g. a position can have "edit-schedule" without "edit-roster" —
+// rather than one all-or-nothing "edit" flag.
+//   e.g. StaffAccess Pages = "schedule,edit-schedule" can view AND
+//        edit Schedule; Pages = "schedule" (no edit id) can view but
+//        NOT edit it.
+const PAGE_WRITE_GATES = {
+  Roster:          { viewPage: "roster",        editPage: "edit-roster" },
+  Schedule:        { viewPage: "schedule",       editPage: "edit-schedule" },
+  Announcements:   { viewPage: "announcements",  editPage: "edit-announcements" },
+  BlackFlagStatus: { viewPage: "announcements",  editPage: "edit-announcements" }
 };
 
 // Max requests per token (or per login key) per rolling 60-second window.
 const RATE_LIMIT_PER_MINUTE = 30;
 
+// Column order for auto-created tabs.
+const UNIFORM_INSPECTION_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp",
+  "Haircut", "CosmeticsOrShave", "CleanlinessPress", "ShirtTuck",
+  "PatchesNametag", "InsigniaRibbons", "GigLine",
+  "BootBlousingShoeShine", "MilitaryBearingCourtesy",
+  "TotalPoints", "Notes"
+];
+
+const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
+
+const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
+
 // ---- ONE-TIME SETUP ----------------------------------------------------
 
-/**
- * Run manually once from the Apps Script editor (Run menu).
- * Generates a random signing secret and stores it in Script Properties,
- * which is private to this script and never exposed to callers or GitHub.
- */
 function setupSecret() {
   const props = PropertiesService.getScriptProperties();
   if (props.getProperty("SESSION_SECRET")) {
@@ -120,29 +204,10 @@ function getSecret_() {
   return secret;
 }
 
-/**
- * Run manually, ONCE per encampment cycle, from the Apps Script editor.
- *
- * HOW TO USE:
- *   1. In the Apps Script editor, temporarily edit the line below that
- *      says `const PASSPHRASE = "..."` — replace the placeholder with
- *      your real long passphrase (e.g. six random words).
- *   2. Select `setPassphrase` in the function dropdown, click Run.
- *   3. Check the log — it confirms the hash was stored.
- *   4. Delete the plaintext passphrase from this function afterward and
- *      save, so it doesn't sit in the script source in plaintext. Only
- *      the hash persists in Script Properties from here on.
- *   5. Give the real passphrase out to cadre verbally or on a printed
- *      card at check-in — never put it in GitHub or this file long-term.
- *
- * To rotate the passphrase for a new encampment, just run this again
- * with a new value — it overwrites the previous hash and invalidates
- * every device token issued under the old passphrase.
- */
 function setPassphrase() {
-  const PASSPHRASE = "REPLACE_WITH_YOUR_REAL_PASSPHRASE_THEN_DELETE_THIS_LINE";
+  const PASSPHRASE = "";
 
-  if (PASSPHRASE === "REPLACE_WITH_YOUR_REAL_PASSPHRASE_THEN_DELETE_THIS_LINE") {
+  if (!PASSPHRASE) {
     throw new Error("Edit the PASSPHRASE constant in setPassphrase() with your real passphrase first.");
   }
 
@@ -162,6 +227,10 @@ function getPassphraseHash_() {
   return hash;
 }
 
+function isPasswordProtectedPosition_(position) {
+  return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
+}
+
 // ---- ENTRY POINTS ------------------------------------------------------
 
 function doGet(e) {
@@ -173,6 +242,12 @@ function doGet(e) {
       const session = requireSession_(e.parameter.token);
       checkRateLimit_(e.parameter.token);
       return respond(handleRead(e.parameter, session));
+    }
+
+    if (action === "listPositions") {
+      requireDeviceToken_(e.parameter.deviceToken);
+      checkRateLimit_("listPositions:" + e.parameter.deviceToken);
+      return respond(handleListPositions());
     }
 
     return respond({ ok: false, error: "Unknown or missing action for GET." });
@@ -201,6 +276,13 @@ function doPost(e) {
       return respond(handleWrite(body, session));
     }
 
+    if (body.action === "delete") {
+      requireDeviceToken_(body.deviceToken);
+      const session = requireSession_(body.token);
+      checkRateLimit_(body.token);
+      return respond(handleDelete(body, session));
+    }
+
     return respond({ ok: false, error: "Unknown or missing action for POST." });
   } catch (err) {
     return respond({ ok: false, error: err.message });
@@ -209,13 +291,6 @@ function doPost(e) {
 
 // ---- LOGIN / TOKENS ---------------------------------------------
 
-/**
- * LAYER 1 — DEVICE GATE
- * body.passphrase - required, checked against the stored hash
- * body.deviceType - "personal" | "shared", picks the token lifetime
- * Issues a signed "device" token on success. This does NOT identify a
- * person — it just marks "this device passed the passphrase gate."
- */
 function handleDeviceLogin(body) {
   const passphrase = String(body.passphrase || "");
   const deviceType = body.deviceType === "shared" ? "shared" : "personal";
@@ -252,65 +327,86 @@ function requireDeviceToken_(deviceToken) {
   return payload;
 }
 
-/**
- * LAYER 2 — PER-PERSON SESSION
- * body.capId - required
- * Looks up the CAP ID in Roster. If found, issues a signed session token
- * containing {capId, role, exp}. exp is set to the next local midnight,
- * not a fixed duration from login, so a token can't outlive the day it
- * was issued on regardless of what time login happened.
- */
+function handleListPositions() {
+  const sheet = getSheetOrThrow("StaffAccess");
+  const values = sheet.getDataRange().getValues();
+  if (values.length === 0) return { ok: true, positions: [] };
+
+  const headers = values[0];
+  const positionCol = headers.indexOf("Position");
+  if (positionCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
+
+  const positions = values.slice(1)
+    .map((row) => String(row[positionCol] || "").trim())
+    .filter(Boolean);
+
+  return { ok: true, positions };
+}
+
 function handleLogin(body) {
-  const capId = String(body.capId || "").trim();
-  if (!capId) throw new Error("CAP ID is required.");
+  const position = String(body.position || "").trim();
+  if (!position) throw new Error("Select a position.");
 
-  checkRateLimit_("login:" + capId);
+  checkRateLimit_("login:" + position);
 
-  const sheet = getSheetOrThrow("Roster");
+  const sheet = getSheetOrThrow("StaffAccess");
   const values = sheet.getDataRange().getValues();
   const headers = values[0];
-  const capIdCol = headers.indexOf("CapId");
-  const roleCol = headers.indexOf("Role");
-  if (capIdCol === -1) throw new Error("Roster sheet is missing a CapId column.");
+  const positionCol = headers.indexOf("Position");
+  const pagesCol = headers.indexOf("Pages");
+  const flightsCol = headers.indexOf("Flights");
+  const passwordCol = headers.indexOf("Password");
+  if (positionCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
 
   const matchRow = values.slice(1).find(
-    (row) => String(row[capIdCol]).trim().toLowerCase() === capId.toLowerCase()
+    (row) => String(row[positionCol]).trim().toLowerCase() === position.toLowerCase()
   );
 
-  const success = !!matchRow;
-  logLoginAttempt_({ type: "session", identifier: capId, success });
-
   if (!matchRow) {
-    // Same generic message whether the ID doesn't exist or something else
-    // failed, so the response can't be used to enumerate valid CAP IDs.
-    throw new Error("CAP ID not found. Check the number and try again.");
+    logLoginAttempt_({ type: "session", identifier: position, success: false });
+    throw new Error("That position isn't recognized. Check the list and try again.");
   }
 
-  const member = {};
-  headers.forEach((h, i) => (member[h] = matchRow[i]));
-  const role = roleCol !== -1 ? String(matchRow[roleCol] || "Cadre") : "Cadre";
+  if (isPasswordProtectedPosition_(position)) {
+    const storedPassword = passwordCol !== -1 ? String(matchRow[passwordCol] || "") : "";
+    const submittedPassword = String(body.password || "");
+    const passwordOk = !!storedPassword && submittedPassword === storedPassword;
 
-  const token = issueToken_(capId, role);
+    if (!passwordOk) {
+      logLoginAttempt_({ type: "session", identifier: position, success: false });
+      throw new Error("Incorrect password for that position.");
+    }
+  }
+
+  logLoginAttempt_({ type: "session", identifier: position, success: true });
+
+  const rawPages = pagesCol !== -1 ? String(matchRow[pagesCol] || "") : "";
+  const pages = rawPages.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean);
+
+  const rawFlights = flightsCol !== -1 ? String(matchRow[flightsCol] || "") : "";
+  const flights = rawFlights.split(",").map((f) => f.trim()).filter(Boolean);
+
+  const member = { Position: position, Pages: pages, Flights: flights };
+
+  const token = issueToken_(position, pages, flights);
   return { ok: true, token, member };
 }
 
-/** Session token, expiring at the next local midnight after issuance. */
-function issueToken_(capId, role) {
+function issueToken_(position, pages, flights) {
   return issueGenericToken_({
     type: "session",
-    capId,
-    role,
+    position,
+    pages: pages || [],
+    flights: flights || [],
     exp: nextMidnight_().getTime()
   });
 }
 
 function nextMidnight_() {
   const now = new Date();
-  const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
-  return midnight;
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
 }
 
-/** Generic signed token: base64url(payloadJson) + "." + base64url(HMAC-SHA256 signature). */
 function issueGenericToken_(payload) {
   const fullPayload = { ...payload, iat: Date.now() };
   const payloadStr = Utilities.base64EncodeWebSafe(JSON.stringify(fullPayload));
@@ -323,7 +419,6 @@ function signPayload_(payloadStr) {
   return Utilities.base64EncodeWebSafe(raw);
 }
 
-/** Verifies any token's signature. Throws on failure. Does NOT check exp — callers check exp themselves for their token type. */
 function verifyToken_(token) {
   if (!token) throw new Error("Missing token. Please sign in again.");
 
@@ -344,10 +439,6 @@ function verifyToken_(token) {
   }
 }
 
-/**
- * Verifies a session token's signature and expiry. Throws on any failure.
- * Returns the decoded { capId, role, iat, exp } on success.
- */
 function requireSession_(token) {
   const payload = verifyToken_(token);
   if (payload.type !== "session") throw new Error("Invalid session token. Please sign in again.");
@@ -359,11 +450,6 @@ function requireSession_(token) {
 
 // ---- LOGIN LOGGING -------------------------------------------------------
 
-/**
- * Appends a row to a "LoginLog" tab for after-action review. Creates the
- * tab with headers on first use if it doesn't exist yet. Never throws —
- * a logging failure should never block a legitimate login.
- */
 function logLoginAttempt_(entry) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -381,15 +467,16 @@ function logLoginAttempt_(entry) {
 // ---- RATE LIMITING -------------------------------------------------------
 
 /**
- * Fixed-window rate limit using CacheService, keyed by whatever
- * identifier is passed in (token string, or "login:<capId>"). Not
- * bulletproof (Apps Script has no IP-level limiting available), but
- * meaningfully slows down direct-URL scraping/brute force.
+ * CacheService keys are capped at 250 characters — a raw session/device
+ * token (which grows with the payload, e.g. more Pages/Flights entries)
+ * can exceed that and throw "Argument too large: key". Hash the key
+ * down to a fixed-length string first so rate limiting keeps working
+ * regardless of how large tokens get.
  */
 function checkRateLimit_(key) {
   if (!key) return;
   const cache = CacheService.getScriptCache();
-  const cacheKey = "rl:" + key;
+  const cacheKey = "rl:" + hashString_(String(key));
   const current = Number(cache.get(cacheKey) || 0);
 
   if (current >= RATE_LIMIT_PER_MINUTE) {
@@ -403,7 +490,11 @@ function checkRateLimit_(key) {
 function handleRead(params, session) {
   const sheetName = params.sheet;
   assertAllowedSheet(sheetName);
-  assertPermission_(sheetName, "read", session);
+  assertPermission_(sheetName, "read");
+
+  if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
+  if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
+  if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);
   const values = sheet.getDataRange().getValues();
@@ -428,23 +519,7 @@ function handleRead(params, session) {
     rows = rows.filter((r) => String(r[key]).trim().toLowerCase() === target);
   });
 
-  rows = redactForRole_(sheetName, rows, session);
-
   return { ok: true, rows };
-}
-
-function redactForRole_(sheetName, rows, session) {
-  const rules = SHEET_PERMISSIONS[sheetName];
-  if (!rules || session.role === "Staff") return rows;
-
-  const toRedact = rules.redactColumnsForNonStaff || [];
-  if (!toRedact.length) return rows;
-
-  return rows.map((row) => {
-    const copy = { ...row };
-    toRedact.forEach((col) => delete copy[col]);
-    return copy;
-  });
 }
 
 // ---- WRITE ---------------------------------------------------------------
@@ -452,7 +527,12 @@ function redactForRole_(sheetName, rows, session) {
 function handleWrite(body, session) {
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
-  assertPermission_(sheetName, "write", session);
+  assertPermission_(sheetName, "write");
+  assertPageWriteAccess_(sheetName, session);
+
+  if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
+  if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
+  if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);
   const values = sheet.getDataRange().getValues();
@@ -468,12 +548,25 @@ function handleWrite(body, session) {
 
   const newRowArray = headers.map((h) => (h in rowData ? rowData[h] : ""));
 
-  if (body.matchColumn && headers.includes(body.matchColumn)) {
-    const colIndex = headers.indexOf(body.matchColumn);
-    const targetValue = String(rowData[body.matchColumn]).trim().toLowerCase();
+  // Composite match: if matchColumns (plural, array) is given, a row is
+  // only considered "the same row" when ALL listed columns match. This
+  // is what lets UniformInspections append a NEW row per (student, date)
+  // instead of overwriting the student's only-ever scorecard — pass
+  // matchColumns: ["StudentCapId", "Date"] to update the same day's
+  // entry but still create a fresh row on a different day.
+  // matchColumn (singular, string) still works as before for
+  // Roster/Schedule/Announcements-style single-key matching.
+  const matchColumns = Array.isArray(body.matchColumns) && body.matchColumns.length
+    ? body.matchColumns
+    : (body.matchColumn ? [body.matchColumn] : []);
+
+  if (matchColumns.length && matchColumns.every((c) => headers.includes(c))) {
+    const colIndexes = matchColumns.map((c) => headers.indexOf(c));
+    const targetValues = colIndexes.map((ci) => String(rowData[headers[ci]]).trim().toLowerCase());
 
     for (let r = 1; r < values.length; r++) {
-      if (String(values[r][colIndex]).trim().toLowerCase() === targetValue) {
+      const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
+      if (isMatch) {
         sheet.getRange(r + 1, 1, 1, newRowArray.length).setValues([newRowArray]);
         return { ok: true, action: "updated", row: rowData };
       }
@@ -484,17 +577,109 @@ function handleWrite(body, session) {
   return { ok: true, action: "appended", row: rowData };
 }
 
+/**
+ * Deletes a row matched by matchColumn/matchColumns (same semantics as
+ * handleWrite). Used for Roster removal. Requires the same page-gated
+ * write permission as writing to that sheet.
+ */
+function handleDelete(body, session) {
+  const sheetName = body.sheet;
+  assertAllowedSheet(sheetName);
+  assertPermission_(sheetName, "write");
+  assertPageWriteAccess_(sheetName, session);
+
+  const sheet = getSheetOrThrow(sheetName);
+  const values = sheet.getDataRange().getValues();
+  if (values.length === 0) throw new Error(`Sheet "${sheetName}" has no data.`);
+  const headers = values[0];
+
+  const matchColumns = Array.isArray(body.matchColumns) && body.matchColumns.length
+    ? body.matchColumns
+    : (body.matchColumn ? [body.matchColumn] : []);
+
+  if (!matchColumns.length || !matchColumns.every((c) => headers.includes(c))) {
+    throw new Error("Delete requires a valid matchColumn/matchColumns.");
+  }
+
+  const matchValues = body.matchValues || body.row || {};
+  const colIndexes = matchColumns.map((c) => headers.indexOf(c));
+  const targetValues = colIndexes.map((ci) => String(matchValues[headers[ci]]).trim().toLowerCase());
+
+  for (let r = 1; r < values.length; r++) {
+    const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
+    if (isMatch) {
+      sheet.deleteRow(r + 1);
+      return { ok: true, action: "deleted" };
+    }
+  }
+
+  throw new Error("No matching row found to delete.");
+}
+
+/**
+ * Generalized page-gated write check. Sheets whose SHEET_PERMISSIONS
+ * write rule is "page" require the position's own Pages list (from its
+ * StaffAccess row, carried on the session) to include BOTH:
+ *   - the sheet's VIEW page id (e.g. "schedule") — can't edit a page
+ *     you can't even see, and
+ *   - the sheet's EDIT page id (e.g. "edit-schedule") — a separate,
+ *     explicit grant, so having view access no longer implies edit
+ *     access the way it used to.
+ * Read access to these same sheets stays broader ("any" signed-in
+ * position) — only writes are restricted. No-op for sheets not in
+ * PAGE_WRITE_GATES.
+ */
+function assertPageWriteAccess_(sheetName, session) {
+  const rules = SHEET_PERMISSIONS[sheetName];
+  if (!rules || rules.write !== "page") return;
+
+  const gate = PAGE_WRITE_GATES[sheetName];
+  if (!gate) throw new Error(`No write-access page configured for "${sheetName}".`);
+
+  const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
+
+  if (!pages.includes(gate.viewPage)) {
+    throw new Error(`You do not have permission to view ${sheetName}, so you can't edit it either.`);
+  }
+  if (!pages.includes(gate.editPage)) {
+    throw new Error(`You do not have edit permission for ${sheetName}. Ask an Administrator to add "${gate.editPage}" to your position's Pages.`);
+  }
+}
+
+function ensureSheetWithHeaders_(sheetName, columns) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) {
+    sheet = ss.insertSheet(sheetName);
+    sheet.appendRow(columns);
+  }
+  return sheet;
+}
+
+/**
+ * BlackFlagStatus is a single-row "settings" sheet rather than an
+ * append-log — ensure exactly one data row exists, defaulting to
+ * inactive, so reads never come back empty.
+ */
+function ensureBlackFlagSheet_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("BlackFlagStatus");
+  if (!sheet) {
+    sheet = ss.insertSheet("BlackFlagStatus");
+    sheet.appendRow(BLACK_FLAG_COLUMNS);
+    sheet.appendRow(["singleton", false, "", ""]);
+  }
+  return sheet;
+}
+
 // ---- PERMISSIONS ---------------------------------------------------------
 
-function assertPermission_(sheetName, mode, session) {
+function assertPermission_(sheetName, mode) {
   const rules = SHEET_PERMISSIONS[sheetName];
   if (!rules) throw new Error(`No permission rule defined for "${sheetName}".`);
 
   const required = rules[mode];
   if (required === "none") throw new Error(`${mode} is not permitted on "${sheetName}".`);
-  if (required === "staff" && session.role !== "Staff") {
-    throw new Error(`You do not have permission to ${mode} "${sheetName}".`);
-  }
 }
 
 // ---- HELPERS ---------------------------------------------------------------
