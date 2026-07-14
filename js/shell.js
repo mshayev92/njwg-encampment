@@ -55,6 +55,11 @@ const Shell = (() => {
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
 
+  // Set once by init() — lets the black flag banner/pill logic (and
+  // anything else that cares) know which page is currently showing
+  // without threading the value through every function signature.
+  let activePage_ = null;
+
   /** Returns the list of NAV_ITEMS ids this session is allowed to see. */
   function getAllowedPageIds() {
     const session = Auth.getSession();
@@ -131,11 +136,15 @@ const Shell = (() => {
       <h1 class="app-header__title">${title}</h1>
       <div class="app-header__user">
         ${session ? `
+          <span id="black-flag-pill" class="black-flag-pill" style="display:none;">⚑ Black Flag</span>
           <span id="sync-indicator" class="sync-indicator sync-indicator--synced">
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label">Synced</span>
           </span>
-          <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">Refresh</button>
+          <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
+            <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
+            <span id="hard-refresh-label">Refresh</span>
+          </button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
             <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
@@ -210,7 +219,11 @@ const Shell = (() => {
 
   async function hardRefresh() {
     const btn = document.getElementById("hard-refresh-btn");
-    if (btn) btn.classList.add("is-spinning");
+    const spinner = document.getElementById("hard-refresh-spinner");
+    const label = document.getElementById("hard-refresh-label");
+    if (btn) { btn.disabled = true; btn.classList.add("is-spinning"); }
+    if (spinner) spinner.style.display = "inline-block";
+    if (label) label.textContent = "Refreshing…";
     try {
       await Api.hardRefresh();
       if (pageRefreshFn_) {
@@ -220,7 +233,9 @@ const Shell = (() => {
       }
       loadGlobalAlerts_();
     } finally {
-      if (btn) btn.classList.remove("is-spinning");
+      if (btn) { btn.disabled = false; btn.classList.remove("is-spinning"); }
+      if (spinner) spinner.style.display = "none";
+      if (label) label.textContent = "Refresh";
     }
   }
 
@@ -253,14 +268,23 @@ const Shell = (() => {
     return el;
   }
 
+  /**
+   * Overview keeps the full-width banner exactly as designed; every
+   * other page shows a compact pill in the header instead (see
+   * #black-flag-pill in renderHeader) so the alert is still visible
+   * without repeating the big banner on every screen.
+   */
   function renderBlackFlagBanner_(status) {
-    const el = ensureGlobalBannerSlot_();
-    if (status && (status.Active === true || status.Active === "TRUE" || status.Active === "true")) {
-      el.style.display = "flex";
+    const active = !!(status && (status.Active === true || status.Active === "TRUE" || status.Active === "true"));
+
+    if (activePage_ === "overview") {
+      const el = ensureGlobalBannerSlot_();
+      el.style.display = active ? "flex" : "none";
       el.textContent = "⚑ BLACK FLAG IN EFFECT — outdoor activity restricted";
-    } else {
-      el.style.display = "none";
     }
+
+    const pill = document.getElementById("black-flag-pill");
+    if (pill) pill.style.display = (active && activePage_ !== "overview") ? "inline-flex" : "none";
   }
 
   function getAnnouncementsLastSeen_() {
@@ -291,43 +315,90 @@ const Shell = (() => {
   }
 
   let announcementsPopoverEl_ = null;
-  function toggleAnnouncementsPopover_() {
+  let announcementsOutsideHandler_ = null;
+  let announcementsKeyHandler_ = null;
+
+  function renderAnnouncementsList_(announcements) {
+    const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+    return sorted.length ? sorted.map(a => `
+      <div class="announcements-popover__item">
+        <div class="announcements-popover__meta">${a.Position || "—"} · ${new Date(a.Timestamp).toLocaleString()}</div>
+        <div class="announcements-popover__message">${a.Message || ""}</div>
+      </div>
+    `).join("") : `<div class="announcements-popover__empty">No announcements yet.</div>`;
+  }
+
+  function closeAnnouncementsPopover_() {
     if (announcementsPopoverEl_) {
       announcementsPopoverEl_.remove();
       announcementsPopoverEl_ = null;
+    }
+    if (announcementsOutsideHandler_) {
+      document.removeEventListener("mousedown", announcementsOutsideHandler_, true);
+      announcementsOutsideHandler_ = null;
+    }
+    if (announcementsKeyHandler_) {
+      document.removeEventListener("keydown", announcementsKeyHandler_);
+      announcementsKeyHandler_ = null;
+    }
+  }
+
+  /**
+   * Opens (or, if already open, closes) the announcements popover.
+   * Renders instantly from Api's persisted cache when warm — which it
+   * normally is, since Shell.init() eagerly warms "Announcements" on
+   * every page — then silently revalidates in the background. Closes
+   * on its own × button, an outside click, or Escape.
+   */
+  function toggleAnnouncementsPopover_() {
+    if (announcementsPopoverEl_) {
+      closeAnnouncementsPopover_();
       return;
     }
-    fetchAnnouncements_().then(announcements => {
-      const el = document.createElement("div");
-      el.style.cssText = "position:fixed; top:60px; right:16px; width:320px; max-width:90vw; max-height:70vh; overflow-y:auto; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-lg); box-shadow:var(--shadow-lg); padding:var(--space-4); z-index:1000;";
-      const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-      el.innerHTML = sorted.length ? sorted.map(a => `
-        <div style="padding: var(--space-3) 0; border-bottom: 1px solid var(--line);">
-          <div style="font-size: var(--fs-2xs); color: var(--ink-600); text-transform:uppercase; letter-spacing:var(--tracking-wide); margin-bottom: var(--space-1);">${a.Position || "—"} · ${new Date(a.Timestamp).toLocaleString()}</div>
-          <div style="font-size: var(--fs-sm); color: var(--ink-900);">${a.Message || ""}</div>
-        </div>
-      `).join("") : `<div style="color:var(--ink-600); font-size:var(--fs-sm);">No announcements yet.</div>`;
-      document.body.appendChild(el);
-      announcementsPopoverEl_ = el;
+
+    const el = document.createElement("div");
+    el.className = "announcements-popover";
+    el.innerHTML = `
+      <div class="announcements-popover__header">
+        <span>Announcements</span>
+        <button type="button" class="announcements-popover__close" aria-label="Close">&times;</button>
+      </div>
+      <div class="announcements-popover__list">
+        <div class="state-message" style="padding: var(--space-5);"><div class="spinner spinner--sm"></div></div>
+      </div>
+    `;
+    document.body.appendChild(el);
+    announcementsPopoverEl_ = el;
+
+    el.querySelector(".announcements-popover__close").addEventListener("click", closeAnnouncementsPopover_);
+
+    announcementsOutsideHandler_ = (e) => {
+      const bellBtn = document.getElementById("announcements-bell-btn");
+      if (el.contains(e.target) || (bellBtn && bellBtn.contains(e.target))) return;
+      closeAnnouncementsPopover_();
+    };
+    announcementsKeyHandler_ = (e) => {
+      if (e.key === "Escape") closeAnnouncementsPopover_();
+    };
+    // Wire outside-click on the NEXT tick so the same click that opened
+    // the popover (the bell button click, which bubbles to document)
+    // doesn't immediately close it again.
+    setTimeout(() => {
+      document.addEventListener("mousedown", announcementsOutsideHandler_, true);
+      document.addEventListener("keydown", announcementsKeyHandler_);
+    }, 0);
+
+    const listEl = el.querySelector(".announcements-popover__list");
+    const { data: cached, ready } = Api.getSheetCached("Announcements", (fresh) => {
+      if (announcementsPopoverEl_ === el) listEl.innerHTML = renderAnnouncementsList_(fresh.rows || []);
     });
-  }
+    if (cached) listEl.innerHTML = renderAnnouncementsList_(cached.rows || []);
 
-  async function fetchAnnouncements_() {
-    try {
-      const data = await Api.getSheet("Announcements");
-      return data.rows || [];
-    } catch (err) {
-      return [];
-    }
-  }
-
-  async function fetchBlackFlagStatus_() {
-    try {
-      const data = await Api.getSheet("BlackFlagStatus");
-      return (data.rows || [])[0] || null;
-    } catch (err) {
-      return null;
-    }
+    ready.catch(() => {
+      if (announcementsPopoverEl_ === el && !cached) {
+        listEl.innerHTML = `<div class="announcements-popover__empty">Couldn't load announcements.</div>`;
+      }
+    });
   }
 
   /**
@@ -683,6 +754,7 @@ const Shell = (() => {
    * Call once per page. Pass { activePage: 'schedule' | 'roster' | ... , requireAuth: true }
    */
   function init({ activePage = null, requireAuth = true } = {}) {
+    activePage_ = activePage;
     if (requireAuth) Auth.requireSession();
     if (requireAuth && activePage) requirePageAccess(activePage);
     renderNav(activePage);

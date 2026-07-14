@@ -189,6 +189,25 @@ h1, h2, h3, h4 {
   animation: sync-pulse 1s ease-in-out infinite;
 }
 
+/* ---- Black flag pill (header) ----
+   Compact stand-in for the full black flag banner on every page except
+   Overview, which keeps the full-width banner. */
+.black-flag-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: #000;
+  color: #fff;
+  font-family: var(--font-display);
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
 @keyframes sync-pulse {
   0%, 100% { opacity: 0.35; transform: scale(0.85); }
   50% { opacity: 1; transform: scale(1); }
@@ -234,16 +253,12 @@ h1, h2, h3, h4 {
 .nav-rail__crest-mark {
   width: 38px; height: 38px;
   flex-shrink: 0;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--indigo-700), var(--indigo-900));
-  border: 1px solid rgba(240, 180, 41, 0.4);
   display: flex; align-items: center; justify-content: center;
 }
 
 .nav-rail__crest-mark img {
   width: 100%; height: 100%;
   object-fit: contain;
-  border-radius: inherit;
 }
 
 .nav-rail__crest-text {
@@ -453,11 +468,17 @@ h1, h2, h3, h4 {
 }
 
 /* Applied to the header refresh button while a hard refresh is in
-   flight — spins the icon inside it so the action feels acknowledged
-   immediately, distinct from the sync indicator (which reflects
-   writes, not this manual re-fetch-everything action). */
-.is-spinning svg {
-  animation: spin 0.7s linear infinite;
+   flight — dims it and swaps in a spinner (see .btn__spinner) so the
+   action feels acknowledged immediately, distinct from the sync
+   indicator (which reflects writes, not this manual re-fetch-everything
+   action). */
+.is-spinning {
+  opacity: 0.75;
+  cursor: progress;
+}
+
+.btn__spinner {
+  margin-right: var(--space-1);
 }
 
 /* ---- Form fields ---- */
@@ -707,6 +728,85 @@ h1, h2, h3, h4 {
 .tooltip-bubble.is-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ---- Announcements popover (bell dropdown) ---- */
+.announcements-popover {
+  position: fixed;
+  top: 64px;
+  right: var(--space-4);
+  width: 340px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: var(--z-overlay);
+  animation: overlay-in var(--duration-base) var(--ease-standard);
+}
+
+.announcements-popover__header {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--indigo-900);
+}
+
+.announcements-popover__close {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--ink-600);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+}
+.announcements-popover__close:hover {
+  background: var(--surface-sunken);
+  color: var(--ink-900);
+}
+
+.announcements-popover__list {
+  padding: var(--space-2) var(--space-4) var(--space-3);
+}
+
+.announcements-popover__item {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--line);
+}
+.announcements-popover__item:last-child {
+  border-bottom: none;
+}
+
+.announcements-popover__meta {
+  font-size: var(--fs-2xs);
+  color: var(--ink-600);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-bottom: var(--space-1);
+}
+
+.announcements-popover__message {
+  font-size: var(--fs-sm);
+  color: var(--ink-900);
+}
+
+.announcements-popover__empty {
+  padding: var(--space-4) 0;
+  color: var(--ink-600);
+  font-size: var(--fs-sm);
+  text-align: center;
 }
 
 /* ---- Custom dropdown (replaces native <select>) ---- */
