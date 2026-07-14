@@ -21,6 +21,7 @@
       gap: var(--space-3);
       margin-bottom: var(--space-4);
       flex-wrap: wrap;
+      align-items: center;
     }
     .roster-toolbar input {
       flex: 1;
@@ -31,6 +32,63 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       background: var(--surface);
+    }
+
+    /* Flight tile grid — shown before a flight is selected */
+    .flight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: var(--space-4);
+    }
+
+    .flight-tile {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      cursor: pointer;
+      text-align: left;
+      box-shadow: var(--shadow-sm);
+      transition: border-color var(--duration-fast) var(--ease-standard),
+                  transform var(--duration-fast) var(--ease-standard);
+      font-family: inherit;
+    }
+
+    .flight-tile:hover {
+      border-color: var(--gold-500);
+      transform: translateY(-2px);
+    }
+
+    .flight-tile__name {
+      display: block;
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--navy-900);
+      margin-bottom: var(--space-2);
+    }
+
+    .flight-tile__count {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+
+    /* Detail view header — shown once a flight is selected */
+    .flight-detail-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+
+    .flight-detail-header h2 {
+      font-size: var(--fs-lg);
+      color: var(--navy-900);
+      margin: 0;
     }
   </style>
 </head>
@@ -75,47 +133,125 @@
     const searchInput = document.getElementById("roster-search");
 
     let allRows = [];
+    // Null = showing the flight tile grid. A string = showing that
+    // flight's member list ("Unassigned" for rows with no Flight value).
+    let selectedFlight = null;
 
-    function render(rows) {
-      if (!rows.length) {
+    function groupByFlight(rows) {
+      return rows.reduce((groups, row) => {
+        const flight = row.Flight || "Unassigned";
+        (groups[flight] = groups[flight] || []).push(row);
+        return groups;
+      }, {});
+    }
+
+    function renderFlightGrid(rows) {
+      const grouped = groupByFlight(rows);
+      const flightNames = Object.keys(grouped).sort();
+
+      if (!flightNames.length) {
         contentEl.innerHTML = `
           <div class="state-message">
             <div class="state-message__icon">👥</div>
-            <p>No matching roster entries.</p>
+            <p>No roster entries yet.</p>
           </div>`;
         return;
       }
 
       contentEl.innerHTML = `
-        <div class="card" style="padding: 0; overflow-x: auto;">
-          <table class="data-table">
-            <thead>
-              <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Flight</th><th>Role</th></tr>
-            </thead>
-            <tbody>
-              ${rows.map(m => `
-                <tr>
-                  <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
-                  <td data-label="Name">${m.Name || "—"}</td>
-                  <td data-label="Rank">${m.Rank || "—"}</td>
-                  <td data-label="Flight">${m.Flight ? `<span class="badge badge--gold">${m.Flight}</span>` : "—"}</td>
-                  <td data-label="Role">${m.Role || "—"}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
+        <div class="flight-grid">
+          ${flightNames.map(flight => `
+            <button class="flight-tile" data-flight="${flight}">
+              <span class="flight-tile__name">${flight}</span>
+              <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+            </button>
+          `).join("")}
         </div>`;
+
+      contentEl.querySelectorAll(".flight-tile").forEach(tile => {
+        tile.addEventListener("click", () => {
+          selectedFlight = tile.dataset.flight;
+          render(allRows);
+        });
+      });
+    }
+
+    function renderFlightDetail(rows, flight) {
+      const members = rows.filter(m => (m.Flight || "Unassigned") === flight);
+
+      contentEl.innerHTML = `
+        <div class="flight-detail-header">
+          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          <h2>${flight}</h2>
+        </div>
+        ${members.length ? `
+          <div class="card" style="padding: 0; overflow-x: auto;">
+            <table class="data-table">
+              <thead>
+                <tr><th>CAP ID</th><th>Name</th><th>Rank</th></tr>
+              </thead>
+              <tbody>
+                ${members.map(m => `
+                  <tr>
+                    <td data-label="CAP ID" class="mono">${m.CapId || "—"}</td>
+                    <td data-label="Name">${m.Name || "—"}</td>
+                    <td data-label="Rank">${m.Rank || "—"}</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        ` : `
+          <div class="state-message">
+            <div class="state-message__icon">👥</div>
+            <p>No cadets in this flight.</p>
+          </div>
+        `}
+      `;
+
+      const backBtn = document.getElementById("back-to-flights-btn");
+      if (backBtn) {
+        backBtn.addEventListener("click", () => {
+          selectedFlight = null;
+          searchInput.value = "";
+          render(allRows);
+        });
+      }
+    }
+
+    /**
+     * Names are never shown until a specific flight tile is clicked —
+     * the initial view (and the view after searching) only ever shows
+     * flight-level tiles with counts, never a flat list of cadets.
+     */
+    function render(rows) {
+      if (selectedFlight) {
+        renderFlightDetail(rows, selectedFlight);
+      } else {
+        renderFlightGrid(rows);
+      }
     }
 
     function applyFilter() {
       const q = searchInput.value.trim().toLowerCase();
-      if (!q) return render(allRows);
+
+      if (!q) {
+        selectedFlight = null;
+        render(allRows);
+        return;
+      }
+
+      // A search query jumps straight to matching cadets/flights, but
+      // still surfaces results grouped as flight tiles rather than
+      // exposing names directly — clicking a tile still requires a
+      // second click to see the members inside it.
+      selectedFlight = null;
       const filtered = allRows.filter(m =>
         String(m.Name).toLowerCase().includes(q) ||
         String(m.CapId).toLowerCase().includes(q) ||
         String(m.Flight).toLowerCase().includes(q)
       );
-      render(filtered);
+      renderFlightGrid(filtered);
     }
 
     async function load() {
@@ -123,6 +259,7 @@
       try {
         const data = await Api.getSheet("Roster");
         allRows = data.rows || [];
+        selectedFlight = null;
         render(allRows);
       } catch (err) {
         contentEl.innerHTML = `
