@@ -89,7 +89,10 @@ h1, h2, h3, h4 {
   border-radius: var(--radius-sm);
 }
 
-/* ---- App shell grid ---- */
+/* ---- App shell grid ----
+   grid-template-columns reads the live --nav-rail-width token, which
+   .app-shell--collapsed (toggled by the crest button) swaps between
+   --nav-rail-width-expanded and --nav-rail-width-collapsed. */
 .app-shell {
   min-height: 100%;
   display: grid;
@@ -99,26 +102,36 @@ h1, h2, h3, h4 {
     "nav    header"
     "nav    duty"
     "nav    main";
+  transition: grid-template-columns var(--duration-base) var(--ease-standard);
 }
 
-/* ---- Header ---- */
+.app-shell--collapsed {
+  --nav-rail-width: var(--nav-rail-width-collapsed);
+}
+
+/* ---- Header ----
+   Consolidated top bar: plain surface, page title on the left, sync
+   status / refresh / notifications on the right. Position + logout
+   moved to the nav-rail footer card. */
 .app-header {
   grid-area: header;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-5);
-  background: var(--indigo-900);
-  color: var(--surface);
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6);
+  background: transparent;
+  color: var(--ink-900);
   z-index: var(--z-header);
-  border-bottom: 1px solid rgba(240, 180, 41, 0.25);
+  flex-wrap: wrap;
+  height: auto;
 }
 
 .app-header__title {
   font-family: var(--font-display);
-  font-size: var(--fs-md);
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  color: var(--indigo-900);
   margin: 0;
 }
 
@@ -127,13 +140,7 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: var(--space-3);
   font-size: var(--fs-sm);
-  color: var(--steel-300);
-}
-
-.app-header__user strong {
-  color: var(--surface);
-  font-family: var(--font-mono);
-  letter-spacing: 0.02em;
+  color: var(--ink-600);
 }
 
 /* ---- Sync status indicator (header) ----
@@ -154,16 +161,16 @@ h1, h2, h3, h4 {
 }
 
 .sync-indicator--syncing {
-  background: rgba(240, 180, 41, 0.16);
-  color: var(--gold-500);
+  background: var(--amber-100);
+  color: var(--amber-600);
 }
 .sync-indicator--synced {
-  background: rgba(30, 107, 62, 0.16);
-  color: #6fd39a;
+  background: var(--green-100);
+  color: var(--green-600);
 }
 .sync-indicator--error {
-  background: rgba(179, 38, 30, 0.2);
-  color: #ff9d92;
+  background: var(--red-100);
+  color: var(--red-600);
 }
 
 .sync-indicator__dot {
@@ -243,15 +250,31 @@ h1, h2, h3, h4 {
   flex-direction: column;
   padding: var(--space-5) var(--space-3);
   gap: var(--space-1);
+  overflow-y: auto;
 }
 
+/* Crest is a button: clicking it toggles the whole rail between
+   expanded/collapsed. No separate toggle icon. */
 .nav-rail__crest {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: var(--space-3);
   padding: 0 var(--space-2) var(--space-5);
   margin-bottom: var(--space-4);
   position: relative;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(240, 180, 41, 0.2);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.app-shell--collapsed .nav-rail__crest {
+  justify-content: center;
 }
 
 /* Wing-motif divider: the page's one recurring signature device — two
@@ -274,24 +297,80 @@ h1, h2, h3, h4 {
 }
 
 .nav-rail__crest-mark {
-  width: 40px; height: 40px;
+  width: 38px; height: 38px;
   flex-shrink: 0;
+  border-radius: 9px;
+  background: linear-gradient(135deg, var(--indigo-700), var(--indigo-900));
+  border: 1px solid rgba(240, 180, 41, 0.4);
   display: flex; align-items: center; justify-content: center;
 }
 
 .nav-rail__crest-mark img {
   width: 100%; height: 100%;
   object-fit: contain;
-  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
+  border-radius: inherit;
 }
 
 .nav-rail__crest-text {
   font-family: var(--font-display);
-  font-size: var(--fs-xs);
-  line-height: 1.2;
-  letter-spacing: var(--tracking-wide);
-  color: var(--surface);
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+  letter-spacing: var(--tracking-wider);
+  color: var(--ribbon-white);
   text-transform: uppercase;
+  flex: 1;
+}
+
+.nav-rail__crest-text span {
+  display: block;
+  color: var(--steel-300);
+}
+
+.app-shell--collapsed .nav-rail__crest-text,
+.app-shell--collapsed .nav-rail__link-label,
+.app-shell--collapsed .nav-rail__footer {
+  display: none;
+}
+
+.app-shell--collapsed .nav-rail__link {
+  justify-content: center;
+}
+
+/* ---- Nav rail footer card (signed-in-as / log out) ---- */
+.nav-rail__footer {
+  margin-top: auto;
+  padding: var(--space-4) var(--space-3);
+  background: var(--indigo-900);
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(240, 180, 41, 0.15);
+}
+
+.nav-rail__footer-label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--steel-300);
+  margin-bottom: var(--space-2);
+}
+
+.nav-rail__footer-position {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--surface);
+  margin-bottom: var(--space-3);
+}
+
+.nav-rail__footer .btn--ghost {
+  width: 100%;
+  border-color: var(--indigo-500);
+  color: var(--steel-100);
+  padding: var(--space-2);
+  font-size: var(--fs-xs);
+}
+.nav-rail__footer .btn--ghost:hover {
+  background: var(--indigo-700);
+  border-color: var(--indigo-500);
 }
 
 .nav-rail__link {
@@ -693,6 +772,222 @@ h1, h2, h3, h4 {
 .tooltip-bubble.is-visible {
   opacity: 1;
   transform: translateY(0);
+}
+
+/* ---- Custom dropdown (replaces native <select>) ---- */
+.dropdown {
+  position: relative;
+}
+
+.dropdown__trigger {
+  width: 100%;
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-sunken);
+  color: var(--ink-900);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.dropdown__chevron {
+  width: 14px; height: 14px;
+  flex-shrink: 0;
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+
+.dropdown.is-open .dropdown__chevron {
+  transform: rotate(180deg);
+}
+
+.dropdown__menu {
+  position: absolute;
+  top: 100%; left: 0; right: 0;
+  margin-top: var(--space-1);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-overlay);
+  overflow: hidden;
+}
+
+.dropdown__option {
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--fs-sm);
+  color: var(--ink-900);
+  cursor: pointer;
+}
+
+.dropdown__option:hover,
+.dropdown__option:focus-visible {
+  background: var(--surface-sunken);
+}
+
+/* ---- Custom context menu (replaces native right-click menu) ---- */
+.context-menu {
+  width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  z-index: var(--z-overlay);
+}
+
+.context-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-sm);
+  color: var(--ink-900);
+  cursor: pointer;
+}
+
+.context-menu__item:hover { background: var(--surface-sunken); }
+
+.context-menu__item svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.context-menu__divider {
+  height: 1px;
+  background: var(--line);
+  margin: var(--space-1) 0;
+}
+
+.context-menu__item--danger { color: var(--garnet-600); }
+
+/* ---- Tabs (segmented control) ---- */
+.tabs {
+  display: inline-flex;
+  gap: var(--space-1);
+  background: var(--surface-sunken);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+}
+
+.tabs__tab {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-600);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.tabs__tab.is-active {
+  color: var(--indigo-900);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---- Toggle switch ---- */
+.toggle {
+  width: 40px; height: 22px;
+  border-radius: 999px;
+  background: var(--line);
+  position: relative;
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: background var(--duration-fast) var(--ease-standard);
+}
+
+.toggle.is-on { background: var(--indigo-900); }
+
+.toggle__thumb {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--surface);
+  position: absolute;
+  top: 3px; left: 3px;
+  transition: left var(--duration-fast) var(--ease-standard);
+}
+
+.toggle.is-on .toggle__thumb { left: 21px; }
+
+/* ---- Checkbox / radio ---- */
+.checkbox {
+  width: 18px; height: 18px;
+  border-radius: 5px;
+  border: 2px solid var(--indigo-500);
+  background: var(--surface);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.checkbox.is-checked {
+  background: var(--indigo-900);
+  border-color: var(--indigo-900);
+}
+
+.checkbox svg { width: 12px; height: 12px; color: var(--surface); }
+
+.radio {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--indigo-500);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.radio__dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--indigo-900);
+}
+
+/* ---- Inline alerts ---- */
+.alert {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--fs-sm);
+}
+
+.alert svg { flex-shrink: 0; }
+
+.alert--success { background: var(--green-100); color: var(--green-600); }
+.alert--warning { background: var(--amber-100); color: var(--amber-600); }
+.alert--error   { background: var(--red-100);   color: var(--red-600); }
+
+/* ---- Progress bar ---- */
+.progress {
+  height: 8px;
+  background: var(--surface-sunken);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress__fill {
+  height: 100%;
+  background: var(--green-600);
+  border-radius: 999px;
+}
+
+.progress__label-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--ink-600);
+  margin-bottom: var(--space-2);
 }
 
 /* ============================================================

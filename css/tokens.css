@@ -87,8 +87,15 @@
   --shadow-lg: 0 12px 32px rgba(8, 10, 56, 0.20);
   --shadow-gold-glow: 0 0 0 1px rgba(240, 180, 41, 0.35), 0 4px 16px rgba(240, 180, 41, 0.18);
 
-  /* ---- Layout ---- */
-  --nav-rail-width: 232px;
+  /* ---- Layout ----
+     Nav rail width is now dynamic: expanded/collapsed states are
+     toggled via the .app-shell--collapsed class (see .nav-rail__crest
+     button in js/shell.js), not a fixed value. --nav-rail-width is the
+     live value the grid reads; the two "-expanded"/"-collapsed" tokens
+     are what it switches between. */
+  --nav-rail-width-expanded: 248px;
+  --nav-rail-width-collapsed: 76px;
+  --nav-rail-width: var(--nav-rail-width-expanded);
   --header-height: 56px;
   --duty-strip-height: 40px;
   --bottom-tab-height: 64px;
