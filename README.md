@@ -30,6 +30,20 @@ Other protections layered on top:
 - Basic rate limiting slows down brute-force passphrase/password guessing and URL scraping.
 - Every login attempt (device gate and per-position) is logged to a `LoginLog` tab, auto-created on first use, for after-action review.
 
+### Writable sheets: Roster, Schedule, Announcements, BlackFlagStatus
+
+Roster and Schedule are editable from the app (not just read-only). Writing to any of these four requires **both**:
+- the normal view page id in that position's `Pages` column (`roster`, `schedule`, or `announcements` — the same id that controls nav visibility), **and**
+- a separate **edit id**: `edit-roster`, `edit-schedule`, or `edit-announcements`.
+
+Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The three edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule stays view-only for that position.
+
+`UniformInspections` stays writable by any signed-in position, since any position that can reach Inspections needs to be able to submit scorecards — there's no `edit-inspections` id.
+
+Roster deletes go through a new `delete` action in `Code.gs` (`handleDelete`), gated by the same edit-id check as writing to that sheet.
+
+The Schedule/Roster edit buttons in the app itself only render for positions whose session actually carries the matching edit id — but that's a UI convenience only; `assertPageWriteAccess_` in `Code.gs` is what actually enforces this on every write, regardless of what the browser shows.
+
 ### ⚠️ Important tradeoff: CCT/Administrator passwords are stored as PLAINTEXT in the sheet
 
 Unlike the device passphrase (hashed, never stored anywhere readable), the `CCT` and `Administrator` passwords live as **plain, unhashed text** directly in the `StaffAccess` tab's `Password` column, by deliberate choice, so they're simple to set and change — just type into the cell.
@@ -79,7 +93,7 @@ Every page follows the same pattern: load `config.js` → `api.js` → `auth.js`
 Create tabs named exactly:
 - **StaffAccess** — columns: `Position, Pages, Password`.
   - `Position` — the exact dropdown label, e.g. `Alpha Flight`, `Bravo Flight`, `Squadron 1`, `Squadron 2`, `CCT`, `Administrator`. Each row is one dropdown option — add or remove a row to add or remove an option, no code changes needed.
-  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.**
+  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, or Announcements, additionally include `edit-roster`, `edit-schedule`, or `edit-announcements` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
   - `Password` — **plaintext**. Leave blank for ordinary flights/squadrons. Fill in a real password for the `CCT` and `Administrator` rows specifically (matched case-insensitively) — those two positions cannot sign in without it. This entire sheet is never exposed through the app's generic read API — see the security tradeoff section above — but is visible to anyone with Sheet access, so restrict Sheet sharing accordingly.
 - **Roster** — columns: `CapId, Name, Rank, Flight`. Purely a display list of students for staff to browse — **never used for login**.
 - **Schedule** — columns: `Day, Time, Activity, Location, Flight`
@@ -162,3 +176,13 @@ Each `StaffAccess` row's `Pages` column lists which nav pages that position can 
 ## Login attempt logging
 
 Every attempt (device gate and per-position) is appended to `LoginLog` (`Timestamp, Type, Identifier, Success`). `Identifier` is the position attempted (e.g. `"CCT"`), not an individual — this system has no way to distinguish who used a shared position.
+
+## Inspection history and trends
+
+`UniformInspections` now stores **one row per (student, date)** instead of one row per student overall. Re-inspecting the same cadet on a **new** day appends a fresh row (preserving history); re-submitting on the **same** day updates that day's row in place. This is done via a composite match key (`matchColumns: ["StudentCapId", "Date"]` in `Api.writeRow`, matched server-side in `handleWrite`).
+
+The Inspections page's **Trends** tab uses this history to show:
+- Flight-vs-flight average total score, toggle between "each cadet's latest inspection" (a live snapshot) or "all inspections" (all-time average)
+- Pass-rate-by-item across all flights, to spot which specific line items (haircut, gig line, etc.) are commonly failing
+
+A cadet's inspection history (all past scorecards) is browsable from their row in the Uniform tab — clicking a past date reopens that day's scorecard for viewing or correction.
