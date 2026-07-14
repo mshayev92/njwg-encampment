@@ -25,7 +25,7 @@
    awaited before showing SOMETHING — Api.getSheetCached() returns
    cached data synchronously if present, so a page can render
    instantly on second load, revalidate, and only re-render if the
-   data actually changed. See Shell.mountList() in js/shell.js, which
+   data actually changed. See Shell.mountSheet() in js/shell.js, which
    wraps this pattern for page authors so they don't reimplement it.
 
    Writes are optimistic: Api.writeRow()/deleteRow() return

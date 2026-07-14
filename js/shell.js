@@ -55,6 +55,26 @@ const Shell = (() => {
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
 
+  /**
+   * Escapes a value for safe interpolation into innerHTML — both element
+   * text and quoted attribute values. Every page renders sheet-sourced
+   * data (names, activities, announcement text, flight names) via
+   * template strings into innerHTML; without escaping, an ordinary
+   * ampersand or angle bracket in that data (e.g. a cadet named
+   * "Smith & Jones" or an announcement reading "a < b") renders wrong or
+   * vanishes, and free-text fields become an injection vector. Use this
+   * on ANY dynamic value going into markup. Exposed as Shell.escapeHtml.
+   */
+  function escapeHtml_(value) {
+    if (value === null || value === undefined) return "";
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
   // Set once by init() — lets the black flag banner/pill logic (and
   // anything else that cares) know which page is currently showing
   // without threading the value through every function signature.
@@ -109,7 +129,7 @@ const Shell = (() => {
       ${session ? `
         <div class="nav-rail__footer">
           <div class="nav-rail__footer-label">Signed in as</div>
-          <div class="nav-rail__footer-position">${session.Position || session.position || "Staff"}</div>
+          <div class="nav-rail__footer-position">${escapeHtml_(session.Position || session.position || "Staff")}</div>
           <button class="btn btn--ghost" id="logout-btn">Log out</button>
         </div>
       ` : ""}
@@ -215,6 +235,66 @@ const Shell = (() => {
   let pageRefreshFn_ = null;
   function registerRefresh(fn) {
     pageRefreshFn_ = fn;
+  }
+
+  /**
+   * Standard "load one sheet into a page" helper — the sanctioned entry
+   * point for new pages so they don't rehand-roll the stale-while-
+   * revalidate + spinner + error + Refresh-wiring dance every time.
+   *
+   * Behavior (matches what every list page does by hand):
+   *   1. Renders instantly from Api's persisted cache if warm.
+   *   2. Otherwise shows a spinner in `container`.
+   *   3. Revalidates in the background and re-renders when fresher data
+   *      lands.
+   *   4. On a cold-load failure, shows an error state in `container`;
+   *      always surfaces a toast.
+   *   5. Registers itself as this page's Refresh action, so the header
+   *      Refresh button re-runs it.
+   *
+   * Usage for a new page:
+   *   Shell.mountSheet("Schedule", {
+   *     container: document.getElementById("content"),
+   *     loadingText: "Loading schedule…",
+   *     render: (rows) => renderMyPage(rows)
+   *   });
+   *
+   * `render(rows)` is called with a plain array of row objects every
+   * time data is (re)rendered — keep it idempotent and cheap. For pages
+   * that need to combine MULTIPLE sheets, keep using Api.getSheetCached
+   * directly (see inspections.html / announcements.html).
+   */
+  function mountSheet(sheetName, { render, container = null, loadingText = "Loading…", extraParams = {} } = {}) {
+    function showLoading() {
+      if (container) container.innerHTML = `<div class="state-message"><div class="spinner"></div><p>${escapeHtml_(loadingText)}</p></div>`;
+    }
+    function showError(message) {
+      if (container) container.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${escapeHtml_(message)}</p></div>`;
+    }
+
+    // Reuse ONE background-refresh subscriber across every load() (the
+    // Refresh button re-invokes load()); dropping the previous one first
+    // keeps the header Refresh from stacking up duplicate re-render
+    // callbacks over a long session.
+    let onFresh = null;
+    function load() {
+      if (onFresh) Api.unsubscribe(sheetName, onFresh, extraParams);
+      onFresh = (fresh) => render(fresh.rows || []);
+
+      const { data: cached, ready } = Api.getSheetCached(sheetName, onFresh, extraParams);
+
+      if (cached) render(cached.rows || []);
+      else showLoading();
+
+      return ready.then((data) => {
+        if (!cached) render(data.rows || []);
+      }).catch((err) => {
+        if (!cached) showError(err.message);
+        showToast(err.message, { type: "error" });
+      });
+    }
+    registerRefresh(load);
+    return load();
   }
 
   let hardRefreshInFlight_ = false;
@@ -344,8 +424,8 @@ const Shell = (() => {
     const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
     return sorted.length ? sorted.map(a => `
       <div class="announcements-popover__item">
-        <div class="announcements-popover__meta">${a.Position || "—"} · ${new Date(a.Timestamp).toLocaleString()}</div>
-        <div class="announcements-popover__message">${a.Message || ""}</div>
+        <div class="announcements-popover__meta">${escapeHtml_(a.Position || "—")} · ${escapeHtml_(new Date(a.Timestamp).toLocaleString())}</div>
+        <div class="announcements-popover__message">${escapeHtml_(a.Message || "")}</div>
       </div>
     `).join("") : `<div class="announcements-popover__empty">No announcements yet.</div>`;
   }
@@ -816,6 +896,7 @@ const Shell = (() => {
     init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
+    mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, openContextMenu
   };
 })();

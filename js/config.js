@@ -44,9 +44,9 @@ window.APP_CONFIG = {
   // publicly, anyone can view source and read this value, and call it
   // directly. That's expected and accounted for — see apps-script/Code.gs,
   // which requires a signed session token (issued at login) on every
-  // read/write, not just a CAP ID. Your Roster sheet needs a "Role"
-  // column (e.g. "Staff" or "Cadre") for the backend's permission rules
-  // to work — see SHEET_PERMISSIONS in Code.gs.
+  // read/write. Permissions live in the StaffAccess tab's Pages column
+  // (per-position view/edit grants), not on the Roster — see
+  // SHEET_PERMISSIONS and PAGE_WRITE_GATES in Code.gs.
   APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx3pa1fs27-HaXnESijYwvO0Vk04DGDmYZWANCuqUp49LGGbM50h5s0hScKHfcZwZTx/exec",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
