@@ -82,8 +82,7 @@ const Shell = (() => {
       <h1 class="app-header__title">${window.APP_CONFIG.UNIT_NAME}</h1>
       <div class="app-header__user">
         ${session ? `
-          <span>${session.Rank || ""} ${session.Name || session.name || "Cadre"}</span>
-          <strong>${session.CapId || session.capId || ""}</strong>
+          <strong>${session.Position || session.position || "Staff"}</strong>
           <button class="btn btn--ghost" id="logout-btn" style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs);">Log out</button>
         ` : ""}
       </div>
