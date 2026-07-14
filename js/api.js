@@ -140,16 +140,33 @@ const Api = (() => {
     if (isDeviceError) {
       Auth.clearDeviceAuth();
       Auth.clearSession();
+      // A rejected device token means this device is logging out at the
+      // deepest level — don't leave any position's cached reads behind
+      // for whoever unlocks the device next.
+      clearCacheInternal_();
       const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = `${window.APP_BASE_PATH}gate.html?returnTo=${returnTo}`;
     } else if (isSessionError) {
       Auth.clearSession();
+      clearCacheInternal_();
       const returnTo = encodeURIComponent(window.location.pathname);
       window.location.href = `${window.APP_BASE_PATH}index.html?returnTo=${returnTo}`;
     }
   }
 
-  // ---- Read cache (stale-while-revalidate) ----------------------------
+  // ---- Read cache (stale-while-revalidate, persisted across page loads) --
+  //
+  // This is a static multi-page app — every navigation is a full page
+  // load, which would otherwise wipe an in-memory-only cache and force
+  // every single click to wait on the network again. To fix that, the
+  // cache is mirrored into localStorage and re-hydrated into memory the
+  // instant this script loads on each new page, so a page can render
+  // instantly from whatever the LAST page fetched, before this page's
+  // own network call even starts. Every render from cache still kicks
+  // off a background revalidation (see getSheetCached below), so data
+  // is never allowed to go stale for long.
+
+  const CACHE_STORAGE_PREFIX = "njwg_cache_v1_";
 
   // sheetName -> { data, fetchedAt }
   const cache = new Map();
@@ -165,6 +182,56 @@ const Api = (() => {
     return sheetName + suffix;
   }
 
+  function persistToStorage_(key, entry) {
+    try {
+      localStorage.setItem(CACHE_STORAGE_PREFIX + key, JSON.stringify(entry));
+    } catch (e) {
+      // Storage full or unavailable (private browsing, quota exceeded) —
+      // the in-memory cache still works for the rest of this page's
+      // life, it just won't survive the next navigation. Not worth
+      // surfacing to the user over.
+    }
+  }
+
+  function removeFromStorage_(key) {
+    try {
+      localStorage.removeItem(CACHE_STORAGE_PREFIX + key);
+    } catch (e) { /* ignore */ }
+  }
+
+  function clearCacheInternal_() {
+    cache.clear();
+    try {
+      const keysToRemove = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(CACHE_STORAGE_PREFIX) === 0) keysToRemove.push(k);
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch (e) { /* ignore */ }
+  }
+
+  function hydrateFromStorage_() {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const storageKey = localStorage.key(i);
+        if (!storageKey || storageKey.indexOf(CACHE_STORAGE_PREFIX) !== 0) continue;
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) continue;
+        const entry = JSON.parse(raw);
+        if (entry && "data" in entry) {
+          cache.set(storageKey.slice(CACHE_STORAGE_PREFIX.length), entry);
+        }
+      }
+    } catch (e) {
+      // Corrupt entry or storage disabled — worst case this page makes
+      // a real network call instead of rendering from cache, same as
+      // before this feature existed.
+    }
+  }
+
+  hydrateFromStorage_();
+
   function notifySubscribers_(key, data) {
     const subs = subscribers.get(key);
     if (subs) subs.forEach((cb) => { try { cb(data); } catch (e) { /* one bad subscriber shouldn't break others */ } });
@@ -176,7 +243,9 @@ const Api = (() => {
 
     const promise = request("read", { params: { sheet: sheetName, ...extraParams } })
       .then((data) => {
-        cache.set(key, { data, fetchedAt: Date.now() });
+        const entry = { data, fetchedAt: Date.now() };
+        cache.set(key, entry);
+        persistToStorage_(key, entry);
         inFlight.delete(key);
         notifySubscribers_(key, data);
         return data;
@@ -303,6 +372,7 @@ const Api = (() => {
     async hardRefresh() {
       const keys = Array.from(cache.keys());
       cache.clear();
+      keys.forEach(removeFromStorage_);
       // Re-derive sheetName/extraParams isn't tracked per key, so
       // instead of guessing, just let each page's own getSheetCached
       // call (fired again by the page's own refresh handler) refill
@@ -311,6 +381,32 @@ const Api = (() => {
       // their own load().
       return keys;
     },
+
+    /**
+     * Fire-and-forget background fetch for a list of sheet names not
+     * necessarily used by THIS page — called once per page load (see
+     * Shell.init) so that by the time someone navigates to another
+     * page, its data is already warm in the persisted cache and renders
+     * instantly instead of waiting on the network. Skips a sheet
+     * entirely if it was already fetched within maxAgeMs, so clicking
+     * around quickly doesn't re-hit the backend on every single load.
+     */
+    warmCache(sheetNames, { maxAgeMs = 30000 } = {}) {
+      (sheetNames || []).forEach((name) => {
+        const key = cacheKey(name, {});
+        const cached = cache.get(key);
+        if (cached && Date.now() - cached.fetchedAt < maxAgeMs) return;
+        fetchSheet_(name, {}).catch(() => { /* best-effort — the page that actually needs this sheet will surface its own error */ });
+      });
+    },
+
+    /**
+     * Wipes both the in-memory and persisted cache entirely. Call on
+     * logout — otherwise the NEXT person to sign in on a shared device
+     * would instantly render the PREVIOUS position's cached Roster/
+     * Schedule/etc. before their own session's read even lands.
+     */
+    clearCache: clearCacheInternal_,
 
     /**
      * Append or update a row. rowData is a plain object of column:value
