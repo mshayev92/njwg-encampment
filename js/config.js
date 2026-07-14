@@ -47,11 +47,11 @@ window.APP_CONFIG = {
   // read/write, not just a CAP ID. Your Roster sheet needs a "Role"
   // column (e.g. "Staff" or "Cadre") for the backend's permission rules
   // to work — see SHEET_PERMISSIONS in Code.gs.
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/PASTE_YOUR_DEPLOYMENT_ID_HERE/exec",
+  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx3pa1fs27-HaXnESijYwvO0Vk04DGDmYZWANCuqUp49LGGbM50h5s0hScKHfcZwZTx/exec",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.
-  ENCAMPMENT_START_DATE: "2026-07-19",
+  ENCAMPMENT_START_DATE: "2026-07-12",
   ENCAMPMENT_END_DATE: "2026-07-26",
 
   UNIT_NAME: "NJWG CAP Encampment",
