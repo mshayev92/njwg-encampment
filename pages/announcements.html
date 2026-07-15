@@ -285,6 +285,7 @@
       try {
         await Api.writeRow("BlackFlagStatus", newStatus, { matchColumn: "RecordKey" });
         blackFlagStatus = newStatus;
+        Api.setCachedRows("BlackFlagStatus", [newStatus]);
         render();
         Shell.refreshGlobalAlerts();
       } catch (err) {
@@ -315,6 +316,7 @@
       try {
         await Api.writeRow("Announcements", newAnnouncement);
         announcements = [newAnnouncement, ...announcements];
+        Api.setCachedRows("Announcements", announcements);
         render();
         Shell.refreshGlobalAlerts();
         Shell.showToast("Announcement posted.", { type: "success" });
@@ -340,6 +342,7 @@
       // a rejected promise here — reflecting whether it actually lands.
       Api.deleteRow("Announcements", { Id: id }, { matchColumns: ["Id"] });
       announcements = announcements.filter(a => String(a.Id) !== String(id));
+      Api.setCachedRows("Announcements", announcements);
       render();
       Shell.showToast("Announcement deleted.", { type: "success" });
       Shell.refreshGlobalAlerts();
