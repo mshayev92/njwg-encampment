@@ -521,6 +521,34 @@ const Api = (() => {
     },
 
     /**
+     * Overwrites a sheet's cached rows with a KNOWN-fresh value (the
+     * caller's own optimistic local state right after a write) and
+     * notifies subscribers immediately — no network round-trip.
+     *
+     * writeRow()/deleteRow() are optimistic: they resolve before the real
+     * POST lands, and mark the sheet's cache stale so the NEXT read
+     * revalidates. But a caller that immediately re-reads that sheet
+     * (e.g. Shell.refreshGlobalAlerts() right after toggling the black
+     * flag or posting an announcement, so the header pill/banner picks
+     * up the change on this page and every other cached page) races
+     * that still-in-flight POST — the GET can return the OLD server
+     * value, so the just-made change appears to silently revert until a
+     * manual reload. Calling this right after updating local state
+     * (with the same rows the local re-render already used) closes that
+     * race: any dependent read sees the correct data instantly, and the
+     * real write still lands/reconciles the cache in the background as
+     * usual.
+     */
+    setCachedRows(sheetName, rows, extraParams = {}) {
+      const key = cacheKey(sheetName, extraParams);
+      const data = { rows: rows || [] };
+      const entry = { data, fetchedAt: Date.now() };
+      cache.set(key, entry);
+      persistToStorage_(key, entry);
+      notifySubscribers_(key, data);
+    },
+
+    /**
      * Clears the read cache and forces a fresh fetch of every sheet
      * currently cached, notifying subscribers as each comes back. This
      * is what the dedicated Refresh button calls — a real, visible,

@@ -121,11 +121,36 @@
       padding-left: var(--space-5);
     }
 
+    .note-groups {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-5);
+      margin-top: var(--space-5);
+    }
+
+    .note-group__header {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--indigo-900);
+      margin-bottom: var(--space-3);
+      padding-bottom: var(--space-2);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .note-group__count {
+      font-family: var(--font-mono);
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      text-transform: none;
+    }
+
     .note-feed {
       display: flex;
       flex-direction: column;
       gap: var(--space-3);
-      margin-top: var(--space-5);
     }
 
     .note-card {
@@ -200,6 +225,7 @@
     let rosterRows = [];
     let notes = [];
     let editingNoteId = null; // Id of the note being edited, or null when adding a new one
+    let showForm = false; // Whether the add-note form is open (editing always forces it open)
 
     // Only cadets in flights this position is scoped to are offered as
     // Subject suggestions — matches the same Flights-column scoping
@@ -231,6 +257,9 @@
 
     function renderPostForm() {
       const editing = editingNoteId !== null;
+      if (!editing && !showForm) {
+        return `<button class="btn btn--primary" id="show-note-form-btn">+ Add a Note</button>`;
+      }
       return `
         <div class="card note-form">
           <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${editing ? "Edit Note" : "Add a Note"}</h2>
@@ -241,32 +270,65 @@
           <div class="richtext-editor" id="body-editor" contenteditable="true" data-placeholder="Write your note…"></div>
           <div style="display:flex; gap: var(--space-3);">
             <button class="btn btn--primary" id="post-note-btn">${editing ? "Save Changes" : "Add Note"}</button>
-            ${editing ? `<button class="btn btn--ghost" id="cancel-edit-note-btn">Cancel</button>` : ""}
+            <button class="btn btn--ghost" id="cancel-edit-note-btn">Cancel</button>
           </div>
         </div>
       `;
     }
 
+    function renderNoteCard(n) {
+      return `
+        <div class="note-card">
+          <div class="note-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
+            <span>${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
+            <span style="display:flex; gap: var(--space-1);">
+              <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" style="padding: var(--space-1) var(--space-2);" aria-label="Edit note">✎</button>
+              <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" style="padding: var(--space-1) var(--space-2);" aria-label="Delete note">✕</button>
+            </span>
+          </div>
+          <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
+          <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
+        </div>
+      `;
+    }
+
+    /**
+     * Grouped by Subject so notes about the same cadet/topic sit
+     * together instead of one long reverse-chronological list — each
+     * group ordered by its own most recent note, with subject-less
+     * "General" notes always trailing at the end.
+     */
     function renderFeed() {
-      const sorted = notes
-        .filter(isNoteVisible)
-        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-      if (!sorted.length) {
+      const visible = notes.filter(isNoteVisible);
+      if (!visible.length) {
         return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
       }
+
+      const groups = new Map();
+      visible.forEach(n => {
+        const key = (n.Subject || "").trim();
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(n);
+      });
+      groups.forEach(group => group.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)));
+
+      const entries = Array.from(groups.entries()).sort((a, b) => {
+        if (!a[0] && b[0]) return 1;
+        if (!b[0] && a[0]) return -1;
+        return new Date(b[1][0].Timestamp) - new Date(a[1][0].Timestamp);
+      });
+
       return `
-        <div class="note-feed">
-          ${sorted.map(n => `
-            <div class="note-card">
-              <div class="note-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
-                <span>${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
-                <span style="display:flex; gap: var(--space-1);">
-                  <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" style="padding: var(--space-1) var(--space-2);" aria-label="Edit note">✎</button>
-                  <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" style="padding: var(--space-1) var(--space-2);" aria-label="Delete note">✕</button>
-                </span>
+        <div class="note-groups">
+          ${entries.map(([subject, group]) => `
+            <div class="note-group">
+              <div class="note-group__header">
+                <span>${subject ? esc(subject) : "General"}</span>
+                <span class="note-group__count">${group.length} note${group.length === 1 ? "" : "s"}</span>
               </div>
-              <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
-              <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
+              <div class="note-feed">
+                ${group.map(renderNoteCard).join("")}
+              </div>
             </div>
           `).join("")}
         </div>
@@ -283,7 +345,11 @@
       const editor = document.getElementById("body-editor");
       RichText.attach(toolbar, editor);
 
-      document.getElementById("post-note-btn").addEventListener("click", postNote);
+      const showFormBtn = document.getElementById("show-note-form-btn");
+      if (showFormBtn) showFormBtn.addEventListener("click", () => { showForm = true; render(); });
+
+      const postNoteBtn = document.getElementById("post-note-btn");
+      if (postNoteBtn) postNoteBtn.addEventListener("click", postNote);
       const cancelEditBtn = document.getElementById("cancel-edit-note-btn");
       if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEditNote);
       initSubjectAutocomplete();
@@ -310,6 +376,7 @@
 
     function cancelEditNote() {
       editingNoteId = null;
+      showForm = false;
       render();
     }
 
@@ -339,6 +406,7 @@
     function initSubjectAutocomplete() {
       const wrap = document.getElementById("subject-autocomplete");
       const input = document.getElementById("subject-input");
+      if (!wrap || !input) return; // form is collapsed — nothing to wire up
       let suggestionsEl = null;
 
       function closeSuggestions() {
@@ -420,6 +488,7 @@
           editingNoteId = null;
         } else {
           notes = [noteRow, ...notes];
+          showForm = false;
         }
         render();
         Shell.showToast(editing ? "Note updated." : "Note saved.", { type: "success" });
