@@ -1,0 +1,26 @@
+name = "njwg-encampment-api"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# One KV namespace, used for three things (distinguished by key prefix):
+#   rl:<hash>        rate-limit counters (short TTL)
+#   googletoken       cached Google OAuth access token (~55 min TTL)
+#   sheetvals:<name>  cached sheet read data (short TTL), mirrors
+#                     READ_CACHE_TTL_SECONDS in the old apps-script/Code.gs
+#
+# Create it with:
+#   npx wrangler kv namespace create NJWG_KV
+# then paste the returned "id" below.
+[[kv_namespaces]]
+binding = "NJWG_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# All secrets below are set with `wrangler secret put <NAME>` — never
+# committed here. See worker/README.md for the full list and how to
+# derive each value.
+#
+#   GOOGLE_CLIENT_EMAIL   service account's client_email
+#   GOOGLE_PRIVATE_KEY    service account's private_key (with \n newlines)
+#   SPREADSHEET_ID        the target Google Sheet's ID (from its URL)
+#   SESSION_SECRET        random secret for signing device/session tokens
+#   PASSPHRASE_HASH       SHA-256 hex hash of the device-gate passphrase
