@@ -13,7 +13,7 @@ compatibility_date = "2024-11-01"
 # then paste the returned "id" below.
 [[kv_namespaces]]
 binding = "NJWG_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "a0c1d24db52d4364b1dbbbaf281d779d"
 
 # All secrets below are set with `wrangler secret put <NAME>` — never
 # committed here. See worker/README.md for the full list and how to

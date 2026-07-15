@@ -120,6 +120,17 @@ async function handleDeviceLogin(env, body) {
   const correctHash = env.PASSPHRASE_HASH;
   const success = attemptHash === correctHash;
 
+  // TEMP DEBUG — remove once deviceLogin is confirmed working. Logging
+  // hashes (not the plaintext passphrase) is safe: SHA-256 isn't reversible.
+  console.log("DEBUG deviceLogin", {
+    receivedPassphraseLength: passphrase.length,
+    attemptHash,
+    correctHashPresent: typeof correctHash === "string",
+    correctHashLength: correctHash ? correctHash.length : 0,
+    correctHash,
+    match: success
+  });
+
   await logLoginAttempt(env, { type: "device", identifier: deviceType, success });
 
   if (!success) throw new Error("Incorrect passphrase.");
