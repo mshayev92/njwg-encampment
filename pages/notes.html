@@ -199,6 +199,7 @@
 
     let rosterRows = [];
     let notes = [];
+    let editingNoteId = null; // Id of the note being edited, or null when adding a new one
 
     // Only cadets in flights this position is scoped to are offered as
     // Subject suggestions — matches the same Flights-column scoping
@@ -229,15 +230,19 @@
     }
 
     function renderPostForm() {
+      const editing = editingNoteId !== null;
       return `
         <div class="card note-form">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Add a Note</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${editing ? "Edit Note" : "Add a Note"}</h2>
           <div class="subject-autocomplete" id="subject-autocomplete">
             <input type="text" id="subject-input" autocomplete="off" placeholder="Subject — a cadet's name from the roster, or any subject…">
           </div>
           ${RichText.TOOLBAR_HTML}
           <div class="richtext-editor" id="body-editor" contenteditable="true" data-placeholder="Write your note…"></div>
-          <button class="btn btn--primary" id="post-note-btn">Add Note</button>
+          <div style="display:flex; gap: var(--space-3);">
+            <button class="btn btn--primary" id="post-note-btn">${editing ? "Save Changes" : "Add Note"}</button>
+            ${editing ? `<button class="btn btn--ghost" id="cancel-edit-note-btn">Cancel</button>` : ""}
+          </div>
         </div>
       `;
     }
@@ -253,8 +258,14 @@
         <div class="note-feed">
           ${sorted.map(n => `
             <div class="note-card">
+              <div class="note-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
+                <span>${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
+                <span style="display:flex; gap: var(--space-1);">
+                  <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" style="padding: var(--space-1) var(--space-2);" aria-label="Edit note">✎</button>
+                  <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" style="padding: var(--space-1) var(--space-2);" aria-label="Delete note">✕</button>
+                </span>
+              </div>
               <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
-              <div class="note-card__meta">${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</div>
               <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
             </div>
           `).join("")}
@@ -273,7 +284,48 @@
       RichText.attach(toolbar, editor);
 
       document.getElementById("post-note-btn").addEventListener("click", postNote);
+      const cancelEditBtn = document.getElementById("cancel-edit-note-btn");
+      if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEditNote);
       initSubjectAutocomplete();
+
+      contentEl.querySelectorAll("[data-edit-id]").forEach(btn => {
+        btn.addEventListener("click", () => startEditNote(btn.dataset.editId));
+      });
+      contentEl.querySelectorAll("[data-delete-id]").forEach(btn => {
+        btn.addEventListener("click", () => deleteNote(btn.dataset.deleteId));
+      });
+      Shell.wireTooltips(contentEl);
+    }
+
+    /** Prefills the form from an existing note and switches it into edit mode. */
+    function startEditNote(id) {
+      const note = notes.find(n => String(n.Id) === String(id));
+      if (!note) return;
+      editingNoteId = note.Id;
+      render();
+      document.getElementById("subject-input").value = note.Subject || "";
+      document.getElementById("body-editor").innerHTML = RichText.sanitize(note.Body || "");
+      document.querySelector(".note-form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function cancelEditNote() {
+      editingNoteId = null;
+      render();
+    }
+
+    async function deleteNote(id) {
+      const confirmed = await Shell.confirm({
+        title: "Delete note?",
+        message: "This can't be undone.",
+        confirmLabel: "Delete",
+      });
+      if (!confirmed) return;
+
+      Api.deleteRow("Notes", { Id: id }, { matchColumns: ["Id"] });
+      notes = notes.filter(n => String(n.Id) !== String(id));
+      if (editingNoteId === id) editingNoteId = null;
+      render();
+      Shell.showToast("Note deleted.", { type: "success" });
     }
 
     /**
@@ -346,24 +398,35 @@
       postBtn.disabled = true;
       postBtn.textContent = "Saving…";
 
-      const newNote = {
-        Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        Timestamp: new Date().toISOString(),
-        AuthorPosition: session.Position,
-        Subject: subject,
-        Flight: flightForSubject(subject),
-        Body: bodyHtml
-      };
+      const editing = editingNoteId !== null;
+      const existing = editing ? notes.find(n => String(n.Id) === String(editingNoteId)) : null;
+
+      const noteRow = editing && existing
+        ? { ...existing, Subject: subject, Flight: flightForSubject(subject), Body: bodyHtml }
+        : {
+            Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            Timestamp: new Date().toISOString(),
+            AuthorPosition: session.Position,
+            Subject: subject,
+            Flight: flightForSubject(subject),
+            Body: bodyHtml
+          };
 
       try {
-        await Api.writeRow("Notes", newNote);
-        notes = [newNote, ...notes];
+        await Api.writeRow("Notes", noteRow, editing ? { matchColumns: ["Id"] } : {});
+        if (editing) {
+          const idx = notes.findIndex(n => String(n.Id) === String(editingNoteId));
+          if (idx >= 0) notes[idx] = noteRow; else notes.unshift(noteRow);
+          editingNoteId = null;
+        } else {
+          notes = [noteRow, ...notes];
+        }
         render();
-        Shell.showToast("Note saved.", { type: "success" });
+        Shell.showToast(editing ? "Note updated." : "Note saved.", { type: "success" });
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
         postBtn.disabled = false;
-        postBtn.textContent = "Add Note";
+        postBtn.textContent = editing ? "Save Changes" : "Add Note";
       }
     }
 
