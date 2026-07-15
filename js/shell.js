@@ -49,6 +49,7 @@ const Shell = (() => {
     file:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>',
     check:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     bell:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
+    edit:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
     refresh:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>'
   };
 
@@ -420,12 +421,24 @@ const Shell = (() => {
   let announcementsOutsideHandler_ = null;
   let announcementsKeyHandler_ = null;
 
+  /**
+   * Announcement Message is rich-text HTML (see js/richtext.js), but this
+   * popover is a plain-text preview shown on every page — not every page
+   * loads richtext.js, so this strips tags down to plain text here rather
+   * than pulling in the whole sanitizer just to re-escape it.
+   */
+  function messagePreviewText_(html) {
+    const template = document.createElement("template");
+    template.innerHTML = html || "";
+    return template.content.textContent || "";
+  }
+
   function renderAnnouncementsList_(announcements) {
     const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
     return sorted.length ? sorted.map(a => `
       <div class="announcements-popover__item">
         <div class="announcements-popover__meta">${escapeHtml_(a.Position || "—")} · ${escapeHtml_(new Date(a.Timestamp).toLocaleString())}</div>
-        <div class="announcements-popover__message">${escapeHtml_(a.Message || "")}</div>
+        <div class="announcements-popover__message">${escapeHtml_(messagePreviewText_(a.Message || ""))}</div>
       </div>
     `).join("") : `<div class="announcements-popover__empty">No announcements yet.</div>`;
   }

@@ -66,7 +66,27 @@
       border: 1px solid var(--line);
     }
 
-    .post-form textarea {
+    .richtext-toolbar {
+      display: flex;
+      gap: var(--space-1);
+      margin-bottom: var(--space-2);
+    }
+
+    .richtext-toolbar button {
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--fs-sm);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-900);
+      cursor: pointer;
+    }
+
+    .richtext-toolbar button:hover {
+      border-color: var(--gold-500);
+    }
+
+    .richtext-editor {
       width: 100%;
       min-height: 90px;
       font-family: var(--font-body);
@@ -75,8 +95,17 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       background: var(--surface-sunken);
-      resize: vertical;
       margin-bottom: var(--space-3);
+      overflow-y: auto;
+    }
+
+    .richtext-editor:empty::before {
+      content: attr(data-placeholder);
+      color: var(--ink-600);
+    }
+
+    .richtext-editor ul, .richtext-editor ol {
+      padding-left: var(--space-5);
     }
 
     .announcement-feed {
@@ -104,7 +133,10 @@
     .announcement-card__message {
       font-size: var(--fs-sm);
       color: var(--ink-900);
-      white-space: pre-wrap;
+    }
+
+    .announcement-card__message ul, .announcement-card__message ol {
+      padding-left: var(--space-5);
     }
 
     .read-only-notice {
@@ -136,6 +168,7 @@
   <script src="../js/config.js"></script>
   <script src="../js/api.js"></script>
   <script src="../js/auth.js"></script>
+  <script src="../js/richtext.js"></script>
   <script src="../js/shell.js"></script>
   <script>
     Shell.init({ activePage: "announcements" });
@@ -177,7 +210,8 @@
       return `
         <div class="card post-form">
           <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Post an Announcement</h2>
-          <textarea id="message-input" placeholder="Write an announcement for all staff…"></textarea>
+          ${RichText.TOOLBAR_HTML}
+          <div class="richtext-editor" id="message-input" contenteditable="true" data-placeholder="Write an announcement for all staff…"></div>
           <button class="btn btn--primary" id="post-btn">Post Announcement</button>
         </div>
       `;
@@ -193,7 +227,7 @@
           ${sorted.map(a => `
             <div class="announcement-card">
               <div class="announcement-card__meta">${esc(a.Position || "—")} · ${esc(new Date(a.Timestamp).toLocaleString())}</div>
-              <div class="announcement-card__message">${esc(a.Message || "")}</div>
+              <div class="announcement-card__message">${RichText.sanitize(a.Message || "")}</div>
             </div>
           `).join("")}
         </div>
@@ -213,6 +247,10 @@
 
       const postBtn = document.getElementById("post-btn");
       if (postBtn) postBtn.addEventListener("click", postAnnouncement);
+
+      const toolbar = contentEl.querySelector(".richtext-toolbar");
+      const editor = document.getElementById("message-input");
+      if (toolbar && editor) RichText.attach(toolbar, editor);
     }
 
     /**
@@ -248,9 +286,9 @@
     }
 
     async function postAnnouncement() {
-      const input = document.getElementById("message-input");
-      const message = input.value.trim();
-      if (!message) {
+      const editor = document.getElementById("message-input");
+      const message = RichText.sanitize(editor.innerHTML);
+      if (RichText.isEmpty(message)) {
         Shell.showToast("Write a message before posting.", { type: "error" });
         return;
       }

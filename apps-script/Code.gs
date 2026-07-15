@@ -125,7 +125,7 @@
 // StaffAccess is deliberately NOT in this list — see security tradeoff
 // note above. Only handleLogin/handleListPositions may touch it.
 const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
 // Positions that require a password, checked directly against the
@@ -149,7 +149,8 @@ const SHEET_PERMISSIONS = {
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
   Announcements:      { read: "any", write: "page" },
-  BlackFlagStatus:    { read: "any", write: "page" }
+  BlackFlagStatus:    { read: "any", write: "page" },
+  Notes:              { read: "any", write: "any" }
 };
 
 // Which Pages-column id(s) gate writes to each "page"-permission sheet.
@@ -211,6 +212,12 @@ const ROOM_INSPECTION_COLUMNS = [
 ];
 
 const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
+
+// Subject is free text — either a name typed/picked from the Roster (a
+// person can reference a cadet just by name, since CapId lookups are a
+// nice-to-have, not required) or a plain non-cadet subject. Body holds
+// sanitized rich-text HTML (see js/richtext.js).
+const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Body"];
 
 const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 
@@ -537,6 +544,7 @@ function handleRead(params, session) {
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
+  if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const values = getCachedSheetValues_(sheetName);
@@ -612,6 +620,7 @@ function handleWrite(body, session) {
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
+  if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);

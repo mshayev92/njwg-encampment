@@ -13,7 +13,7 @@
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
 export const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
@@ -27,7 +27,8 @@ export const SHEET_PERMISSIONS = {
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
   Announcements:      { read: "any", write: "page" },
-  BlackFlagStatus:    { read: "any", write: "page" }
+  BlackFlagStatus:    { read: "any", write: "page" },
+  Notes:              { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
@@ -56,6 +57,11 @@ export const ROOM_INSPECTION_COLUMNS = [
   "TotalPoints", "Notes"
 ];
 export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
+// Subject is free text — either a name typed/picked from the Roster (a
+// person can reference a cadet just by name, since CapId lookups are a
+// nice-to-have, not required) or a plain non-cadet subject. Body holds
+// sanitized rich-text HTML (see js/richtext.js).
+export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Body"];
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 
 // ---- Hashing / signing ------------------------------------------------------
