@@ -275,6 +275,28 @@
       align-items: center;
     }
 
+    .trends-type-toggle {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .trends-type-toggle button {
+      padding: var(--space-2) var(--space-4);
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      border: none;
+      background: var(--surface);
+      color: var(--ink-600);
+      cursor: pointer;
+    }
+
+    .trends-type-toggle button.is-selected {
+      background: var(--indigo-900);
+      color: var(--surface);
+    }
+
     .trends-toolbar select {
       font-family: var(--font-body);
       font-size: var(--fs-sm);
@@ -390,8 +412,8 @@
     <main class="app-main">
       <div class="inspection-tabs tabs">
         <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
-        <button class="tabs__tab" data-tab="trends">Trends</button>
         <button class="tabs__tab" data-tab="room">Room</button>
+        <button class="tabs__tab" data-tab="trends">Trends</button>
       </div>
 
       <div id="inspection-content">
@@ -798,8 +820,11 @@
      * you want the fuller picture instead.
      */
     let trendsBasis = "latest"; // "latest" | "all"
+    let trendsType = "uniform"; // "uniform" | "room" — which inspection's trends are on screen
 
-    function computeFlightTrends(basis) {
+    function computeFlightTrends(type, basis) {
+      const items = INSPECTION_TYPES[type].items;
+      const byStudent = inspectionsByType[type].byStudent;
       const grouped = groupByFlight(rosterRows);
       const flightNames = Object.keys(grouped).sort();
 
@@ -807,14 +832,14 @@
         const members = grouped[flight];
         const relevantRows = [];
         members.forEach(m => {
-          const history = inspectionsByType.uniform.byStudent[String(m.CapId)] || [];
+          const history = byStudent[String(m.CapId)] || [];
           if (!history.length) return;
           if (basis === "latest") relevantRows.push(history[0]);
           else relevantRows.push(...history);
         });
 
         const itemAverages = {};
-        SCORE_ITEMS.forEach(item => {
+        items.forEach(item => {
           const scored = relevantRows.filter(r => r[item.key] === 1 || r[item.key] === 0 || r[item.key] === "1" || r[item.key] === "0");
           const passCount = scored.filter(r => Number(r[item.key]) === 1).length;
           itemAverages[item.key] = scored.length ? passCount / scored.length : null;
@@ -830,7 +855,9 @@
 
     function renderTrends() {
       currentView = "trends";
-      const data = computeFlightTrends(trendsBasis);
+      const items = INSPECTION_TYPES[trendsType].items;
+      const byStudent = inspectionsByType[trendsType].byStudent;
+      const data = computeFlightTrends(trendsType, trendsBasis);
 
       // The per-item pass-rate breakdown below must respect the same
       // flight scoping the average cards use — otherwise a flight-scoped
@@ -844,6 +871,10 @@
 
       contentEl.innerHTML = `
         <div class="trends-toolbar">
+          <div class="trends-type-toggle" id="trends-type-toggle">
+            <button type="button" class="${trendsType === "uniform" ? "is-selected" : ""}" data-type="uniform">Uniform</button>
+            <button type="button" class="${trendsType === "room" ? "is-selected" : ""}" data-type="room">Room</button>
+          </div>
           <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
           <select id="trends-basis-select">
             <option value="latest" ${trendsBasis === "latest" ? "selected" : ""}>Each cadet's latest inspection</option>
@@ -851,15 +882,19 @@
           </select>
         </div>
 
+        <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+          ${trendsType === "room" ? "Room Inspection Trends" : "Uniform Inspection Trends"}
+        </h3>
+
         ${data.length ? `
           <div class="flight-avg-grid">
             ${data.map(d => `
               <div class="flight-avg-card">
                 <div class="flight-avg-card__name">${esc(d.flight)}</div>
                 ${d.totalAvg !== null ? `
-                  <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${SCORE_ITEMS.length}</span></div>
+                  <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${items.length}</span></div>
                   <div class="flight-avg-card__bar-track">
-                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / SCORE_ITEMS.length) * 100)}%;"></div>
+                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / items.length) * 100)}%;"></div>
                   </div>
                   <div class="flight-avg-card__count">${d.studentsInspected} cadet${d.studentsInspected === 1 ? "" : "s"} · ${d.count} scorecard${d.count === 1 ? "" : "s"}</div>
                 ` : `
@@ -874,9 +909,9 @@
               Pass rate by item, across all flights
             </h3>
             <div class="trend-item-breakdown">
-              ${SCORE_ITEMS.map(item => {
+              ${items.map(item => {
                 let scored = 0, passed = 0;
-                Object.entries(inspectionsByType.uniform.byStudent).forEach(([capId, history]) => {
+                Object.entries(byStudent).forEach(([capId, history]) => {
                   if (!allowedCapIds.has(capId)) return;
                   const rows = trendsBasis === "latest" ? history.slice(0, 1) : history;
                   rows.forEach(r => {
@@ -904,10 +939,17 @@
         ` : `
           <div class="state-message">
             <div class="state-message__icon">📊</div>
-            <p>No inspection data yet.</p>
+            <p>No ${trendsType} inspection data yet.</p>
           </div>
         `}
       `;
+
+      document.getElementById("trends-type-toggle").querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", () => {
+          trendsType = btn.dataset.type;
+          renderTrends();
+        });
+      });
 
       const basisSelect = document.getElementById("trends-basis-select");
       if (basisSelect) {
