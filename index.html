@@ -48,27 +48,40 @@
 
     .login-card {
       width: 100%;
-      max-width: 380px;
+      max-width: 680px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
       background: var(--surface);
       border-radius: var(--radius-lg);
-      padding: var(--space-7) var(--space-6);
       box-shadow: var(--shadow-lg);
-      text-align: center;
+      overflow: hidden;
       position: relative;
       z-index: 1;
       border-top: 3px solid var(--gold-500);
     }
 
+    .login-card__left {
+      background: var(--indigo-950);
+      color: var(--steel-300);
+      padding: var(--space-7) var(--space-5);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      justify-content: center;
+      gap: var(--space-2);
+    }
+
     .login-card__mark {
-      width: 84px; height: 84px;
-      margin: 0 auto var(--space-4);
+      width: 72px; height: 72px;
+      margin-bottom: var(--space-3);
       display: flex; align-items: center; justify-content: center;
     }
 
     .login-card__mark img {
       width: 100%; height: 100%;
       object-fit: contain;
-      filter: drop-shadow(0 4px 10px rgba(13, 18, 80, 0.25));
+      filter: drop-shadow(0 4px 10px rgba(13, 18, 80, 0.35));
     }
 
     .login-card__eyebrow {
@@ -76,16 +89,28 @@
       font-size: var(--fs-2xs);
       letter-spacing: var(--tracking-wider);
       text-transform: uppercase;
-      color: var(--ink-600);
+      color: var(--gold-500);
     }
 
-    .login-card h1 {
-      font-size: var(--fs-xl);
-      color: var(--indigo-900);
-      margin-bottom: var(--space-5);
+    .login-card__left h1 {
+      font-size: var(--fs-lg);
+      color: var(--surface);
+      margin: var(--space-2) 0 0;
     }
 
-    .login-card .field { text-align: left; }
+    .login-card__hint {
+      font-size: var(--fs-xs);
+      color: var(--steel-300);
+      margin-top: var(--space-2);
+      line-height: var(--lh-normal);
+    }
+
+    .login-card__right {
+      padding: var(--space-6) var(--space-5);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
 
     .login-error {
       display: none;
@@ -99,39 +124,99 @@
     }
     .login-error.is-visible { display: block; }
 
-    .login-card .btn { width: 100%; }
+    /* ---- Position list (replaces the plain <select>) ---- */
+    .position-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      max-height: 320px;
+      overflow-y: auto;
+      padding-right: var(--space-1);
+    }
 
-    /* Password field is hidden until a password-protected position
-       (CCT, Administrator) is selected from the dropdown. */
-    .field--password { display: none; }
-    .field--password.is-visible { display: flex; }
+    .position-chip {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface-sunken);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      font-family: inherit;
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--ink-900);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color var(--duration-fast) var(--ease-standard),
+                  transform var(--duration-fast) var(--ease-standard);
+    }
+
+    .position-chip:hover {
+      border-color: var(--gold-500);
+      transform: translateX(2px);
+    }
+
+    .position-chip:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .position-chip__lock {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+    }
+
+    /* ---- Password step (replaces the position list in place) ---- */
+    .password-step { display: none; }
+    .password-step.is-visible { display: flex; flex-direction: column; gap: var(--space-4); }
+
+    .password-step__back {
+      align-self: flex-start;
+    }
+
+    .password-step__selected {
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--indigo-900);
+    }
+
+    .password-step .field { text-align: left; margin-bottom: 0; }
+    .password-step .btn { width: 100%; }
   </style>
 </head>
 <body>
 
   <div class="login-screen">
     <div class="login-card">
-      <div class="login-card__mark"><img src="icons/icon-192.png" alt="NJ Wing"></div>
-      <span class="login-card__eyebrow">NJWG Encampment</span>
-      <h1>Staff Sign In</h1>
+      <div class="login-card__left">
+        <div class="login-card__mark"><img src="icons/icon-192.png" alt="NJ Wing"></div>
+        <span class="login-card__eyebrow">NJWG Encampment</span>
+        <h1>Staff Sign In</h1>
+        <p class="login-card__hint">Select your position to continue.</p>
+      </div>
 
-      <div class="login-error" id="login-error"></div>
+      <div class="login-card__right">
+        <div class="login-error" id="login-error"></div>
 
-      <form id="login-form" novalidate>
-        <div class="field field--position">
-          <label for="position-select">Position</label>
-          <select id="position-select" name="position" required disabled>
-            <option value="" disabled selected>Loading positions…</option>
-          </select>
+        <div class="position-list" id="position-list">
+          <div class="state-message"><div class="spinner"></div></div>
         </div>
 
-        <div class="field field--password" id="password-field">
-          <label for="password-input">Password</label>
-          <input type="password" id="password-input" name="password" autocomplete="off">
-        </div>
-
-        <button type="submit" class="btn btn--primary" id="login-submit">Sign In</button>
-      </form>
+        <form class="password-step" id="password-step">
+          <button type="button" class="btn btn--ghost password-step__back" id="back-btn">← Back</button>
+          <div class="password-step__selected" id="selected-position-label"></div>
+          <div class="field">
+            <label for="password-input">Password</label>
+            <input type="password" id="password-input" name="password" autocomplete="off">
+          </div>
+          <button type="submit" class="btn btn--primary" id="login-submit">Sign In</button>
+        </form>
+      </div>
     </div>
   </div>
 
@@ -140,28 +225,23 @@
   <script src="js/auth.js"></script>
   <script src="js/shell.js"></script>
   <script>
-    const form = document.getElementById("login-form");
     const errorBox = document.getElementById("login-error");
-    const submitBtn = document.getElementById("login-submit");
-    const positionSelect = document.getElementById("position-select");
-    const passwordField = document.getElementById("password-field");
+    const positionListEl = document.getElementById("position-list");
+    const passwordStep = document.getElementById("password-step");
+    const backBtn = document.getElementById("back-btn");
+    const selectedPositionLabel = document.getElementById("selected-position-label");
     const passwordInput = document.getElementById("password-input");
+    const submitBtn = document.getElementById("login-submit");
 
-    // Positions that require a password in addition to picking them from
-    // the dropdown. Kept in sync with PASSWORD_PROTECTED_POSITIONS in
-    // apps-script/Code.gs — the backend is the real enforcement point;
-    // this only controls whether the password field is shown client-side.
+    // Positions that require a password in addition to picking them.
+    // Kept in sync with PASSWORD_PROTECTED_POSITIONS in
+    // apps-script/Code.gs / worker/src/auth.js — the backend is the real
+    // enforcement point; this only decides whether the password step
+    // shows client-side.
     const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
 
     function isPasswordProtected(position) {
       return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
-    }
-
-    function updatePasswordFieldVisibility() {
-      const protectedPosition = isPasswordProtected(positionSelect.value);
-      passwordField.classList.toggle("is-visible", protectedPosition);
-      passwordInput.required = protectedPosition;
-      if (!protectedPosition) passwordInput.value = "";
     }
 
     // Must have already unlocked this device with the passphrase.
@@ -184,52 +264,95 @@
       window.location.href = params.get("returnTo") || defaultLandingHref();
     }
 
-    async function loadPositions() {
-      try {
-        const positions = await Auth.listPositions();
-        if (!positions.length) {
-          positionSelect.innerHTML = `<option value="" disabled selected>No positions configured</option>`;
-          return;
-        }
-        positionSelect.innerHTML = `
-          <option value="" disabled selected>Select your position…</option>
-          ${positions.map(p => `<option value="${Shell.escapeHtml(p)}">${Shell.escapeHtml(p)}</option>`).join("")}
-        `;
-        positionSelect.disabled = false;
-      } catch (err) {
-        positionSelect.innerHTML = `<option value="" disabled selected>Couldn't load positions</option>`;
-        errorBox.textContent = err.message;
-        errorBox.classList.add("is-visible");
-      } finally {
-        Shell.enhanceSelect(positionSelect);
-      }
-    }
-
-    // Enhance immediately (showing the disabled custom-styled trigger
-    // with its "Loading positions…" placeholder) rather than only after
-    // loadPositions() resolves — otherwise the plain native <select>
-    // briefly flashes before the themed dropdown takes over.
-    Shell.enhanceSelect(positionSelect);
-
-    positionSelect.addEventListener("change", updatePasswordFieldVisibility);
-
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
+    /** Shared success/redirect + failure handling for both login paths (direct click and password step). */
+    async function doLogin(position, password, { onError } = {}) {
       errorBox.classList.remove("is-visible");
-      submitBtn.disabled = true;
-      submitBtn.textContent = "Checking…";
-
       try {
-        await Auth.login(positionSelect.value, passwordInput.value);
+        await Auth.login(position, password || "");
         const params = new URLSearchParams(window.location.search);
         window.location.href = params.get("returnTo") || defaultLandingHref();
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.classList.add("is-visible");
-        submitBtn.disabled = false;
-        submitBtn.textContent = "Sign In";
-        passwordInput.value = "";
+        if (onError) onError(err);
       }
+    }
+
+    function showPositionList() {
+      passwordStep.classList.remove("is-visible");
+      positionListEl.style.display = "";
+      passwordInput.value = "";
+      errorBox.classList.remove("is-visible");
+    }
+
+    function showPasswordStep(position) {
+      positionListEl.style.display = "none";
+      passwordStep.classList.add("is-visible");
+      selectedPositionLabel.textContent = position;
+      passwordInput.value = "";
+      errorBox.classList.remove("is-visible");
+      passwordInput.focus();
+    }
+
+    let currentPasswordPosition = null;
+
+    async function onPositionClick(position, btn) {
+      if (isPasswordProtected(position)) {
+        currentPasswordPosition = position;
+        showPasswordStep(position);
+        return;
+      }
+
+      // Non-password positions are a single click — no separate submit
+      // step needed, since there's nothing else to enter.
+      const originalLabel = btn.textContent;
+      positionListEl.querySelectorAll(".position-chip").forEach(c => c.disabled = true);
+      btn.textContent = "Signing in…";
+      await doLogin(position, "", {
+        onError: () => {
+          positionListEl.querySelectorAll(".position-chip").forEach(c => c.disabled = false);
+          btn.textContent = originalLabel;
+        }
+      });
+    }
+
+    async function loadPositions() {
+      try {
+        const positions = await Auth.listPositions();
+        if (!positions.length) {
+          positionListEl.innerHTML = `<div class="state-message"><p>No positions configured.</p></div>`;
+          return;
+        }
+        positionListEl.innerHTML = positions.map(p => `
+          <button type="button" class="position-chip" data-position="${Shell.escapeHtml(p)}">
+            <span>${Shell.escapeHtml(p)}</span>
+            ${isPasswordProtected(p) ? `<span class="position-chip__lock">🔒 Password</span>` : ""}
+          </button>
+        `).join("");
+
+        positionListEl.querySelectorAll(".position-chip").forEach(btn => {
+          btn.addEventListener("click", () => onPositionClick(btn.dataset.position, btn));
+        });
+      } catch (err) {
+        positionListEl.innerHTML = `<div class="state-message"><p>Couldn't load positions.</p></div>`;
+        errorBox.textContent = err.message;
+        errorBox.classList.add("is-visible");
+      }
+    }
+
+    backBtn.addEventListener("click", showPositionList);
+
+    passwordStep.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      submitBtn.textContent = "Checking…";
+
+      await doLogin(currentPasswordPosition, passwordInput.value, {
+        onError: () => { passwordInput.value = ""; passwordInput.focus(); }
+      });
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = "Sign In";
     });
 
     loadPositions();
