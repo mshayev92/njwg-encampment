@@ -2,6 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint, so a collapsed sidebar
+    // renders at its collapsed width immediately instead of flashing
+    // open at the default width for a frame and visibly animating shut
+    // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    try {
+      if (localStorage.getItem("njwg_nav_collapsed") === "true") {
+        document.documentElement.classList.add("nav-rail-collapsed");
+      }
+    } catch (e) { /* storage unavailable — falls back to expanded */ }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Overview — NJWG Encampment</title>
   <meta name="theme-color" content="#0d1250">
@@ -74,6 +85,39 @@
       font-family: var(--font-display);
       font-size: var(--fs-xl);
       color: var(--gold-600);
+    }
+
+    .activity-row {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-3);
+      padding: var(--space-3) 0;
+    }
+    .activity-row + .activity-row { border-top: 1px solid var(--line); }
+
+    .activity-row__label {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      width: 56px;
+      flex-shrink: 0;
+    }
+
+    .activity-row__title {
+      font-size: var(--fs-md);
+      color: var(--ink-900);
+    }
+
+    .activity-row__meta {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+    }
+
+    .activity-row--empty .activity-row__title {
+      color: var(--ink-600);
+      font-size: var(--fs-sm);
     }
   </style>
 </head>
@@ -156,6 +200,46 @@
       `;
     }
 
+    /** One "Now"/"Next" row inside the activity card. */
+    function renderActivityRow(label, item) {
+      if (!item) {
+        return `
+          <div class="activity-row activity-row--empty">
+            <div class="activity-row__label">${label}</div>
+            <div class="activity-row__title">Nothing scheduled</div>
+          </div>`;
+      }
+      const meta = [item.Time, item.Location, item.Flight].filter(Boolean).map(esc).join(" · ");
+      return `
+        <div class="activity-row">
+          <div class="activity-row__label">${label}</div>
+          <div>
+            <div class="activity-row__title">${esc(item.Activity) || "—"}</div>
+            ${meta ? `<div class="activity-row__meta">${meta}</div>` : ""}
+          </div>
+        </div>`;
+    }
+
+    /**
+     * "Your Activity Today" — scoped to this position's own Flights
+     * (same convention as Your Flights below), so two different
+     * positions looking at the same schedule can see two different
+     * "current" activities.
+     */
+    function renderActivityCard(scheduleRows) {
+      if (scheduleRows === null) {
+        return `<div class="card"><div class="state-message" style="padding: var(--space-4);"><div class="spinner spinner--sm"></div></div></div>`;
+      }
+      const { current, next } = Shell.currentAndNextScheduleItems(scheduleRows, allowedFlights);
+      return `
+        <div class="card">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900); margin-bottom: var(--space-2);">Your Activity Today</h2>
+          ${renderActivityRow("Now", current)}
+          ${renderActivityRow("Next", next)}
+        </div>
+      `;
+    }
+
     function renderFlightStats(rosterRows) {
       const grouped = rosterRows
         .filter(r => isFlightAllowed(r.Flight))
@@ -192,6 +276,7 @@
     // whenever either updates, rather than waiting on both together.
     let lastWeather = null;
     let lastRosterRows = null;
+    let lastScheduleRows = null;
 
     function renderAll() {
       if (lastRosterRows === null) {
@@ -202,6 +287,7 @@
         <div class="overview-grid">
           ${renderWeatherCard(lastWeather)}
         </div>
+        ${renderActivityCard(lastScheduleRows)}
         ${renderFlightStats(lastRosterRows)}
       `;
     }
@@ -231,6 +317,17 @@
         Shell.showToast(err.message, { type: "error" });
       });
 
+      // Schedule: same instant-cache pattern, independent of Roster —
+      // whichever resolves first still renders, the other slot shows a
+      // small inline spinner until it lands.
+      const scheduleHandle = Api.getSheetCached("Schedule", (fresh) => {
+        lastScheduleRows = fresh.rows || [];
+        renderAll();
+      });
+      if (scheduleHandle.data) lastScheduleRows = scheduleHandle.data.rows || [];
+      renderAll();
+      scheduleHandle.ready.catch(() => { /* surfaced by the Schedule page itself if it matters */ });
+
       // Weather has no backend cache of its own (it's a direct call to
       // Open-Meteo, not the Apps Script) — just fetch it every load and
       // patch it into whatever's already rendered.
@@ -239,6 +336,10 @@
 
     Shell.registerRefresh(load);
     load();
+
+    // Re-render every minute so "Now"/"Next" advances on its own as time
+    // passes, without requiring a manual refresh or page reload.
+    setInterval(renderAll, 60 * 1000);
   </script>
 
   <script>
