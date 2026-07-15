@@ -79,6 +79,11 @@
       border-top: 1px solid var(--line);
     }
 
+    .schedule-tabs {
+      margin-bottom: var(--space-5);
+      overflow-x: auto;
+    }
+
     /* Highlights the schedule row matching this position's current
        activity (see Shell.currentAndNextScheduleItems). */
     .schedule-row--current {
@@ -102,6 +107,7 @@
     <main class="app-main">
       <div class="page-header" style="justify-content: flex-end;">
         <button class="btn btn--ghost" id="add-item-btn" style="display:none;">+ Add Item</button>
+        <button class="btn btn--ghost" id="add-schedule-btn" style="display:none;">+ New Schedule</button>
       </div>
 
       <div id="schedule-form-container"></div>
@@ -127,6 +133,7 @@
 
     const contentEl = document.getElementById("schedule-content");
     const addItemBtn = document.getElementById("add-item-btn");
+    const addScheduleBtn = document.getElementById("add-schedule-btn");
     const formContainer = document.getElementById("schedule-form-container");
     const esc = Shell.escapeHtml;
 
@@ -141,12 +148,68 @@
     const canEditSchedule = sessionPages.includes("edit-schedule");
     const sessionFlights = Array.isArray(session?.Flights) ? session.Flights : [];
     addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+    addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
 
     let scheduleRows = [];
     let editingRow = null; // the original row object being edited, or null for "adding new"
     let pendingRows = []; // staged rows in "add" mode, written all together on Save All
     let currentAudience = ""; // selected audience chip value; "" = All
-    let formDay = ""; // carried across staged rows in "add" mode for convenience
+    let formDate = ""; // carried across staged rows in "add" mode for convenience
+
+    // Different "schedules" are really just distinct Date values — an
+    // encampment can have several (e.g. a normal training schedule plus
+    // a special one for an away trip), shown here as tabs. Editors can
+    // switch between any of them; everyone else only ever sees the one
+    // whose Date matches their own device's current date (see
+    // Shell.isScheduleRowToday), never a picker of other days'
+    // schedules. Only meaningful for canEditSchedule — null otherwise.
+    let activeGroupKey = null;
+
+    /**
+     * A weekday name ("Monday") derived from a YYYY-MM-DD value, for the
+     * legacy Day column Shell's schedule-matching helpers still read.
+     * Forced to English (not the device locale) since that's what
+     * Shell.isScheduleDayToday_'s comparison list is hardcoded to.
+     */
+    function weekdayFromDate(iso) {
+      const d = new Date(iso + "T00:00:00");
+      return isNaN(d.getTime()) ? "" : d.toLocaleDateString("en-US", { weekday: "long" });
+    }
+
+    /** Short display label for a schedule group's tab ("Mon, Jul 13"), falling back to the raw legacy Day text if the group has no Date. */
+    function groupLabel(dateKey, sampleRow) {
+      if (dateKey) {
+        const d = new Date(dateKey + "T00:00:00");
+        if (!isNaN(d.getTime())) return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      }
+      return sampleRow.Day || "Unscheduled";
+    }
+
+    /**
+     * Groups rows into one "schedule" per distinct Date value (falling
+     * back to the legacy Day text for rows saved before Date existed),
+     * sorted chronologically with any legacy undated groups trailing at
+     * the end.
+     */
+    function groupSchedule(rows) {
+      const groups = new Map();
+      rows.forEach(row => {
+        const key = row.Date || row.Day || "Unscheduled";
+        if (!groups.has(key)) groups.set(key, { key, date: row.Date || "", label: groupLabel(row.Date, row), items: [] });
+        groups.get(key).items.push(row);
+      });
+      return Array.from(groups.values()).sort((a, b) => {
+        if (a.date && b.date) return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+        if (a.date && !b.date) return -1;
+        if (!a.date && b.date) return 1;
+        return a.label.localeCompare(b.label);
+      });
+    }
+
+    /** Which matchColumns identify a given row for update/delete — Date once a row has one (the precise, unambiguous key), the legacy Day-based key otherwise. */
+    function matchColumnsFor(row) {
+      return row.Date ? ["Date", "Time", "Activity"] : ["Day", "Time", "Activity"];
+    }
 
     // Audience options (Flights + Squadrons) come from the same
     // StaffAccess Position list the login page uses — every non-admin
@@ -165,29 +228,19 @@
       }
     }
 
-    function groupByDay(rows) {
-      return rows.reduce((groups, row) => {
-        const day = row.Day || "Unscheduled";
-        (groups[day] = groups[day] || []).push(row);
-        return groups;
-      }, {});
-    }
-
-    function render(rows) {
-      if (!rows.length) {
-        contentEl.innerHTML = `
+    /** Renders one schedule's table (a single group's items) into a card. */
+    function renderScheduleCard(group) {
+      const items = group ? group.items : [];
+      if (!items.length) {
+        return `
           <div class="state-message">
             <div class="state-message__icon">📋</div>
-            <p>No schedule items yet. Check back once cadre staff publish the day's activities.</p>
+            <p>No schedule items for today. Check back once cadre staff publish today's activities.</p>
           </div>`;
-        return;
       }
-
-      const grouped = groupByDay(rows);
-      const { current: currentItem } = Shell.currentAndNextScheduleItems(rows, sessionFlights);
-      contentEl.innerHTML = Object.entries(grouped).map(([day, items]) => `
+      const { current: currentItem } = Shell.currentAndNextScheduleItems(items, sessionFlights);
+      return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--indigo-900);">${esc(day)}</h2>
           <table class="data-table">
             <thead>
               <tr><th>Time</th><th>Activity</th><th>Location</th><th>Flight</th>${canEditSchedule ? "<th></th>" : ""}</tr>
@@ -209,8 +262,52 @@
             </tbody>
           </table>
         </div>
-      `).join("");
+      `;
+    }
 
+    function render(rows) {
+      if (!rows.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">📋</div>
+            <p>No schedule items yet. Check back once cadre staff publish the day's activities.</p>
+          </div>`;
+        return;
+      }
+
+      const groups = groupSchedule(rows);
+
+      if (!canEditSchedule) {
+        // Regular staff only ever see the one schedule matching today's
+        // date on their own device — never a picker of other days.
+        const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
+        contentEl.innerHTML = renderScheduleCard(todaysGroup);
+        wireRowActions();
+        return;
+      }
+
+      // Editors get the full tab UI across every schedule (distinct
+      // Date), defaulting to whichever one matches today.
+      if (activeGroupKey === null || !groups.some(g => g.key === activeGroupKey)) {
+        const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r)));
+        activeGroupKey = todaysGroup ? todaysGroup.key : groups[0].key;
+      }
+      const activeGroup = groups.find(g => g.key === activeGroupKey);
+
+      contentEl.innerHTML = `
+        <div class="tabs schedule-tabs" role="tablist">
+          ${groups.map(g => `<button class="tabs__tab ${g.key === activeGroupKey ? "is-active" : ""}" data-group-key="${esc(g.key)}">${esc(g.label)}</button>`).join("")}
+        </div>
+        ${renderScheduleCard(activeGroup)}
+      `;
+
+      contentEl.querySelectorAll("[data-group-key]").forEach(btn => {
+        btn.addEventListener("click", () => { activeGroupKey = btn.dataset.groupKey; render(scheduleRows); });
+      });
+      wireRowActions();
+    }
+
+    function wireRowActions() {
       contentEl.querySelectorAll("[data-action='row-menu']").forEach(btn => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -237,11 +334,12 @@
 
     /**
      * Schedule has no natural unique key (no id column) — matching on
-     * the FULL original row's (Day, Time, Activity) is how we identify
-     * "which row is this" for update/delete, since that combination is
-     * effectively unique in practice for a printed schedule. If two
-     * items ever share all three, editing one could affect the other;
-     * unlikely for a daily schedule, but worth knowing.
+     * the FULL original row's (Date or legacy Day, Time, Activity) is
+     * how we identify "which row is this" for update/delete, since that
+     * combination is effectively unique in practice for a printed
+     * schedule. If two items ever share all three, editing one could
+     * affect the other; unlikely for a daily schedule, but worth
+     * knowing. See matchColumnsFor() above.
      */
     function renderAudienceChips(selected) {
       const chips = [{ label: "All", value: "" }, ...audienceOptions.map(p => ({ label: p, value: p }))];
@@ -261,11 +359,11 @@
             Rows to add (${pendingRows.length})
           </h4>
           <table class="data-table">
-            <thead><tr><th>Day</th><th>Time</th><th>Activity</th><th>Location</th><th>Audience</th><th></th></tr></thead>
+            <thead><tr><th>Date</th><th>Time</th><th>Activity</th><th>Location</th><th>Audience</th><th></th></tr></thead>
             <tbody>
               ${pendingRows.map((r, i) => `
                 <tr>
-                  <td data-label="Day">${esc(r.Day)}</td>
+                  <td data-label="Date">${esc(r.Date)}</td>
                   <td data-label="Time" class="mono">${esc(r.Time) || "—"}</td>
                   <td data-label="Activity">${esc(r.Activity)}</td>
                   <td data-label="Location">${esc(r.Location) || "—"}</td>
@@ -284,10 +382,12 @@
      *   "add"  — supports staging several rows (+ Add Row) before a
      *            single "Save All" writes everything at once, so adding
      *            a whole day's schedule doesn't mean N separate saves.
+     *            The Date is picked once via a calendar and applies to
+     *            every row staged in the same session.
      *   "edit" — a single existing row, saved immediately as before.
      */
     function renderFormUI(mode, row) {
-      const dayValue = mode === "add" ? formDay : (row?.Day || "");
+      const dateValue = mode === "add" ? formDate : (row?.Date || "");
       const timeValue = mode === "edit" ? (row?.Time || "") : "";
       const activityValue = mode === "edit" ? (row?.Activity || "") : "";
       const locationValue = mode === "edit" ? (row?.Location || "") : "";
@@ -298,8 +398,8 @@
             ${mode === "add" ? "Add Schedule Items" : "Edit Schedule Item"}
           </h3>
           <div class="schedule-form">
-            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${esc(dayValue)}" placeholder="e.g. Monday"></div>
-            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${esc(timeValue)}" placeholder="e.g. 0600"></div>
+            <div class="field"><label for="f-date">Date</label><input type="date" id="f-date" value="${esc(dateValue)}"></div>
+            <div class="field"><label for="f-time">Time</label><input type="time" id="f-time" value="${esc(timeValue)}"></div>
             <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(activityValue)}"></div>
             <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(locationValue)}"></div>
             <div class="field" style="grid-column: 1 / -1;">
@@ -343,11 +443,18 @@
       formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 
-    function openAddForm() {
+    /**
+     * Opens the add form. `prefillDate` (an active tab's date) means
+     * "add more items to this existing schedule" (the "+ Add Item"
+     * button); omitting it means "+ New Schedule" — an empty date field
+     * the person must pick via the calendar, starting a brand new
+     * schedule tab once they save at least one item under it.
+     */
+    function openAddForm(prefillDate) {
       editingRow = null;
       pendingRows = [];
       currentAudience = "";
-      formDay = "";
+      formDate = prefillDate || "";
       renderFormUI("add");
     }
 
@@ -363,19 +470,19 @@
       formContainer.innerHTML = "";
     }
 
-    /** Validates and stages the current field values as one pending row, then clears Time/Activity/Location for the next entry (Day and Audience carry over). */
+    /** Validates and stages the current field values as one pending row, then clears Time/Activity/Location for the next entry (Date and Audience carry over). */
     function stageRow() {
-      formDay = document.getElementById("f-day").value.trim();
-      const time = document.getElementById("f-time").value.trim();
+      formDate = document.getElementById("f-date").value;
+      const time = document.getElementById("f-time").value;
       const activity = document.getElementById("f-activity").value.trim();
       const location = document.getElementById("f-location").value.trim();
 
-      if (!formDay || !activity) {
-        Shell.showToast("Day and Activity are required.", { type: "error" });
+      if (!formDate || !activity) {
+        Shell.showToast("Date and Activity are required.", { type: "error" });
         return;
       }
 
-      pendingRows.push({ Day: formDay, Time: time, Activity: activity, Location: location, Flight: currentAudience });
+      pendingRows.push({ Date: formDate, Day: weekdayFromDate(formDate), Time: time, Activity: activity, Location: location, Flight: currentAudience });
       renderFormUI("add");
     }
 
@@ -388,7 +495,7 @@
     function saveAllPending() {
       if (!pendingRows.length) return;
       pendingRows.forEach(row => {
-        Api.writeRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
+        Api.writeRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
         scheduleRows.push(row);
       });
       const count = pendingRows.length;
@@ -408,28 +515,32 @@
      * person's next action to surface.
      */
     function saveEdit() {
+      const dateVal = document.getElementById("f-date").value;
       const newRow = {
-        Day: document.getElementById("f-day").value.trim(),
-        Time: document.getElementById("f-time").value.trim(),
+        Date: dateVal,
+        Day: weekdayFromDate(dateVal),
+        Time: document.getElementById("f-time").value,
         Activity: document.getElementById("f-activity").value.trim(),
         Location: document.getElementById("f-location").value.trim(),
         Flight: currentAudience
       };
 
-      if (!newRow.Day || !newRow.Activity) {
-        Shell.showToast("Day and Activity are required.", { type: "error" });
+      if (!newRow.Date || !newRow.Activity) {
+        Shell.showToast("Date and Activity are required.", { type: "error" });
         return;
       }
 
-      const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
+      const keyChanged = editingRow.Date !== newRow.Date || editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
       if (keyChanged) {
-        // The match key itself changed (e.g. renamed the Activity) —
-        // matching on the NEW values wouldn't find the old row, so
-        // delete the old row explicitly, then add the new one.
-        Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
-        Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+        // The match key itself changed (e.g. renamed the Activity, or
+        // moved to a different date) — matching on the NEW values
+        // wouldn't find the old row, so delete the old row explicitly
+        // (using ITS OWN matchColumns — it may still be a legacy
+        // Day-only row), then add the new one.
+        Api.deleteRow("Schedule", editingRow, { matchColumns: matchColumnsFor(editingRow) });
+        Api.writeRow("Schedule", newRow, { matchColumns: matchColumnsFor(newRow) });
       } else {
-        Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
+        Api.writeRow("Schedule", newRow, { matchColumns: matchColumnsFor(newRow) });
       }
       const idx = scheduleRows.indexOf(editingRow);
       if (idx >= 0) scheduleRows[idx] = newRow;
@@ -442,18 +553,24 @@
     async function deleteItem(row) {
       const confirmed = await Shell.confirm({
         title: "Remove schedule item?",
-        message: `Remove "${esc(row.Activity)}" on ${esc(row.Day)}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
+        message: `Remove "${esc(row.Activity)}" on ${esc(groupLabel(row.Date, row))}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
         confirmLabel: "Remove",
       });
       if (!confirmed) return;
 
-      Api.deleteRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
+      Api.deleteRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
       scheduleRows = scheduleRows.filter(r => r !== row);
       Shell.showToast("Item removed.", { type: "success" });
       render(scheduleRows);
     }
 
-    addItemBtn.addEventListener("click", openAddForm);
+    addItemBtn.addEventListener("click", () => {
+      // Add to whatever schedule (date) is currently active, if any.
+      const groups = groupSchedule(scheduleRows);
+      const active = groups.find(g => g.key === activeGroupKey);
+      openAddForm(active ? active.date : "");
+    });
+    addScheduleBtn.addEventListener("click", () => openAddForm(""));
     if (canEditSchedule) loadAudienceOptions();
 
     // Instant-then-revalidate load, spinner, error state, and Refresh

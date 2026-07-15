@@ -284,7 +284,7 @@
       return `
         <div class="note-card">
           <div class="note-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
-            <span>${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
+            <span>${esc(n.AuthorPosition || "—")} · ${esc(Shell.formatDateTime(n.Timestamp))}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
             <span style="display:flex; gap: var(--space-1);">
               <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" style="padding: var(--space-1) var(--space-2);" aria-label="Edit note">✎</button>
               <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" style="padding: var(--space-1) var(--space-2);" aria-label="Delete note">✕</button>
@@ -528,7 +528,7 @@
       filename: `notes-${new Date().toISOString().slice(0, 10)}.csv`,
       columns: ["Timestamp", "AuthorPosition", "Subject", "Flight", "Body"],
       rows: notes.filter(isNoteVisible).map(n => ({
-        Timestamp: n.Timestamp ? new Date(n.Timestamp).toLocaleString() : "",
+        Timestamp: n.Timestamp ? Shell.formatDateTime(n.Timestamp) : "",
         AuthorPosition: n.AuthorPosition || "",
         Subject: n.Subject || "",
         Flight: n.Flight || "",

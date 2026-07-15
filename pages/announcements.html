@@ -249,7 +249,7 @@
           ${sorted.map(a => `
             <div class="announcement-card">
               <div class="announcement-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
-                <span>${esc(a.Position || "—")} · ${esc(new Date(a.Timestamp).toLocaleString())}</span>
+                <span>${esc(a.Position || "—")} · ${esc(Shell.formatDateTime(a.Timestamp))}</span>
                 ${canPost ? `
                   <span style="display:flex; gap: var(--space-1);">
                     <button class="btn btn--ghost" data-edit-id="${esc(a.Id)}" data-tooltip="Edit announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Edit announcement">✎</button>
