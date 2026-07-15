@@ -375,6 +375,10 @@ h1, h2, h3, h4 {
   padding: var(--space-6);
   max-width: var(--content-max-width);
   width: 100%;
+  /* Center within the remaining grid column instead of hugging the left
+     edge — without this, a viewport wider than nav-rail + content-max-
+     width left a large unbalanced gap on the right only. */
+  margin: 0 auto;
   /* Grid items default to min-width:auto, which lets wide content (long
      names, tables, Cap IDs) push the column past the viewport. Pinning
      it to 0 lets the column shrink and keeps content within bounds. */
