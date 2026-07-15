@@ -169,7 +169,14 @@ const PAGE_WRITE_GATES = {
 };
 
 // Max requests per token (or per login key) per rolling 60-second window.
-const RATE_LIMIT_PER_MINUTE = 30;
+// Reads are now deduplicated hard on the CLIENT (js/api.js serves any
+// sheet fetched within its freshness window straight from cache without
+// touching the network), so day-to-day navigation spends far fewer
+// requests against this budget than it used to. The headroom here is
+// mostly for legitimate WRITE bursts — e.g. a staffer scoring a whole
+// flight of cadets in quick succession — which should never trip the
+// "Too many requests" guard under normal use.
+const RATE_LIMIT_PER_MINUTE = 60;
 
 // How long a sheet's full row data is cached (CacheService, shared across
 // every user/instance of this script) before a read is forced to hit the
@@ -584,8 +591,15 @@ function handleWrite(body, session) {
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);
-  const values = sheet.getDataRange().getValues();
-  const headers = values[0];
+
+  // Read ONLY the header row, not the entire sheet. Building the new row
+  // and detecting brand-new columns needs nothing but the headers. The
+  // old getDataRange().getValues() here serialized every cell of the
+  // whole sheet on EVERY write, which got progressively slower as tall,
+  // append-only tabs like UniformInspections grew over the encampment —
+  // that's the "inputs take a really long time to process" symptom.
+  const lastCol = sheet.getLastColumn();
+  const headers = lastCol > 0 ? sheet.getRange(1, 1, 1, lastCol).getValues()[0] : [];
 
   const rowData = body.row || {};
   Object.keys(rowData).forEach((key) => {
@@ -610,16 +624,11 @@ function handleWrite(body, session) {
     : (body.matchColumn ? [body.matchColumn] : []);
 
   if (matchColumns.length && matchColumns.every((c) => headers.includes(c))) {
-    const colIndexes = matchColumns.map((c) => headers.indexOf(c));
-    const targetValues = colIndexes.map((ci) => String(rowData[headers[ci]]).trim().toLowerCase());
-
-    for (let r = 1; r < values.length; r++) {
-      const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
-      if (isMatch) {
-        sheet.getRange(r + 1, 1, 1, newRowArray.length).setValues([newRowArray]);
-        invalidateSheetCache_(sheetName);
-        return { ok: true, action: "updated", row: rowData };
-      }
+    const rowNumber = findMatchingRowNumber_(sheet, headers, matchColumns, rowData);
+    if (rowNumber > 0) {
+      sheet.getRange(rowNumber, 1, 1, newRowArray.length).setValues([newRowArray]);
+      invalidateSheetCache_(sheetName);
+      return { ok: true, action: "updated", row: rowData };
     }
   }
 
@@ -640,9 +649,9 @@ function handleDelete(body, session) {
   assertPageWriteAccess_(sheetName, session);
 
   const sheet = getSheetOrThrow(sheetName);
-  const values = sheet.getDataRange().getValues();
-  if (values.length === 0) throw new Error(`Sheet "${sheetName}" has no data.`);
-  const headers = values[0];
+  const lastCol = sheet.getLastColumn();
+  if (lastCol === 0) throw new Error(`Sheet "${sheetName}" has no data.`);
+  const headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
 
   const matchColumns = Array.isArray(body.matchColumns) && body.matchColumns.length
     ? body.matchColumns
@@ -653,19 +662,44 @@ function handleDelete(body, session) {
   }
 
   const matchValues = body.matchValues || body.row || {};
-  const colIndexes = matchColumns.map((c) => headers.indexOf(c));
-  const targetValues = colIndexes.map((ci) => String(matchValues[headers[ci]]).trim().toLowerCase());
-
-  for (let r = 1; r < values.length; r++) {
-    const isMatch = colIndexes.every((ci, i) => String(values[r][ci]).trim().toLowerCase() === targetValues[i]);
-    if (isMatch) {
-      sheet.deleteRow(r + 1);
-      invalidateSheetCache_(sheetName);
-      return { ok: true, action: "deleted" };
-    }
+  const rowNumber = findMatchingRowNumber_(sheet, headers, matchColumns, matchValues);
+  if (rowNumber > 0) {
+    sheet.deleteRow(rowNumber);
+    invalidateSheetCache_(sheetName);
+    return { ok: true, action: "deleted" };
   }
 
   throw new Error("No matching row found to delete.");
+}
+
+/**
+ * Returns the 1-based SHEET row number of the first data row whose
+ * match columns ALL equal the values in `matchSource` (looked up by
+ * header name), or 0 if none matches.
+ *
+ * Reads ONLY the match columns — one narrow, single-column range each
+ * (usually 1–2 of them) — instead of serializing the sheet's entire
+ * grid the way the old getDataRange().getValues() scan did. On a tall
+ * tab like UniformInspections that's the difference between transferring
+ * two columns and transferring all ~17, which is what made every
+ * update/delete slower as the sheet grew. Case-insensitive, trimmed
+ * comparison, matching the previous behavior exactly.
+ */
+function findMatchingRowNumber_(sheet, headers, matchColumns, matchSource) {
+  const numDataRows = sheet.getLastRow() - 1;
+  if (numDataRows <= 0) return 0;
+
+  const colIndexes = matchColumns.map((c) => headers.indexOf(c));
+  const targetValues = colIndexes.map((ci) => String(matchSource[headers[ci]]).trim().toLowerCase());
+
+  // One tall, single-column read per match column.
+  const columns = colIndexes.map((ci) => sheet.getRange(2, ci + 1, numDataRows, 1).getValues());
+
+  for (let r = 0; r < numDataRows; r++) {
+    const isMatch = colIndexes.every((ci, i) => String(columns[i][r][0]).trim().toLowerCase() === targetValues[i]);
+    if (isMatch) return r + 2; // +2: row 1 is the header, and r is 0-based
+  }
+  return 0;
 }
 
 /**
