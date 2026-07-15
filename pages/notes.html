@@ -2,6 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint, so a collapsed sidebar
+    // renders at its collapsed width immediately instead of flashing
+    // open at the default width for a frame and visibly animating shut
+    // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    try {
+      if (localStorage.getItem("njwg_nav_collapsed") === "true") {
+        document.documentElement.classList.add("nav-rail-collapsed");
+      }
+    } catch (e) { /* storage unavailable — falls back to expanded */ }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Notes — NJWG Encampment</title>
   <meta name="theme-color" content="#0d1250">
