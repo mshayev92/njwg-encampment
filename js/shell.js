@@ -55,6 +55,13 @@ const Shell = (() => {
 
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
+  // Tracks what THIS device already knows about, independent of the
+  // per-device "last seen" bell timestamp above — used only to detect a
+  // genuinely NEW announcement/black-flag change since the last poll
+  // (on any page), so the blocking alert popup fires once per new
+  // arrival instead of replaying the whole backlog on every page load.
+  const LAST_KNOWN_ANNOUNCEMENT_TS_KEY = "njwg_last_known_announcement_ts";
+  const LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY = "njwg_last_known_blackflag_signature";
 
   /**
    * Escapes a value for safe interpolation into innerHTML — both element
@@ -541,14 +548,25 @@ const Shell = (() => {
    */
   function loadGlobalAlerts_() {
     const announcementsCache = Api.getSheetCached("Announcements", (data) => {
-      updateAnnouncementsBadge_(data.rows || []);
+      const rows = data.rows || [];
+      updateAnnouncementsBadge_(rows);
+      checkNewAnnouncements_(rows);
     });
     const blackFlagCache = Api.getSheetCached("BlackFlagStatus", (data) => {
-      renderBlackFlagBanner_((data.rows || [])[0] || null);
+      const status = (data.rows || [])[0] || null;
+      renderBlackFlagBanner_(status);
+      checkBlackFlagChange_(status);
     });
 
-    if (announcementsCache.data) updateAnnouncementsBadge_(announcementsCache.data.rows || []);
-    if (blackFlagCache.data) renderBlackFlagBanner_((blackFlagCache.data.rows || [])[0] || null);
+    if (announcementsCache.data) {
+      updateAnnouncementsBadge_(announcementsCache.data.rows || []);
+      checkNewAnnouncements_(announcementsCache.data.rows || []);
+    }
+    if (blackFlagCache.data) {
+      const status = (blackFlagCache.data.rows || [])[0] || null;
+      renderBlackFlagBanner_(status);
+      checkBlackFlagChange_(status);
+    }
 
     // Always let the background fetches land too, even with no cache —
     // this covers the very first load, where getSheetCached() returned
@@ -832,6 +850,105 @@ const Shell = (() => {
       document.getElementById("modal-confirm-btn").addEventListener("click", () => cleanup(true));
       document.getElementById("modal-confirm-btn").focus();
     });
+  }
+
+  // ---- Blocking "new alert" popup (announcements / black flag) ---------
+
+  let alertModalQueue_ = [];
+  let alertModalShowing_ = false;
+
+  /**
+   * Full-screen, blurred, non-dismissible-except-by-button popup for a
+   * genuinely NEW announcement or black flag change (see
+   * checkNewAnnouncements_/checkBlackFlagChange_ below) — deliberately
+   * has no outside-click or Escape close, unlike Shell.confirm(), since
+   * this needs a deliberate acknowledgment. Multiple alerts queue and
+   * show one at a time rather than stacking.
+   */
+  function showNextAlertModal_() {
+    if (!alertModalQueue_.length) { alertModalShowing_ = false; return; }
+    alertModalShowing_ = true;
+    const config = alertModalQueue_.shift();
+
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card" role="alertdialog" aria-modal="true">
+        <div class="modal-card__icon ${config.danger ? "modal-card__icon--danger" : "modal-card__icon--info"}">${config.icon}</div>
+        <h3>${config.title}</h3>
+        <p>${config.bodyHtml}</p>
+        <div class="modal-card__actions">
+          <button class="btn btn--primary" id="alert-modal-dismiss-btn">Dismiss</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    document.getElementById("alert-modal-dismiss-btn").addEventListener("click", () => {
+      overlay.remove();
+      showNextAlertModal_();
+    });
+    document.getElementById("alert-modal-dismiss-btn").focus();
+  }
+
+  function enqueueAlertModal_(config) {
+    alertModalQueue_.push(config);
+    if (!alertModalShowing_) showNextAlertModal_();
+  }
+
+  /**
+   * Compares fresh Announcements rows against this device's last-known
+   * timestamp and pops the alert modal for the newest one if it's
+   * genuinely new. The very first time this ever runs on a device (key
+   * absent), it just seeds the baseline silently — otherwise every
+   * fresh install would immediately alert for the entire backlog.
+   */
+  function checkNewAnnouncements_(rows) {
+    const stored = localStorage.getItem(LAST_KNOWN_ANNOUNCEMENT_TS_KEY);
+    const lastKnownTs = Number(stored || 0);
+    const isFirstRun = stored === null;
+
+    let maxTs = lastKnownTs;
+    let newest = null;
+    rows.forEach((a) => {
+      const t = new Date(a.Timestamp).getTime();
+      if (!isNaN(t) && t > maxTs) { maxTs = t; newest = a; }
+    });
+
+    if (newest && !isFirstRun) {
+      enqueueAlertModal_({
+        icon: "📣",
+        title: "New Announcement",
+        bodyHtml: `<strong>${escapeHtml_(newest.Position || "Staff")}</strong><br>${escapeHtml_(messagePreviewText_(newest.Message || ""))}`
+      });
+    }
+    if (maxTs !== lastKnownTs || isFirstRun) localStorage.setItem(LAST_KNOWN_ANNOUNCEMENT_TS_KEY, String(maxTs));
+  }
+
+  /**
+   * Same idea as checkNewAnnouncements_ but for BlackFlagStatus, which
+   * is a single row rather than a growing list — a "signature" of
+   * Active+UpdatedAt is what changing means a new alert-worthy change
+   * happened (either direction: activated or lifted).
+   */
+  function checkBlackFlagChange_(status) {
+    if (!status) return;
+    const active = !!(status.Active === true || status.Active === "TRUE" || status.Active === "true");
+    const signature = `${active}|${status.UpdatedAt || ""}`;
+    const lastSignature = localStorage.getItem(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY);
+    const isFirstRun = lastSignature === null;
+
+    if (!isFirstRun && lastSignature !== signature) {
+      enqueueAlertModal_({
+        icon: "⚑",
+        danger: active,
+        title: active ? "Black Flag Activated" : "Black Flag Lifted",
+        bodyHtml: active
+          ? "Outdoor activity is now restricted."
+          : `Outdoor activity restrictions have been lifted${status.UpdatedBy ? ` (by ${escapeHtml_(status.UpdatedBy)})` : ""}.`
+      });
+    }
+    localStorage.setItem(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY, signature);
   }
 
   function wireIdleTimeout() {
