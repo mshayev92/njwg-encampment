@@ -2,6 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint, so a collapsed sidebar
+    // renders at its collapsed width immediately instead of flashing
+    // open at the default width for a frame and visibly animating shut
+    // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    try {
+      if (localStorage.getItem("njwg_nav_collapsed") === "true") {
+        document.documentElement.classList.add("nav-rail-collapsed");
+      }
+    } catch (e) { /* storage unavailable — falls back to expanded */ }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Announcements — NJWG Encampment</title>
   <meta name="theme-color" content="#0d1250">
@@ -187,6 +198,7 @@
 
     let blackFlagStatus = null;
     let announcements = [];
+    let editingAnnouncementId = null; // Id of the announcement being edited, or null when posting a new one
 
     function renderBlackFlagCard() {
       const active = blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true");
@@ -207,12 +219,16 @@
 
     function renderPostForm() {
       if (!canPost) return "";
+      const editing = editingAnnouncementId !== null;
       return `
         <div class="card post-form">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Post an Announcement</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${editing ? "Edit Announcement" : "Post an Announcement"}</h2>
           ${RichText.TOOLBAR_HTML}
           <div class="richtext-editor" id="message-input" contenteditable="true" data-placeholder="Write an announcement for all staff…"></div>
-          <button class="btn btn--primary" id="post-btn">Post Announcement</button>
+          <div style="display:flex; gap: var(--space-3);">
+            <button class="btn btn--primary" id="post-btn">${editing ? "Save Changes" : "Post Announcement"}</button>
+            ${editing ? `<button class="btn btn--ghost" id="cancel-edit-btn">Cancel</button>` : ""}
+          </div>
         </div>
       `;
     }
@@ -228,7 +244,12 @@
             <div class="announcement-card">
               <div class="announcement-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
                 <span>${esc(a.Position || "—")} · ${esc(new Date(a.Timestamp).toLocaleString())}</span>
-                ${canPost ? `<button class="btn btn--ghost" data-delete-id="${esc(a.Id)}" data-tooltip="Delete announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Delete announcement">✕</button>` : ""}
+                ${canPost ? `
+                  <span style="display:flex; gap: var(--space-1);">
+                    <button class="btn btn--ghost" data-edit-id="${esc(a.Id)}" data-tooltip="Edit announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Edit announcement">✎</button>
+                    <button class="btn btn--ghost" data-delete-id="${esc(a.Id)}" data-tooltip="Delete announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Delete announcement">✕</button>
+                  </span>
+                ` : ""}
               </div>
               <div class="announcement-card__message">${RichText.sanitize(a.Message || "")}</div>
             </div>
@@ -250,15 +271,35 @@
 
       const postBtn = document.getElementById("post-btn");
       if (postBtn) postBtn.addEventListener("click", postAnnouncement);
+      const cancelEditBtn = document.getElementById("cancel-edit-btn");
+      if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEditAnnouncement);
 
       const toolbar = contentEl.querySelector(".richtext-toolbar");
       const editor = document.getElementById("message-input");
       if (toolbar && editor) RichText.attach(toolbar, editor);
 
+      contentEl.querySelectorAll("[data-edit-id]").forEach(btn => {
+        btn.addEventListener("click", () => startEditAnnouncement(btn.dataset.editId));
+      });
       contentEl.querySelectorAll("[data-delete-id]").forEach(btn => {
         btn.addEventListener("click", () => deleteAnnouncement(btn.dataset.deleteId));
       });
       Shell.wireTooltips(contentEl);
+    }
+
+    /** Prefills the post form from an existing announcement and switches it into edit mode. */
+    function startEditAnnouncement(id) {
+      const a = announcements.find(x => String(x.Id) === String(id));
+      if (!a) return;
+      editingAnnouncementId = a.Id;
+      render();
+      document.getElementById("message-input").innerHTML = RichText.sanitize(a.Message || "");
+      document.querySelector(".post-form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function cancelEditAnnouncement() {
+      editingAnnouncementId = null;
+      render();
     }
 
     /**
@@ -304,27 +345,38 @@
 
       const postBtn = document.getElementById("post-btn");
       postBtn.disabled = true;
-      postBtn.textContent = "Posting…";
+      postBtn.textContent = editingAnnouncementId !== null ? "Saving…" : "Posting…";
 
-      const newAnnouncement = {
-        Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        Timestamp: new Date().toISOString(),
-        Position: session.Position,
-        Message: message
-      };
+      const editing = editingAnnouncementId !== null;
+      const existing = editing ? announcements.find(a => String(a.Id) === String(editingAnnouncementId)) : null;
+
+      const announcementRow = editing && existing
+        ? { ...existing, Message: message }
+        : {
+            Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            Timestamp: new Date().toISOString(),
+            Position: session.Position,
+            Message: message
+          };
 
       try {
-        await Api.writeRow("Announcements", newAnnouncement);
-        announcements = [newAnnouncement, ...announcements];
+        await Api.writeRow("Announcements", announcementRow, editing ? { matchColumns: ["Id"] } : {});
+        if (editing) {
+          const idx = announcements.findIndex(a => String(a.Id) === String(editingAnnouncementId));
+          if (idx >= 0) announcements[idx] = announcementRow; else announcements.unshift(announcementRow);
+          editingAnnouncementId = null;
+        } else {
+          announcements = [announcementRow, ...announcements];
+        }
         Api.setCachedRows("Announcements", announcements);
         render();
         Shell.refreshGlobalAlerts();
-        Shell.showToast("Announcement posted.", { type: "success" });
+        Shell.showToast(editing ? "Announcement updated." : "Announcement posted.", { type: "success" });
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
       } finally {
         postBtn.disabled = false;
-        postBtn.textContent = "Post Announcement";
+        postBtn.textContent = editingAnnouncementId !== null ? "Save Changes" : "Post Announcement";
       }
     }
 
@@ -342,6 +394,7 @@
       // a rejected promise here — reflecting whether it actually lands.
       Api.deleteRow("Announcements", { Id: id }, { matchColumns: ["Id"] });
       announcements = announcements.filter(a => String(a.Id) !== String(id));
+      if (editingAnnouncementId === id) editingAnnouncementId = null;
       Api.setCachedRows("Announcements", announcements);
       render();
       Shell.showToast("Announcement deleted.", { type: "success" });

@@ -113,6 +113,15 @@ h1, h2, h3, h4 {
   --nav-rail-width: var(--nav-rail-width-collapsed);
 }
 
+/* Set by a synchronous inline script in <head> (see each page's markup),
+   before the page's first paint — so a collapsed rail renders at its
+   collapsed width immediately, instead of painting expanded for a
+   frame and then visibly transitioning to collapsed once js/shell.js
+   runs and applies .app-shell--collapsed itself. */
+html.nav-rail-collapsed .app-shell {
+  --nav-rail-width: var(--nav-rail-width-collapsed);
+}
+
 /* ---- Header ----
    Consolidated top bar: plain surface, page title on the left, sync
    status / refresh / notifications on the right. Position + logout

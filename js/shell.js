@@ -734,7 +734,74 @@ const Shell = (() => {
 
     if (dayNumber < 1) return { label: "ENCAMPMENT NOT STARTED", isActive: false };
     if (dayNumber > totalDays) return { label: "ENCAMPMENT COMPLETE", isActive: false };
-    return { label: `DAY ${dayNumber} OF ${totalDays}`, isActive: true };
+    return { label: `DAY ${dayNumber} OF ${totalDays}`, isActive: true, dayNumber };
+  }
+
+  // ---- "Current"/"next" schedule item (Overview card + Schedule row highlight) ----
+  //
+  // A Schedule row has no real datetime, just a free-text Day label
+  // (e.g. "Monday", "Day 3") and a free-text Time (e.g. "0600"). These
+  // helpers turn that into "what's happening right now" without
+  // requiring the sheet to be restructured.
+
+  const WEEKDAY_NAMES_ = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+  /** Parses a Time value like "0600", "6:00", or "0600-0700" into minutes-since-midnight, or null if unparseable. */
+  function parseScheduleTime_(timeStr) {
+    if (!timeStr) return null;
+    const m = String(timeStr).match(/(\d{1,2}):?(\d{2})/);
+    if (!m) return null;
+    const hours = parseInt(m[1], 10);
+    const minutes = parseInt(m[2], 10);
+    if (isNaN(hours) || isNaN(minutes) || hours > 23 || minutes > 59) return null;
+    return hours * 60 + minutes;
+  }
+
+  /**
+   * Loosely matches a Schedule row's Day value against "today" — every
+   * encampment seems to label days differently, so this tries the
+   * current weekday's full/short name ("Monday"/"Mon") and the current
+   * encampment day number ("Day 3" or bare "3") from encampmentDayInfo().
+   */
+  function isScheduleDayToday_(dayValue) {
+    const value = String(dayValue || "").trim().toLowerCase();
+    if (!value) return false;
+    const weekday = WEEKDAY_NAMES_[new Date().getDay()];
+    if (value === weekday.toLowerCase() || value === weekday.slice(0, 3).toLowerCase()) return true;
+    const info = encampmentDayInfo();
+    if (info.dayNumber) {
+      if (value === `day ${info.dayNumber}` || value === String(info.dayNumber)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Returns { current, next } — the Schedule row (by reference, from
+   * `rows`) currently in progress and the one coming up next, scoped to
+   * `flights` (same blank-Flight/"All"-means-everyone convention as
+   * Roster/Notes/Inspections) and to rows whose Day matches today.
+   * Both null if nothing today has a parseable Time.
+   */
+  function currentAndNextScheduleItems(rows, flights) {
+    const flightList = Array.isArray(flights) ? flights : [];
+    const restricted = flightList.length && !flightList.some((f) => String(f).toLowerCase() === "all");
+    const isAllowed = (row) => !restricted || !row.Flight || flightList.some((f) => String(f).toLowerCase() === String(row.Flight || "").toLowerCase());
+
+    const now = new Date();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+
+    const todays = (rows || [])
+      .filter((r) => isScheduleDayToday_(r.Day) && isAllowed(r))
+      .map((r) => ({ row: r, minutes: parseScheduleTime_(r.Time) }))
+      .filter((x) => x.minutes !== null)
+      .sort((a, b) => a.minutes - b.minutes);
+
+    let current = null, next = null;
+    for (const item of todays) {
+      if (item.minutes <= nowMinutes) current = item.row;
+      else { next = item.row; break; }
+    }
+    return { current, next };
   }
 
   // ---- Black flag banner + announcements bell (global, every page) ----
@@ -1422,6 +1489,7 @@ const Shell = (() => {
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, openContextMenu,
-    registerExport, exportCsv, openSearch: openSearch_
+    registerExport, exportCsv, openSearch: openSearch_,
+    currentAndNextScheduleItems
   };
 })();
