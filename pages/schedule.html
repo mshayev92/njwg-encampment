@@ -259,6 +259,7 @@
         const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
         contentEl.innerHTML = renderScheduleCard(todaysGroup);
         wireRowActions();
+        Shell.animateIn(contentEl);
         return;
       }
 
@@ -281,6 +282,7 @@
         btn.addEventListener("click", () => { activeGroupKey = btn.dataset.groupKey; render(scheduleRows); });
       });
       wireRowActions();
+      Shell.animateIn(contentEl);
     }
 
     function wireRowActions() {

@@ -348,6 +348,7 @@
         btn.addEventListener("click", () => deleteNote(btn.dataset.deleteId));
       });
       Shell.wireTooltips(contentEl);
+      Shell.animateIn(contentEl);
     }
 
     /** Prefills the form from an existing note and switches it into edit mode. */

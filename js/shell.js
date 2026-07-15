@@ -1843,6 +1843,60 @@ const Shell = (() => {
     }
   }
 
+  // ---- Content entrance animation (in-page view swaps) ------------------
+  //
+  // Every page replaces a container's whole innerHTML on nearly every
+  // interaction (switching flights, filtering the roster, opening a
+  // scorecard) — previously an instant pop-in. Call this right after
+  // setting that innerHTML so the new content rises/fades in instead.
+  // Safe to call repeatedly on the SAME element (e.g. re-rendering the
+  // same view after a background refresh): removing the class and
+  // forcing a reflow before re-adding it restarts the animation rather
+  // than silently no-op'ing because the class never actually changed.
+
+  function animateIn(el) {
+    if (!el) return;
+    el.classList.remove("view-fade-in");
+    void el.offsetWidth; // force reflow
+    el.classList.add("view-fade-in");
+  }
+
+  // ---- Tabs: animated sliding active-tab indicator -----------------------
+  //
+  // Progressively enhances a .tabs container (Uniform/Room/Trends,
+  // Staff Access/Login Activity, etc.) with a single positioned element
+  // that slides/resizes to sit behind the active .tabs__tab, instead of
+  // each tab's own background appearing/disappearing instantly when
+  // .is-active is toggled. The page itself still owns click handling and
+  // toggling .is-active — call the returned `.move()` right after that,
+  // so the indicator catches up to wherever the newly-active tab is.
+  // Safe to call again on the same container (e.g. after its tabs are
+  // re-rendered from scratch) — reuses the existing indicator if the
+  // container still has one.
+  function enhanceTabs(container) {
+    if (!container) return null;
+    container.classList.add("tabs--enhanced");
+
+    let indicator = container.querySelector(":scope > .tabs__indicator");
+    if (!indicator) {
+      indicator = document.createElement("div");
+      indicator.className = "tabs__indicator";
+      container.insertBefore(indicator, container.firstChild);
+    }
+
+    function move() {
+      const active = container.querySelector(".tabs__tab.is-active");
+      if (!active) { indicator.style.opacity = "0"; return; }
+      indicator.style.opacity = "1";
+      indicator.style.width = `${active.offsetWidth}px`;
+      indicator.style.left = `${active.offsetLeft}px`;
+    }
+
+    move();
+    window.addEventListener("resize", move);
+    return { move };
+  }
+
   return {
     init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
@@ -1852,6 +1906,7 @@ const Shell = (() => {
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
-    formatDateTime: formatDateTime_, formatTime: formatTime_
+    formatDateTime: formatDateTime_, formatTime: formatTime_,
+    animateIn, enhanceTabs
   };
 })();

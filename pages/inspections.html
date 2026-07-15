@@ -216,6 +216,35 @@
       color: var(--green-600);
     }
 
+    /* A small pop whenever a 0/1 toggle becomes the selected one — pure
+       visual feedback that the tap registered, on top of the color
+       change above. Replays every time .is-selected is freshly added
+       (see updateToggleUI in the script below), not just once. */
+    @keyframes score-pop {
+      0% { transform: scale(0.85); }
+      60% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+    .scorecard-toggle button.is-selected {
+      animation: score-pop 220ms var(--ease-standard);
+    }
+
+    /* Brief pulse on the running total whenever a score changes, so the
+       number updating doesn't just silently swap — see the score-btn
+       click handler below, which re-triggers this the same way
+       Shell.animateIn does. */
+    @keyframes total-pulse {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.08); }
+      100% { transform: scale(1); }
+    }
+    #total-points-display {
+      display: inline-block;
+    }
+    #total-points-display.total-pulse {
+      animation: total-pulse 260ms var(--ease-standard);
+    }
+
     .scorecard-total {
       display: flex;
       align-items: center;
@@ -657,6 +686,7 @@
       container.querySelectorAll("[data-delete-period]").forEach(btn => {
         btn.addEventListener("click", () => deletePeriod(btn.dataset.deletePeriod));
       });
+      Shell.animateIn(container);
     }
 
     function renderPeriodForm(existing) {
@@ -790,6 +820,7 @@
           renderStudentList();
         });
       });
+      Shell.animateIn(contentEl);
     }
 
     function renderStudentList() {
@@ -836,6 +867,7 @@
           renderHistory();
         });
       });
+      Shell.animateIn(contentEl);
     }
 
     /**
@@ -906,6 +938,7 @@
           renderScorecard();
         });
       });
+      Shell.animateIn(contentEl);
     }
 
     function renderScorecard() {
@@ -991,12 +1024,20 @@
           btn.addEventListener("click", () => {
             currentScores[key] = Number(btn.dataset.value);
             updateToggleUI(key);
-            document.getElementById("total-points-display").textContent = `${computeTotal()} / ${items.length}`;
+            const totalEl = document.getElementById("total-points-display");
+            totalEl.textContent = `${computeTotal()} / ${items.length}`;
+            // Retriggerable pulse — same remove/reflow/add dance as
+            // Shell.animateIn, so scoring several items in a row pulses
+            // every time instead of only the first.
+            totalEl.classList.remove("total-pulse");
+            void totalEl.offsetWidth;
+            totalEl.classList.add("total-pulse");
           });
         });
       });
 
       document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitScorecard(dateStr, timestampStr));
+      Shell.animateIn(contentEl);
     }
 
     function updateToggleUI(key) {
@@ -1199,6 +1240,7 @@
         });
         Shell.enhanceSelect(basisSelect);
       }
+      Shell.animateIn(contentEl);
     }
 
     /**
@@ -1303,11 +1345,13 @@
         });
     }
 
+    const inspectionTabsIndicator = Shell.enhanceTabs(document.querySelector(".inspection-tabs"));
     tabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         if (btn.disabled) return;
         tabButtons.forEach(b => b.classList.remove("is-active"));
         btn.classList.add("is-active");
+        inspectionTabsIndicator.move();
         if (btn.dataset.tab === "trends") {
           renderTrends();
         } else {
