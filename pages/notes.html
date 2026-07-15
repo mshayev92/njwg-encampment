@@ -301,7 +301,7 @@
 
       const toolbar = contentEl.querySelector(".richtext-toolbar");
       const editor = document.getElementById("body-editor");
-      RichText.attach(toolbar, editor);
+      if (toolbar && editor) RichText.attach(toolbar, editor);
 
       const showFormBtn = document.getElementById("show-note-form-btn");
       if (showFormBtn) showFormBtn.addEventListener("click", () => { showForm = true; render(); });

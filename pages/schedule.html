@@ -67,6 +67,13 @@
       padding-top: var(--space-4);
       border-top: 1px solid var(--line);
     }
+
+    /* Highlights the schedule row matching this position's current
+       activity (see Shell.currentAndNextScheduleItems). */
+    .schedule-row--current {
+      background: var(--gold-100);
+      box-shadow: inset 3px 0 0 var(--gold-500);
+    }
   </style>
 </head>
 <body>
@@ -112,8 +119,10 @@
     // change it. This is a client-side convenience to hide controls
     // the backend would reject anyway; assertPageWriteAccess_ in
     // Code.gs is the real check on every write.
-    const sessionPages = (Auth.getSession()?.Pages || []).map(p => String(p).toLowerCase());
+    const session = Auth.getSession();
+    const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditSchedule = sessionPages.includes("edit-schedule");
+    const sessionFlights = Array.isArray(session?.Flights) ? session.Flights : [];
     addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
 
     let scheduleRows = [];
@@ -158,6 +167,7 @@
       }
 
       const grouped = groupByDay(rows);
+      const { current: currentItem } = Shell.currentAndNextScheduleItems(rows, sessionFlights);
       contentEl.innerHTML = Object.entries(grouped).map(([day, items]) => `
         <div class="card">
           <h2 style="font-size: var(--fs-lg); color: var(--indigo-900);">${esc(day)}</h2>
@@ -167,8 +177,8 @@
             </thead>
             <tbody>
               ${items.map((item, i) => `
-                <tr>
-                  <td data-label="Time" class="mono">${esc(item.Time) || "—"}</td>
+                <tr class="${item === currentItem ? "schedule-row--current" : ""}">
+                  <td data-label="Time" class="mono">${esc(item.Time) || "—"}${item === currentItem ? ` <span class="badge badge--gold" data-tooltip="Your current activity">Now</span>` : ""}</td>
                   <td data-label="Activity">${esc(item.Activity) || "—"}</td>
                   <td data-label="Location">${esc(item.Location) || "—"}</td>
                   <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${esc(item.Flight)}</span>` : "—"}</td>
@@ -444,6 +454,10 @@
       filename: `schedule-${new Date().toISOString().slice(0, 10)}.csv`,
       rows: scheduleRows
     }));
+
+    // Re-render every minute so the current-activity highlight advances
+    // on its own as time passes, without a manual refresh or reload.
+    setInterval(() => { if (scheduleRows.length) render(scheduleRows); }, 60 * 1000);
 </script>
 
   <script>
