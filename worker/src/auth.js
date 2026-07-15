@@ -176,23 +176,64 @@ export function nextMidnight() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
 }
 
-// ---- Rate limiting (KV-backed) ---------------------------------------------
+// ---- Rate limiting (KV-backed, with an isolate-local write buffer) --------
 //
-// KV reads/writes here aren't atomic, so under enough concurrent
-// requests from the SAME key within the same second this can under-count
-// slightly — the same caveat as the old CacheService-based limiter in
-// Code.gs, which had the same non-atomic read-then-write shape. Fine for
-// this app's traffic; a Durable Object would be the precise version if
-// ever needed.
+// Writing to KV on every request is what blows through Cloudflare's
+// free-plan 1,000-writes/day cap, since this runs on nearly every
+// authenticated request. To cut that down, each Worker isolate keeps an
+// in-memory counter per rate-limit key and only PUTs to KV every
+// RATE_LIMIT_FLUSH_EVERY increments (or immediately the first time a key
+// hits the cap, so other isolates see the block promptly). The
+// accept/reject decision itself always uses the exact in-memory count —
+// only the KV *write* is deferred, not the enforcement — so a burst
+// hitting the same warm isolate is throttled at exactly 60/min, same as
+// before.
+//
+// The one thing this weakens: if concurrent requests for the same key
+// land on *different* isolates within the same 60s window, each isolate
+// only reseeds its local count from KV at the start of its own window
+// (or when its buffer flushes), so it may not see writes another isolate
+// buffered but hasn't flushed yet. Worst case, a key could exceed 60/min
+// by roughly (flush interval x number of isolates handling it) before
+// every isolate converges. For this app's actual traffic (a few dozen
+// staff devices, not a public-facing service under adversarial load)
+// that's an acceptable loosening of precision on a soft cap — it does
+// not remove the cap, and a single isolate still enforces the exact
+// limit on its own. This is the same category of caveat already present
+// in the old non-atomic read-then-write shape (and the old
+// CacheService-based limiter in Code.gs).
+//
+// This buffering is isolate-lifetime state, so it's Workers-specific;
+// there's no equivalent Apps Script quota problem to port it for, since
+// CacheService isn't write-count-limited the way Workers KV is on the
+// free plan.
+const RATE_LIMIT_FLUSH_EVERY = 5;
+const rateLimitMemory = new Map(); // cacheKey -> { count, windowStart, unflushed }
+
 export async function checkRateLimit(env, key) {
   if (!key) return;
   const cacheKey = "rl:" + (await hashString(String(key)));
-  const current = Number((await env.NJWG_KV.get(cacheKey)) || 0);
+  const now = Date.now();
 
-  if (current >= RATE_LIMIT_PER_MINUTE) {
+  let entry = rateLimitMemory.get(cacheKey);
+  if (!entry || now - entry.windowStart >= 60000) {
+    const stored = Number((await env.NJWG_KV.get(cacheKey)) || 0);
+    entry = { count: stored, windowStart: now, unflushed: 0 };
+    rateLimitMemory.set(cacheKey, entry);
+  }
+
+  if (entry.count >= RATE_LIMIT_PER_MINUTE) {
     throw new Error("Too many requests. Please wait a moment and try again.");
   }
-  await env.NJWG_KV.put(cacheKey, String(current + 1), { expirationTtl: 60 });
+
+  entry.count++;
+  entry.unflushed++;
+
+  const justHitCap = entry.count >= RATE_LIMIT_PER_MINUTE;
+  if (entry.unflushed >= RATE_LIMIT_FLUSH_EVERY || justHitCap) {
+    await env.NJWG_KV.put(cacheKey, String(entry.count), { expirationTtl: 60 });
+    entry.unflushed = 0;
+  }
 }
 
 export function assertAllowedSheet(sheetName) {
