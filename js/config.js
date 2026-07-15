@@ -57,7 +57,7 @@ window.APP_CONFIG = {
   // Permissions live in the StaffAccess tab's Pages column (per-position
   // view/edit grants), not on the Roster — see SHEET_PERMISSIONS and
   // PAGE_WRITE_GATES in worker/src/auth.js (ported from Code.gs).
-  APPS_SCRIPT_URL: "https://njwg-encampment-api.njwg-encampment-1.workers.dev",
+  APPS_SCRIPT_URL: "http://127.0.0.1:8787",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.
