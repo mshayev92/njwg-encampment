@@ -38,7 +38,7 @@ Roster and Schedule are editable from the app (not just read-only). Writing to a
 
 Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The three edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule stays view-only for that position.
 
-`UniformInspections` stays writable by any signed-in position, since any position that can reach Inspections needs to be able to submit scorecards — there's no `edit-inspections` id.
+`UniformInspections` and `RoomInspections` stay writable by any signed-in position, since any position that can reach Inspections needs to be able to submit scorecards — there's no `edit-inspections` id.
 
 Roster deletes go through a new `delete` action in `Code.gs` (`handleDelete`), gated by the same edit-id check as writing to that sheet.
 

@@ -230,12 +230,6 @@
       resize: vertical;
     }
 
-    .room-placeholder {
-      text-align: center;
-      padding: var(--space-8) var(--space-5);
-      color: var(--ink-600);
-    }
-
     /* ---- Inspection history (per student, multiple dates) ---- */
     .history-list {
       display: flex;
@@ -397,7 +391,7 @@
       <div class="inspection-tabs tabs">
         <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
         <button class="tabs__tab" data-tab="trends">Trends</button>
-        <button class="tabs__tab" data-tab="room" disabled data-tooltip="Coming soon">Room</button>
+        <button class="tabs__tab" data-tab="room">Room</button>
       </div>
 
       <div id="inspection-content">
@@ -434,9 +428,46 @@
       { key: "MilitaryBearingCourtesy", label: "Military Bearing & Courtesy" }
     ];
 
+    // The 9 scored line items for a room/barracks inspection, matching
+    // the printed Barracks Scorecard exactly. key = the RoomInspections
+    // column name written to the Sheet. Grouped into the two sections
+    // ("Bunk"/"Locker") the printed form uses.
+    const ROOM_SCORE_ITEMS = [
+      { key: "HospitalCorners", label: "Hospital Corners: Approx. 45 degrees", section: "Bunk" },
+      { key: "Pillow", label: "Pillow: On correct side, & centered", section: "Bunk" },
+      { key: "Collar", label: "Collar: 18 inches from head, 6 inches wide", section: "Bunk" },
+      { key: "SheetsBlanket", label: "Sheets & Blanket: Tucked in, minimal wrinkles", section: "Bunk" },
+      { key: "Shoes", label: "Shoes: In correct order, neat", section: "Bunk" },
+      { key: "Towel", label: "Towel: Hung on left locker door", section: "Locker" },
+      { key: "TopShelf", label: "Top Shelf: Items neatly placed", section: "Locker" },
+      { key: "Clothes", label: "Clothes: In correct order, hangers 3in apart", section: "Locker" },
+      { key: "TopOfDrawerCabinet", label: "Top of Drawer/Cabinet: Items in correct position", section: "Locker" }
+    ];
+
+    // Per-type config driving the shared flight/student/history/scorecard
+    // flow below. Student identity fields (CapId, Name, Flight) and the
+    // inspecting position are never part of the form itself — they come
+    // from the Roster and the logged-in session, same as Uniform.
+    const INSPECTION_TYPES = {
+      uniform: {
+        sheet: "UniformInspections",
+        items: SCORE_ITEMS,
+        sectionTitle: "Personal Appearance / Military Bearing"
+      },
+      room: {
+        sheet: "RoomInspections",
+        items: ROOM_SCORE_ITEMS,
+        sectionTitle: null // grouped by each item's own `section` instead
+      }
+    };
+
+    let activeType = "uniform"; // "uniform" | "room"
+
     let rosterRows = [];
-    let allInspections = []; // ALL rows from UniformInspections (multiple per student now)
-    let inspectionsByStudent = {}; // StudentCapId -> array of rows, newest first
+    let inspectionsByType = {
+      uniform: { all: [], byStudent: {} },
+      room: { all: [], byStudent: {} }
+    };
     let selectedFlight = null;
     let selectedStudent = null;
     let selectedInspectionDate = null; // null = new inspection; a Date string = editing/viewing that day's entry
@@ -445,6 +476,10 @@
     // whatever's on screen without guessing from the DOM. One of:
     // "flights" | "students" | "history" | "scorecard"
     let currentView = "flights";
+
+    function activeItems() { return INSPECTION_TYPES[activeType].items; }
+    function activeSheet() { return INSPECTION_TYPES[activeType].sheet; }
+    function activeInspectionsByStudent() { return inspectionsByType[activeType].byStudent; }
 
     const session = Auth.getSession();
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
@@ -511,7 +546,7 @@
         ${members.length ? `
           <div class="student-list">
             ${members.map(m => {
-              const history = inspectionsByStudent[String(m.CapId)] || [];
+              const history = activeInspectionsByStudent()[String(m.CapId)] || [];
               const latest = history[0]; // sorted newest first
               return `
                 <button class="student-row" data-capid="${esc(m.CapId)}">
@@ -519,7 +554,7 @@
                     <div class="student-row__name">${esc(m.Name) || "—"}</div>
                     <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
                   </div>
-                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${SCORE_ITEMS.length}</span>` : ""}
+                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${activeItems().length}</span>` : ""}
                 </button>`;
             }).join("")}
           </div>
@@ -553,7 +588,7 @@
      */
     function renderHistory() {
       currentView = "history";
-      const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
+      const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
       const todayStr = new Date().toLocaleDateString("en-CA");
       const hasToday = history.some(h => h.Date === todayStr);
 
@@ -581,7 +616,7 @@
                   <div class="history-row__date">${esc(h.Date)}</div>
                   <div class="history-row__meta">${esc(h.InspectingPosition) || "—"}${h.Notes ? " · has notes" : ""}</div>
                 </div>
-                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${SCORE_ITEMS.length}</div>
+                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${activeItems().length}</div>
               </div>
             `).join("")}
           </div>
@@ -613,13 +648,14 @@
 
     function renderScorecard() {
       currentView = "scorecard";
-      const history = inspectionsByStudent[String(selectedStudent.CapId)] || [];
+      const items = activeItems();
+      const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
       const existing = selectedInspectionDate
         ? (history.find(h => h.Date === selectedInspectionDate) || {})
         : {};
 
       currentScores = {};
-      SCORE_ITEMS.forEach(item => {
+      items.forEach(item => {
         const v = existing[item.key];
         currentScores[item.key] = (v === 1 || v === "1") ? 1 : ((v === 0 || v === "0") ? 0 : null);
       });
@@ -628,6 +664,16 @@
       const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA"); // YYYY-MM-DD
       const timestampStr = now.toISOString();
       const isEditingPast = !!selectedInspectionDate;
+
+      // Uniform has one flat section; Room groups items under the
+      // printed scorecard's "Bunk"/"Locker" headers instead.
+      const sectionTitle = INSPECTION_TYPES[activeType].sectionTitle;
+      const sections = sectionTitle
+        ? [{ title: sectionTitle, items }]
+        : Array.from(new Set(items.map(i => i.section))).map(section => ({
+            title: section,
+            items: items.filter(i => i.section === section)
+          }));
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -642,22 +688,24 @@
           <div class="scorecard-meta__item"><span>Date</span>${esc(dateStr)}${isEditingPast ? " (editing existing entry)" : ""}</div>
         </div>
 
-        <div class="scorecard-section">
-          <h3>Personal Appearance / Military Bearing</h3>
-          ${SCORE_ITEMS.map(item => `
-            <div class="scorecard-item">
-              <span class="scorecard-item__label">${item.label}</span>
-              <div class="scorecard-toggle" data-key="${item.key}">
-                <button type="button" class="score-btn value-0" data-value="0">0</button>
-                <button type="button" class="score-btn value-1" data-value="1">1</button>
+        ${sections.map(sec => `
+          <div class="scorecard-section">
+            <h3>${esc(sec.title)}</h3>
+            ${sec.items.map(item => `
+              <div class="scorecard-item">
+                <span class="scorecard-item__label">${item.label}</span>
+                <div class="scorecard-toggle" data-key="${item.key}">
+                  <button type="button" class="score-btn value-0" data-value="0">0</button>
+                  <button type="button" class="score-btn value-1" data-value="1">1</button>
+                </div>
               </div>
-            </div>
-          `).join("")}
-        </div>
+            `).join("")}
+          </div>
+        `).join("")}
 
         <div class="scorecard-total">
           <span>Total points</span>
-          <span id="total-points-display">${computeTotal()} / ${SCORE_ITEMS.length}</span>
+          <span id="total-points-display">${computeTotal()} / ${items.length}</span>
         </div>
 
         <div class="scorecard-section scorecard-notes">
@@ -673,7 +721,7 @@
         renderHistory();
       });
 
-      SCORE_ITEMS.forEach(item => updateToggleUI(item.key));
+      items.forEach(item => updateToggleUI(item.key));
 
       contentEl.querySelectorAll(".scorecard-toggle").forEach(toggle => {
         const key = toggle.dataset.key;
@@ -681,7 +729,7 @@
           btn.addEventListener("click", () => {
             currentScores[key] = Number(btn.dataset.value);
             updateToggleUI(key);
-            document.getElementById("total-points-display").textContent = `${computeTotal()} / ${SCORE_ITEMS.length}`;
+            document.getElementById("total-points-display").textContent = `${computeTotal()} / ${items.length}`;
           });
         });
       });
@@ -699,11 +747,12 @@
     }
 
     function computeTotal() {
-      return SCORE_ITEMS.reduce((sum, item) => sum + (currentScores[item.key] === 1 ? 1 : 0), 0);
+      return activeItems().reduce((sum, item) => sum + (currentScores[item.key] === 1 ? 1 : 0), 0);
     }
 
     function submitScorecard(dateStr, timestampStr) {
-      const unscored = SCORE_ITEMS.filter(item => currentScores[item.key] !== 0 && currentScores[item.key] !== 1);
+      const items = activeItems();
+      const unscored = items.filter(item => currentScores[item.key] !== 0 && currentScores[item.key] !== 1);
       if (unscored.length) {
         Shell.showToast(`Score every item before saving (missing: ${unscored.map(i => i.label).join(", ")}).`, { type: "error" });
         return;
@@ -718,7 +767,7 @@
         Timestamp: timestampStr,
         Notes: document.getElementById("notes-input").value.trim()
       };
-      SCORE_ITEMS.forEach(item => { row[item.key] = currentScores[item.key]; });
+      items.forEach(item => { row[item.key] = currentScores[item.key]; });
       row.TotalPoints = computeTotal();
 
       // Composite match on (StudentCapId, Date): re-inspecting the SAME
@@ -726,10 +775,11 @@
       // preserving history for trends. Fires in the background — the
       // header's sync indicator reflects whether it lands, but the
       // person doesn't wait on the network to see their save reflected.
-      Api.writeRow("UniformInspections", row, { matchColumns: ["StudentCapId", "Date"] });
+      Api.writeRow(activeSheet(), row, { matchColumns: ["StudentCapId", "Date"] });
 
       const capId = String(selectedStudent.CapId);
-      const list = inspectionsByStudent[capId] || (inspectionsByStudent[capId] = []);
+      const byStudent = activeInspectionsByStudent();
+      const list = byStudent[capId] || (byStudent[capId] = []);
       const idx = list.findIndex(h => h.Date === dateStr);
       if (idx >= 0) list[idx] = row; else list.unshift(row);
       list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
@@ -757,7 +807,7 @@
         const members = grouped[flight];
         const relevantRows = [];
         members.forEach(m => {
-          const history = inspectionsByStudent[String(m.CapId)] || [];
+          const history = inspectionsByType.uniform.byStudent[String(m.CapId)] || [];
           if (!history.length) return;
           if (basis === "latest") relevantRows.push(history[0]);
           else relevantRows.push(...history);
@@ -826,7 +876,7 @@
             <div class="trend-item-breakdown">
               ${SCORE_ITEMS.map(item => {
                 let scored = 0, passed = 0;
-                Object.entries(inspectionsByStudent).forEach(([capId, history]) => {
+                Object.entries(inspectionsByType.uniform.byStudent).forEach(([capId, history]) => {
                   if (!allowedCapIds.has(capId)) return;
                   const rows = trendsBasis === "latest" ? history.slice(0, 1) : history;
                   rows.forEach(r => {
@@ -869,29 +919,20 @@
       }
     }
 
-    function renderRoomPlaceholder() {
-      currentView = "room";
-      contentEl.innerHTML = `
-        <div class="room-placeholder">
-          <div class="state-message__icon">🧹</div>
-          <p>Room inspections aren't set up yet — check back soon.</p>
-        </div>`;
-    }
-
     /**
-     * Rebuilds inspectionsByStudent from a fresh UniformInspections
-     * rows array — shared by both the initial cached render and the
-     * background-refresh callback so the grouping/sorting logic lives
-     * in one place.
+     * Rebuilds a type's byStudent index from a fresh rows array —
+     * shared by both the initial cached render and the background-
+     * refresh callback so the grouping/sorting logic lives in one place.
      */
-    function reindexInspections(rows) {
-      allInspections = rows || [];
-      inspectionsByStudent = {};
-      allInspections.forEach(row => {
+    function reindexInspections(type, rows) {
+      const bucket = inspectionsByType[type];
+      bucket.all = rows || [];
+      bucket.byStudent = {};
+      bucket.all.forEach(row => {
         const capId = String(row.StudentCapId);
-        (inspectionsByStudent[capId] = inspectionsByStudent[capId] || []).push(row);
+        (bucket.byStudent[capId] = bucket.byStudent[capId] || []).push(row);
       });
-      Object.values(inspectionsByStudent).forEach(list => list.sort((a, b) => (a.Date < b.Date ? 1 : -1)));
+      Object.values(bucket.byStudent).forEach(list => list.sort((a, b) => (a.Date < b.Date ? 1 : -1)));
     }
 
     /**
@@ -906,7 +947,6 @@
      */
     function renderActiveView() {
       if (currentView === "trends") return renderTrends();
-      if (currentView === "room") return renderRoomPlaceholder();
       if (currentView === "scorecard") return; // don't clobber in-progress scoring
       if (currentView === "history" && selectedStudent) return renderHistory();
       if (currentView === "students" && selectedFlight) return renderStudentList();
@@ -914,39 +954,46 @@
     }
 
     /**
-     * Instant-then-revalidate load: renders cached Roster +
-     * UniformInspections data immediately if this page has fetched
-     * them before this session, while a background refetch checks for
+     * Instant-then-revalidate load: renders cached Roster + both
+     * inspection sheets immediately if this page has fetched them
+     * before this session, while a background refetch checks for
      * anything newer. First-ever load shows the spinner as before.
      */
     function load() {
-      let rosterCached, inspectionsCached;
+      let rosterCached, uniformCached, roomCached;
 
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = fresh.rows || [];
         renderActiveView();
       });
-      const inspectionsHandle = Api.getSheetCached("UniformInspections", (fresh) => {
-        reindexInspections(fresh.rows || []);
+      const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => {
+        reindexInspections("uniform", fresh.rows || []);
+        renderActiveView();
+      });
+      const roomHandle = Api.getSheetCached("RoomInspections", (fresh) => {
+        reindexInspections("room", fresh.rows || []);
         renderActiveView();
       });
 
       rosterCached = rosterHandle.data;
-      inspectionsCached = inspectionsHandle.data;
+      uniformCached = uniformHandle.data;
+      roomCached = roomHandle.data;
 
-      if (rosterCached && inspectionsCached) {
+      if (rosterCached && uniformCached && roomCached) {
         rosterRows = rosterCached.rows || [];
-        reindexInspections(inspectionsCached.rows || []);
+        reindexInspections("uniform", uniformCached.rows || []);
+        reindexInspections("room", roomCached.rows || []);
         renderFlightGrid();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
-      return Promise.all([rosterHandle.ready, inspectionsHandle.ready])
-        .then(([rosterData, inspectionData]) => {
+      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready])
+        .then(([rosterData, uniformData, roomData]) => {
           rosterRows = rosterData.rows || [];
-          reindexInspections(inspectionData.rows || []);
-          if (!rosterCached || !inspectionsCached) {
+          reindexInspections("uniform", uniformData.rows || []);
+          reindexInspections("room", roomData.rows || []);
+          if (!rosterCached || !uniformCached || !roomCached) {
             selectedFlight = null;
             selectedStudent = null;
             selectedInspectionDate = null;
@@ -954,7 +1001,7 @@
           }
         })
         .catch((err) => {
-          if (!rosterCached || !inspectionsCached) {
+          if (!rosterCached || !uniformCached || !roomCached) {
             contentEl.innerHTML = `
               <div class="state-message">
                 <div class="state-message__icon">⚠️</div>
@@ -970,14 +1017,13 @@
         if (btn.disabled) return;
         tabButtons.forEach(b => b.classList.remove("is-active"));
         btn.classList.add("is-active");
-        if (btn.dataset.tab === "uniform") {
+        if (btn.dataset.tab === "trends") {
+          renderTrends();
+        } else {
+          activeType = btn.dataset.tab === "room" ? "room" : "uniform";
           selectedFlight = null;
           selectedStudent = null;
           renderFlightGrid();
-        } else if (btn.dataset.tab === "trends") {
-          renderTrends();
-        } else {
-          renderRoomPlaceholder();
         }
       });
     });
