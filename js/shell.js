@@ -204,14 +204,14 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
           </button>
+          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
+            <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
+          </button>
           <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
             <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
             <span class="hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
             <span id="hard-refresh-label">Refresh</span>
-          </button>
-          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
-            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
-            <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
           </button>
         ` : ""}
       </div>
