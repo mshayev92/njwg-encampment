@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .admin-tabs { margin-bottom: var(--space-5); }
+
+    /* ---- Staff Access ---- */
+    .staff-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      margin-top: var(--space-5);
+    }
+
+    .staff-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+    }
+
+    .staff-row__name {
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--indigo-900);
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-wrap: wrap;
+    }
+
+    .staff-row__meta {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      margin-top: var(--space-1);
+    }
+
+    .staff-row__chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1);
+      margin-top: var(--space-2);
+    }
+
+    .chip {
+      font-size: var(--fs-2xs);
+      font-family: var(--font-mono);
+      background: var(--surface-sunken);
+      color: var(--ink-600);
+      border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+    }
+
+    .staff-row__actions {
+      display: flex;
+      gap: var(--space-2);
+      flex-shrink: 0;
+    }
+
+    .admin-form input[type="text"],
+    .admin-form input[type="password"] {
+      width: 100%;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-sunken);
+      color: var(--ink-900);
+    }
+
+    .admin-form label.field-label {
+      display: block;
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      color: var(--ink-600);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      margin: var(--space-4) 0 var(--space-2);
+    }
+
+    .admin-form .hint {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      margin-top: var(--space-1);
+    }
+
+    .page-checks {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: var(--space-2);
+    }
+
+    .page-check {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-sunken);
+      cursor: pointer;
+      font-size: var(--fs-sm);
+    }
+    .page-check input { width: 18px; height: 18px; flex-shrink: 0; }
+    .page-check__id { font-family: var(--font-mono); font-size: var(--fs-2xs); color: var(--ink-600); margin-left: auto; }
+
+    .clear-pw {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      margin-top: var(--space-2);
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+    }
+
+    /* ---- Login Activity ---- */
+    .log-toolbar {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+      margin-bottom: var(--space-4);
+    }
+    .log-summary {
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+    }
+    .log-summary strong { color: var(--red-600); }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+
+    <main class="app-main">
+      <div class="admin-tabs tabs">
+        <button class="tabs__tab is-active" data-tab="staff">Staff Access</button>
+        <button class="tabs__tab" data-tab="log">Login Activity</button>
+      </div>
+
+      <div id="admin-content">
+        <div class="state-message"><div class="spinner"></div><p>Loading…</p></div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "admin" });
+
+    const contentEl = document.getElementById("admin-content");
+    const tabButtons = document.querySelectorAll(".tabs__tab");
+    const esc = Shell.escapeHtml;
+    const session = Auth.getSession();
+
+    // Assignable page tokens: the app's real nav pages plus the write
+    // gates the backend checks (see PAGE_WRITE_GATES in worker/src/auth.js).
+    // Derived from NAV_ITEMS so it can't drift as pages are added.
+    const EDIT_GATES = [
+      { id: "edit-roster", label: "Edit roster" },
+      { id: "edit-schedule", label: "Edit schedule" },
+      { id: "edit-announcements", label: "Edit announcements / black flag" }
+    ];
+    const KNOWN_PAGES = [
+      ...window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label })),
+      ...EDIT_GATES
+    ];
+
+    let activeTab = "staff";
+    let staff = [];              // [{ Position, Pages[], Flights[], hasPassword }]
+    let loginEntries = [];       // [{ Timestamp, Type, Identifier, Success }]
+    let logTotal = 0;
+    let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
+    let failuresOnly = false;
+
+    // ---- Staff Access ----------------------------------------------------
+
+    function flightsSummary(flights) {
+      if (!flights.length) return "All flights";
+      if (flights.some(f => f.toLowerCase() === "all")) return "All flights";
+      return flights.join(", ");
+    }
+
+    function renderStaffForm() {
+      if (editing === null) {
+        return `<button class="btn btn--primary" id="add-position-btn">+ Add position</button>`;
+      }
+      const isNew = editing === "";
+      const current = isNew ? null : staff.find(s => s.Position === editing);
+      const currentPages = current ? current.Pages.map(p => p.toLowerCase()) : [];
+      const currentFlights = current ? current.Flights : [];
+
+      // Offer the known pages plus any custom tokens already on this row.
+      const knownIds = new Set(KNOWN_PAGES.map(p => p.id));
+      const customPages = currentPages.filter(p => !knownIds.has(p)).map(id => ({ id, label: id }));
+      const allChecks = [...KNOWN_PAGES, ...customPages];
+
+      return `
+        <div class="card admin-form">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${isNew ? "Add position" : `Edit “${esc(editing)}”`}</h2>
+
+          <label class="field-label" for="pos-name">Position name</label>
+          <input type="text" id="pos-name" value="${esc(editing)}" ${isNew ? "" : "disabled"} placeholder="e.g. Bravo Flight, CCT, Administrator">
+          ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
+
+          <label class="field-label">Pages this position can access</label>
+          <div class="page-checks">
+            ${allChecks.map(p => `
+              <label class="page-check">
+                <input type="checkbox" value="${esc(p.id)}" ${currentPages.includes(p.id.toLowerCase()) ? "checked" : ""}>
+                <span>${esc(p.label)}</span>
+                <span class="page-check__id">${esc(p.id)}</span>
+              </label>
+            `).join("")}
+          </div>
+
+          <label class="field-label" for="pos-flights">Flights</label>
+          <input type="text" id="pos-flights" value="${esc(currentFlights.join(", "))}" placeholder="Alpha, Bravo — or blank / All for every flight">
+          <div class="hint">Comma-separated. Blank (or “All”) grants access to every flight’s cadets.</div>
+
+          <label class="field-label" for="pos-password">Password</label>
+          <input type="password" id="pos-password" autocomplete="new-password" placeholder="${current && current.hasPassword ? "Leave blank to keep the current password" : "Leave blank for no password"}">
+          <div class="hint">Positions with a password require it at sign-in (e.g. CCT, Administrator). The current password is never shown.</div>
+          ${current && current.hasPassword ? `
+            <label class="clear-pw"><input type="checkbox" id="clear-pw"> Remove the password (make this position open)</label>
+          ` : ""}
+
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
+            <button class="btn btn--primary" id="save-position-btn">${isNew ? "Create position" : "Save changes"}</button>
+            <button class="btn btn--ghost" id="cancel-position-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderStaffList() {
+      if (!staff.length) {
+        return `
+          <div class="state-message">
+            <div class="state-message__icon">🗝️</div>
+            <p>No positions found. If you're locked out, add <span class="chip">admin</span> to a position's Pages column directly in the StaffAccess Google Sheet to bootstrap the first administrator.</p>
+          </div>`;
+      }
+      return `
+        <div class="staff-list">
+          ${staff.slice().sort((a, b) => a.Position.localeCompare(b.Position)).map(s => {
+            const isAdmin = s.Pages.map(p => p.toLowerCase()).includes("admin");
+            return `
+              <div class="staff-row">
+                <div style="min-width:0;">
+                  <div class="staff-row__name">
+                    ${esc(s.Position)}
+                    ${isAdmin ? `<span class="badge badge--gold">Admin</span>` : ""}
+                    ${s.hasPassword ? `<span class="badge badge--garnet">🔒 Password</span>` : ""}
+                  </div>
+                  <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
+                  <div class="staff-row__chips">
+                    ${s.Pages.map(p => `<span class="chip">${esc(p)}</span>`).join("") || `<span class="chip">no pages</span>`}
+                  </div>
+                </div>
+                <div class="staff-row__actions">
+                  <button class="btn btn--ghost" data-edit="${esc(s.Position)}">Edit</button>
+                  <button class="btn btn--danger" data-delete="${esc(s.Position)}">Delete</button>
+                </div>
+              </div>`;
+          }).join("")}
+        </div>
+      `;
+    }
+
+    function renderStaffTab() {
+      contentEl.innerHTML = renderStaffForm() + renderStaffList();
+
+      const addBtn = document.getElementById("add-position-btn");
+      if (addBtn) addBtn.addEventListener("click", () => { editing = ""; renderStaffTab(); });
+
+      const saveBtn = document.getElementById("save-position-btn");
+      if (saveBtn) saveBtn.addEventListener("click", savePosition);
+      const cancelBtn = document.getElementById("cancel-position-btn");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => { editing = null; renderStaffTab(); });
+
+      contentEl.querySelectorAll("[data-edit]").forEach(b =>
+        b.addEventListener("click", () => { editing = b.dataset.edit; renderStaffTab(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
+      contentEl.querySelectorAll("[data-delete]").forEach(b =>
+        b.addEventListener("click", () => deletePosition(b.dataset.delete)));
+
+      Shell.wireTooltips(contentEl);
+    }
+
+    async function savePosition() {
+      const nameInput = document.getElementById("pos-name");
+      const position = nameInput.value.trim();
+      if (!position) { Shell.showToast("Enter a position name.", { type: "error" }); return; }
+
+      const pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
+      const flights = document.getElementById("pos-flights").value.split(",").map(s => s.trim()).filter(Boolean);
+      const passwordVal = document.getElementById("pos-password").value;
+      const clearPw = document.getElementById("clear-pw");
+
+      const row = { position, pages, flights };
+      if (clearPw && clearPw.checked) row.clearPassword = true;
+      else if (passwordVal) row.password = passwordVal;
+
+      const btn = document.getElementById("save-position-btn");
+      btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        await Api.adminSaveStaffAccess(row);
+        editing = null;
+        await loadStaff();
+        Shell.showToast("Saved.", { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        btn.disabled = false; btn.textContent = "Save changes";
+      }
+    }
+
+    async function deletePosition(position) {
+      const confirmed = await Shell.confirm({
+        title: `Delete “${position}”?`,
+        message: "Anyone signed in as this position stays signed in until their session expires, but no one will be able to sign in as it again.",
+        confirmLabel: "Delete position"
+      });
+      if (!confirmed) return;
+      try {
+        await Api.adminDeleteStaffAccess(position);
+        await loadStaff();
+        Shell.showToast("Position deleted.", { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    // ---- Login Activity --------------------------------------------------
+
+    function isSuccess(entry) {
+      return String(entry.Success).trim().toLowerCase() === "true";
+    }
+
+    function renderLogTab() {
+      const shown = failuresOnly ? loginEntries.filter(e => !isSuccess(e)) : loginEntries;
+      const failures = loginEntries.filter(e => !isSuccess(e)).length;
+
+      contentEl.innerHTML = `
+        <div class="log-toolbar">
+          <div class="tabs" role="group" aria-label="Filter">
+            <button class="tabs__tab ${failuresOnly ? "" : "is-active"}" data-filter="all">All</button>
+            <button class="tabs__tab ${failuresOnly ? "is-active" : ""}" data-filter="failures">Failures only</button>
+          </div>
+          <div class="log-summary">
+            Showing ${shown.length} of ${logTotal} recorded · <strong>${failures}</strong> failed attempt${failures === 1 ? "" : "s"} in this window
+          </div>
+        </div>
+
+        ${shown.length ? `
+          <table class="data-table">
+            <thead>
+              <tr><th>Time</th><th>Type</th><th>Identifier</th><th>Result</th></tr>
+            </thead>
+            <tbody>
+              ${shown.map(e => {
+                const ok = isSuccess(e);
+                const when = e.Timestamp ? new Date(e.Timestamp).toLocaleString() : "—";
+                return `
+                  <tr>
+                    <td data-label="Time" class="mono">${esc(when)}</td>
+                    <td data-label="Type">${esc(e.Type || "—")}</td>
+                    <td data-label="Identifier">${esc(e.Identifier || "—")}</td>
+                    <td data-label="Result"><span class="badge ${ok ? "badge--success" : "badge--error"}">${ok ? "Success" : "Failed"}</span></td>
+                  </tr>`;
+              }).join("")}
+            </tbody>
+          </table>
+        ` : `
+          <div class="state-message"><div class="state-message__icon">🪵</div><p>No login activity recorded yet.</p></div>
+        `}
+      `;
+
+      contentEl.querySelectorAll("[data-filter]").forEach(b =>
+        b.addEventListener("click", () => { failuresOnly = b.dataset.filter === "failures"; renderLogTab(); }));
+    }
+
+    // ---- Loading + tabs --------------------------------------------------
+
+    async function loadStaff() {
+      try {
+        const res = await Api.adminListStaffAccess();
+        staff = res.positions || [];
+        if (activeTab === "staff") renderStaffTab();
+      } catch (err) {
+        if (activeTab === "staff") contentEl.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${esc(err.message)}</p></div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    async function loadLog() {
+      try {
+        const res = await Api.adminListLoginLog({ limit: 200 });
+        loginEntries = res.entries || [];
+        logTotal = res.total || loginEntries.length;
+        if (activeTab === "log") renderLogTab();
+      } catch (err) {
+        if (activeTab === "log") contentEl.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${esc(err.message)}</p></div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    function updateExport() {
+      // Only the Login Activity tab has something worth exporting.
+      if (activeTab === "log") {
+        Shell.registerExport(() => ({
+          filename: `login-activity-${new Date().toISOString().slice(0, 10)}.csv`,
+          columns: ["Timestamp", "Type", "Identifier", "Success"],
+          rows: (failuresOnly ? loginEntries.filter(e => !isSuccess(e)) : loginEntries)
+        }));
+      } else {
+        Shell.registerExport(null);
+      }
+    }
+
+    function showActiveTab() {
+      updateExport();
+      if (activeTab === "log") {
+        if (loginEntries.length || logTotal) renderLogTab();
+        else { contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`; }
+        loadLog();
+      } else {
+        if (staff.length) renderStaffTab();
+        else { contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`; }
+        loadStaff();
+      }
+    }
+
+    tabButtons.forEach(btn => {
+      btn.addEventListener("click", () => {
+        tabButtons.forEach(b => b.classList.remove("is-active"));
+        btn.classList.add("is-active");
+        activeTab = btn.dataset.tab;
+        editing = null;
+        showActiveTab();
+      });
+    });
+
+    function refresh() {
+      editing = null;
+      showActiveTab();
+    }
+    Shell.registerRefresh(refresh);
+
+    // Initial load.
+    showActiveTab();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

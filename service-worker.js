@@ -13,7 +13,7 @@
 // for the app shell (see the fetch handler below) — changing this name
 // forces every device to drop its old cached shell on activate instead
 // of continuing to serve stale markup/CSS/JS.
-const CACHE_NAME = "njwg-encampment-v5";
+const CACHE_NAME = "njwg-encampment-v6";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -38,6 +38,7 @@ const APP_SHELL = [
   "./pages/overview.html",
   "./pages/announcements.html",
   "./pages/notes.html",
+  "./pages/admin.html",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/icon-512-maskable.png",

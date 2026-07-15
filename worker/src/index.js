@@ -84,6 +84,22 @@ async function handleGet(request, env) {
     return respond(handlePushConfig(env));
   }
 
+  if (action === "adminListStaffAccess") {
+    await requireDeviceToken(env, params.deviceToken);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    assertAdmin(session);
+    return respond(await handleAdminListStaffAccess(env));
+  }
+
+  if (action === "adminListLoginLog") {
+    await requireDeviceToken(env, params.deviceToken);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    assertAdmin(session);
+    return respond(await handleAdminListLoginLog(env, params));
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
@@ -119,6 +135,22 @@ async function handlePost(request, env, ctx) {
     await requireSession(env, body.token);
     await checkRateLimit(env, body.token);
     return respond(await handleSavePushSubscription(env, body));
+  }
+
+  if (body.action === "adminSaveStaffAccess") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond(await handleAdminSaveStaffAccess(env, body, session));
+  }
+
+  if (body.action === "adminDeleteStaffAccess") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond(await handleAdminDeleteStaffAccess(env, body, session));
   }
 
   return respond({ ok: false, error: "Unknown or missing action for POST." });
@@ -244,6 +276,192 @@ async function logLoginAttempt(env, entry) {
   } catch (err) {
     // Swallow — logging must never break login itself.
   }
+}
+
+// ---- ADMIN (StaffAccess management + LoginLog viewer) -------------------
+//
+// These manage the very sheet that governs who can do what, so every one
+// is gated TWICE: the client only shows the Admin page to a session whose
+// Pages include "admin", and each action here re-checks the same thing
+// server-side (assertAdmin) — the client gate is a convenience, this is
+// the boundary. StaffAccess passwords are never sent to the client; only
+// a hasPassword flag is. Bootstrapping the first admin is a one-time
+// manual edit of the StaffAccess sheet (add "admin" to a position's Pages).
+
+const STAFF_ACCESS_HEADERS = ["Position", "Pages", "Flights", "Password"];
+
+function assertAdmin(session) {
+  const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
+  if (!pages.includes("admin")) {
+    throw new Error("Administrator access required.");
+  }
+}
+
+function splitList(value) {
+  return String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** position(lowercased) -> { position, pages[] } for the last-admin guard. */
+function readStaffPagesMap(values) {
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  const pagesCol = headers.indexOf("Pages");
+  const map = new Map();
+  if (posCol === -1) return map;
+  values.slice(1).forEach((row) => {
+    const name = String(row[posCol] || "").trim();
+    if (!name) return;
+    const pages = pagesCol !== -1 ? splitList(row[pagesCol]).map((p) => p.toLowerCase()) : [];
+    map.set(name.toLowerCase(), { position: name, pages });
+  });
+  return map;
+}
+
+function countAdmins(map) {
+  let n = 0;
+  for (const v of map.values()) if (v.pages.includes("admin")) n++;
+  return n;
+}
+
+async function handleAdminListStaffAccess(env) {
+  const values = await getStaffAccessValues(env);
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  const pagesCol = headers.indexOf("Pages");
+  const flightsCol = headers.indexOf("Flights");
+  const pwCol = headers.indexOf("Password");
+  if (posCol === -1) return { ok: true, positions: [] };
+
+  const positions = values.slice(1)
+    .filter((row) => String(row[posCol] || "").trim())
+    .map((row) => ({
+      Position: String(row[posCol] || "").trim(),
+      Pages: pagesCol !== -1 ? splitList(row[pagesCol]) : [],
+      Flights: flightsCol !== -1 ? splitList(row[flightsCol]) : [],
+      // Never expose the password itself — only whether one is set.
+      hasPassword: pwCol !== -1 && !!String(row[pwCol] || "").trim()
+    }));
+
+  return { ok: true, positions };
+}
+
+async function handleAdminSaveStaffAccess(env, body, session) {
+  const position = String(body.position || "").trim();
+  if (!position) throw new Error("Position name is required.");
+
+  const pages = (Array.isArray(body.pages) ? body.pages : [])
+    .map((p) => String(p).trim().toLowerCase()).filter(Boolean);
+  const flights = (Array.isArray(body.flights) ? body.flights : [])
+    .map((f) => String(f).trim()).filter(Boolean);
+
+  // Make sure the sheet + its standard columns exist before writing.
+  await ensureSheetExists(env, "StaffAccess", STAFF_ACCESS_HEADERS);
+  let values = await getStaffAccessValues(env);
+  let headers = (values[0] || []).slice();
+  for (const col of STAFF_ACCESS_HEADERS) {
+    if (!headers.includes(col)) {
+      headers.push(col);
+      await setHeaderCell(env, "StaffAccess", headers.length - 1, col);
+    }
+  }
+  const posCol = headers.indexOf("Position");
+  const pwCol = headers.indexOf("Password");
+
+  // Locate an existing row for this position (case-insensitive).
+  let rowNumber = 0;
+  let existingRow = null;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][posCol] || "").trim().toLowerCase() === position.toLowerCase()) {
+      rowNumber = i + 1; // 1-based sheet row (values[0] is row 1)
+      existingRow = values[i];
+      break;
+    }
+  }
+
+  // Guard: this edit must not remove the last remaining admin.
+  const map = readStaffPagesMap(values);
+  map.set(position.toLowerCase(), { position, pages });
+  if (countAdmins(map) === 0) {
+    throw new Error("At least one position must keep Administrator (\"admin\") access.");
+  }
+
+  // Password: blank/omitted means keep the existing one; clearPassword
+  // wipes it. The plaintext is never sent to the client, so we read the
+  // current value from the sheet to preserve it on an ordinary edit.
+  const existingPassword = existingRow && pwCol !== -1 ? String(existingRow[pwCol] || "") : "";
+  const newPassword = body.clearPassword
+    ? ""
+    : (typeof body.password === "string" && body.password !== "" ? body.password : existingPassword);
+
+  const rowData = {
+    Position: position,
+    Pages: pages.join(", "),
+    Flights: flights.join(", "),
+    Password: newPassword
+  };
+  // Preserve any other columns that already exist on an edited row.
+  const rowArray = headers.map((h, i) => (h in rowData ? rowData[h] : (existingRow ? (existingRow[i] ?? "") : "")));
+
+  if (rowNumber > 0) {
+    await setRow(env, "StaffAccess", rowNumber, rowArray);
+    return { ok: true, action: "updated", position };
+  }
+  await appendRow(env, "StaffAccess", rowArray);
+  return { ok: true, action: "created", position };
+}
+
+async function handleAdminDeleteStaffAccess(env, body, session) {
+  const position = String(body.position || "").trim();
+  if (!position) throw new Error("Position is required.");
+
+  if (position.toLowerCase() === String(session.position || "").trim().toLowerCase()) {
+    throw new Error("You can't delete the position you're currently signed in as.");
+  }
+
+  const values = await getStaffAccessValues(env);
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  if (posCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
+
+  const map = readStaffPagesMap(values);
+  map.delete(position.toLowerCase());
+  if (countAdmins(map) === 0) {
+    throw new Error("Can't delete the last position with Administrator access.");
+  }
+
+  let rowNumber = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][posCol] || "").trim().toLowerCase() === position.toLowerCase()) {
+      rowNumber = i + 1;
+      break;
+    }
+  }
+  if (!rowNumber) throw new Error("Position not found.");
+
+  await deleteRow(env, "StaffAccess", rowNumber);
+  return { ok: true, action: "deleted", position };
+}
+
+async function handleAdminListLoginLog(env, params) {
+  let values;
+  try {
+    values = await getAllValues(env, "LoginLog");
+  } catch (err) {
+    // Sheet doesn't exist yet (no logins recorded) — treat as empty.
+    return { ok: true, entries: [], total: 0 };
+  }
+  if (values.length < 2) return { ok: true, entries: [], total: 0 };
+
+  const headers = values[0];
+  const rows = values.slice(1).map((row) => {
+    const obj = {};
+    headers.forEach((h, i) => (obj[h] = row[i]));
+    return obj;
+  });
+  rows.reverse(); // newest first (LoginLog is appended chronologically)
+
+  const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 1000);
+  return { ok: true, entries: rows.slice(0, limit), total: rows.length };
 }
 
 // ---- WEB PUSH ------------------------------------------------------------
