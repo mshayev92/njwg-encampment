@@ -94,7 +94,7 @@ h1, h2, h3, h4 {
    .app-shell--collapsed (toggled by the crest button) swaps between
    --nav-rail-width-expanded and --nav-rail-width-collapsed. */
 .app-shell {
-  height: 100vh;
+  min-height: 100%;
   display: grid;
   grid-template-columns: var(--nav-rail-width) 1fr;
   grid-template-rows: var(--header-height) 1fr;
@@ -360,7 +360,6 @@ h1, h2, h3, h4 {
   padding: var(--space-6);
   max-width: var(--content-max-width);
   width: 100%;
-  overflow-y: auto;
 }
 
 .page-header {
