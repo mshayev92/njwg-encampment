@@ -1,0 +1,14 @@
+{
+  "name": "njwg-encampment-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker backend for NJWG Encampment — reads/writes the Google Sheet via the Sheets API using a service account, replacing apps-script/Code.gs.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^3.90.0"
+  }
+}

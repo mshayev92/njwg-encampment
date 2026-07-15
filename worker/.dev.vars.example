@@ -1,0 +1,11 @@
+# Copy this file to ".dev.vars" (untracked, see .gitignore) to test
+# locally with `npx wrangler dev`. Never commit the real .dev.vars.
+#
+# Real deploys don't use this file — they use `wrangler secret put`,
+# see worker/README.md.
+
+GOOGLE_CLIENT_EMAIL="sheet-api@your-project.iam.gserviceaccount.com"
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n"
+SPREADSHEET_ID="paste-the-id-from-your-sheet-url-here"
+SESSION_SECRET="generate-a-long-random-string"
+PASSPHRASE_HASH="sha256-hex-hash-of-your-passphrase"

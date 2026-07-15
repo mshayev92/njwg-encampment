@@ -1,0 +1,6 @@
+node_modules/
+.wrangler/
+.dev.vars
+*.json
+!package.json
+!wrangler.json
