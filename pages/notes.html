@@ -208,6 +208,26 @@
       return rosterRows.filter(r => isFlightAllowed(r.Flight));
     }
 
+    /**
+     * A note is visible to a position if it isn't tied to any specific
+     * flight (blank Flight — a general note anyone can see, same as an
+     * Announcement) OR that position is allowed to see the tied flight.
+     * This is the actual visibility gate for the feed below — matched
+     * against the FULL roster (not allowedRoster()) when a note is
+     * created, so the Flight tag is correct even in the rare case
+     * someone types a name manually rather than picking a suggestion.
+     */
+    function isNoteVisible(note) {
+      return !note.Flight || isFlightAllowed(note.Flight);
+    }
+
+    /** Exact (case-insensitive) name match against the full roster, so a written Subject gets tagged with that cadet's real Flight. */
+    function flightForSubject(subject) {
+      if (!subject) return "";
+      const match = rosterRows.find(r => String(r.Name || "").trim().toLowerCase() === subject.trim().toLowerCase());
+      return match ? (match.Flight || "") : "";
+    }
+
     function renderPostForm() {
       return `
         <div class="card note-form">
@@ -223,7 +243,9 @@
     }
 
     function renderFeed() {
-      const sorted = notes.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      const sorted = notes
+        .filter(isNoteVisible)
+        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       if (!sorted.length) {
         return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
       }
@@ -232,7 +254,7 @@
           ${sorted.map(n => `
             <div class="note-card">
               <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
-              <div class="note-card__meta">${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}</div>
+              <div class="note-card__meta">${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</div>
               <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
             </div>
           `).join("")}
@@ -329,6 +351,7 @@
         Timestamp: new Date().toISOString(),
         AuthorPosition: session.Position,
         Subject: subject,
+        Flight: flightForSubject(subject),
         Body: bodyHtml
       };
 
