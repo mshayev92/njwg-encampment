@@ -96,6 +96,7 @@ window.APP_CONFIG = {
     { id: "schedule",     label: "Schedule",     href: "pages/schedule.html",     icon: "calendar" },
     { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
     { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },
+    { id: "notes",        label: "Notes",        href: "pages/notes.html",        icon: "edit" },
     { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" }
     // Add future pages here, e.g.:
     // { id: "forms", label: "Forms", href: "pages/forms.html", icon: "file" },
@@ -106,5 +107,5 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus"]
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"]
 };

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notes — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .note-form input[type="text"] {
+      width: 100%;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-sunken);
+      margin-bottom: var(--space-3);
+    }
+
+    .richtext-toolbar {
+      display: flex;
+      gap: var(--space-1);
+      margin-bottom: var(--space-2);
+    }
+
+    .richtext-toolbar button {
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--fs-sm);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-900);
+      cursor: pointer;
+    }
+
+    .richtext-toolbar button:hover {
+      border-color: var(--gold-500);
+    }
+
+    .richtext-editor {
+      width: 100%;
+      min-height: 120px;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface-sunken);
+      margin-bottom: var(--space-3);
+      overflow-y: auto;
+    }
+
+    .richtext-editor:empty::before {
+      content: attr(data-placeholder);
+      color: var(--ink-600);
+    }
+
+    .richtext-editor ul, .richtext-editor ol {
+      padding-left: var(--space-5);
+    }
+
+    .note-feed {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      margin-top: var(--space-5);
+    }
+
+    .note-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      padding: var(--space-4);
+    }
+
+    .note-card__subject {
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--indigo-900);
+      margin-bottom: var(--space-1);
+    }
+
+    .note-card__meta {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-3);
+    }
+
+    .note-card__body {
+      font-size: var(--fs-sm);
+      color: var(--ink-900);
+    }
+
+    .note-card__body ul, .note-card__body ol {
+      padding-left: var(--space-5);
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail"></nav>
+    <header class="app-header" id="app-header"></header>
+
+    <main class="app-main">
+      <div id="page-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="../js/config.js"></script>
+  <script src="../js/api.js"></script>
+  <script src="../js/auth.js"></script>
+  <script src="../js/richtext.js"></script>
+  <script src="../js/shell.js"></script>
+  <script>
+    Shell.init({ activePage: "notes" });
+
+    const contentEl = document.getElementById("page-content");
+    const session = Auth.getSession();
+    const esc = Shell.escapeHtml;
+
+    let rosterRows = [];
+    let notes = [];
+
+    function renderPostForm() {
+      return `
+        <div class="card note-form">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Add a Note</h2>
+          <input type="text" id="subject-input" list="subject-roster-list" placeholder="Subject — a cadet's name from the roster, or any subject…">
+          <datalist id="subject-roster-list">
+            ${rosterRows.map(r => `<option value="${esc(r.Name)}">${esc(r.Rank || "")} · ${esc(r.Flight || "")}</option>`).join("")}
+          </datalist>
+          ${RichText.TOOLBAR_HTML}
+          <div class="richtext-editor" id="body-editor" contenteditable="true" data-placeholder="Write your note…"></div>
+          <button class="btn btn--primary" id="post-note-btn">Add Note</button>
+        </div>
+      `;
+    }
+
+    function renderFeed() {
+      const sorted = notes.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      if (!sorted.length) {
+        return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
+      }
+      return `
+        <div class="note-feed">
+          ${sorted.map(n => `
+            <div class="note-card">
+              <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
+              <div class="note-card__meta">${esc(n.AuthorPosition || "—")} · ${esc(new Date(n.Timestamp).toLocaleString())}</div>
+              <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
+            </div>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function render() {
+      contentEl.innerHTML = `
+        ${renderPostForm()}
+        ${renderFeed()}
+      `;
+
+      const toolbar = contentEl.querySelector(".richtext-toolbar");
+      const editor = document.getElementById("body-editor");
+      RichText.attach(toolbar, editor);
+
+      document.getElementById("post-note-btn").addEventListener("click", postNote);
+    }
+
+    async function postNote() {
+      const subjectInput = document.getElementById("subject-input");
+      const editor = document.getElementById("body-editor");
+      const subject = subjectInput.value.trim();
+      const bodyHtml = RichText.sanitize(editor.innerHTML);
+
+      if (!subject && RichText.isEmpty(bodyHtml)) {
+        Shell.showToast("Add a subject or some note text before saving.", { type: "error" });
+        return;
+      }
+
+      const postBtn = document.getElementById("post-note-btn");
+      postBtn.disabled = true;
+      postBtn.textContent = "Saving…";
+
+      const newNote = {
+        Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        Timestamp: new Date().toISOString(),
+        AuthorPosition: session.Position,
+        Subject: subject,
+        Body: bodyHtml
+      };
+
+      try {
+        await Api.writeRow("Notes", newNote);
+        notes = [newNote, ...notes];
+        render();
+        Shell.showToast("Note saved.", { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        postBtn.disabled = false;
+        postBtn.textContent = "Add Note";
+      }
+    }
+
+    let rosterLoaded = false;
+    let notesLoaded = false;
+
+    function renderIfReady() {
+      if (!rosterLoaded || !notesLoaded) {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
+        return;
+      }
+      render();
+    }
+
+    async function load() {
+      const r = Api.getSheetCached("Roster", (fresh) => {
+        rosterRows = fresh.rows || [];
+        rosterLoaded = true;
+        renderIfReady();
+      });
+      const n = Api.getSheetCached("Notes", (fresh) => {
+        notes = fresh.rows || [];
+        notesLoaded = true;
+        renderIfReady();
+      });
+
+      if (r.data) { rosterRows = r.data.rows || []; rosterLoaded = true; }
+      if (n.data) { notes = n.data.rows || []; notesLoaded = true; }
+      renderIfReady();
+
+      try {
+        await Promise.all([r.ready, n.ready]);
+      } catch (err) {
+        if (!rosterLoaded || !notesLoaded) {
+          contentEl.innerHTML = `
+            <div class="state-message">
+              <div class="state-message__icon">⚠️</div>
+              <p>${err.message}</p>
+            </div>`;
+        }
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
+    Shell.registerRefresh(load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>
