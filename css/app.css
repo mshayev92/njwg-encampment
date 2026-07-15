@@ -130,6 +130,13 @@ h1, h2, h3, h4 {
   flex-wrap: wrap;
   height: auto;
   min-width: 0;
+  /* Matches .app-main's max-width + centering so the title and the
+     icon cluster line up with the content column below them instead
+     of stretching to the raw edges of the (wider) grid cell. */
+  max-width: var(--content-max-width);
+  width: 100%;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 .app-header__title {
