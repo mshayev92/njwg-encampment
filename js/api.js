@@ -56,6 +56,24 @@ const Api = (() => {
   // and lets the next click retry cleanly.
   const REQUEST_TIMEOUT_MS = 15000;
 
+  // Client-side freshness window. A read satisfied within this many ms is
+  // served straight from the (in-memory + localStorage) cache with NO
+  // network request. This is the main fix for the "Too many requests"
+  // errors: because this is a static MULTI-PAGE app, every navigation
+  // reloads the page and every page calls getSheetCached() for the
+  // sheets it shows — which previously fired a fresh fetch EVERY time,
+  // even for a sheet another page fetched two seconds earlier. Those
+  // redundant fetches still counted against the backend's per-token
+  // rate limit (Code.gs RATE_LIMIT_PER_MINUTE), even though the backend
+  // was already serving them from its own 20s cache. Gating on freshness
+  // here means rapid page-to-page navigation, repeated getSheetCached()
+  // calls, and the header's background pollers stop re-hitting the
+  // backend for data that's only seconds old. Aligned with the backend's
+  // READ_CACHE_TTL_SECONDS — within this window a refetch would return
+  // byte-identical data anyway. Explicit refreshes (getSheet() and the
+  // Refresh button) bypass this and always force a live fetch.
+  const FRESH_TTL_MS = 20000;
+
   function getSessionToken() {
     return (typeof Auth !== "undefined" && Auth.getToken) ? Auth.getToken() : null;
   }
@@ -252,8 +270,38 @@ const Api = (() => {
     if (subs) subs.forEach((cb) => { try { cb(data); } catch (e) { /* one bad subscriber shouldn't break others */ } });
   }
 
-  async function fetchSheet_(sheetName, extraParams) {
+  /**
+   * Marks every cached entry for a sheet as stale (fetchedAt = 0) so the
+   * NEXT read revalidates against the network instead of being served
+   * from the freshness window. Called after a write/delete to that sheet
+   * (so nobody reads their own pre-write data back for up to FRESH_TTL_MS)
+   * and by hardRefresh() (so the Refresh button always re-fetches). The
+   * stale data is deliberately KEPT in the cache, not removed, so pages
+   * can still render it instantly while the revalidation is in flight.
+   */
+  function markSheetStale_(sheetName) {
+    cache.forEach((entry, key) => {
+      if (key === sheetName || key.indexOf(sheetName) === 0) {
+        entry.fetchedAt = 0;
+        persistToStorage_(key, entry);
+      }
+    });
+  }
+
+  async function fetchSheet_(sheetName, extraParams, { force = false } = {}) {
     const key = cacheKey(sheetName, extraParams);
+
+    // Freshness gate: if we fetched this sheet within FRESH_TTL_MS and the
+    // caller isn't forcing a live read, serve the cached copy without a
+    // network round-trip. This is what keeps navigation and repeated
+    // reads from burning through the backend's rate limit.
+    if (!force) {
+      const fresh = cache.get(key);
+      if (fresh && (Date.now() - fresh.fetchedAt) < FRESH_TTL_MS) {
+        return fresh.data;
+      }
+    }
+
     if (inFlight.has(key)) return inFlight.get(key);
 
     const promise = request("read", { params: { sheet: sheetName, ...extraParams } })
@@ -340,7 +388,7 @@ const Api = (() => {
      * normal page load, use getSheetCached() instead.
      */
     getSheet(sheetName, extraParams = {}) {
-      return fetchSheet_(sheetName, extraParams);
+      return fetchSheet_(sheetName, extraParams, { force: true });
     },
 
     /**
@@ -385,16 +433,21 @@ const Api = (() => {
      * cached-render every page does automatically on load.
      */
     async hardRefresh() {
-      // Deliberately does NOT clear the cache. getSheetCached() always
-      // triggers a real network fetch regardless of what's cached, so
-      // the page's own load() (called right after this by Shell's
-      // hardRefresh) already guarantees fresh data lands — wiping the
-      // cache first used to just blank the page back to its "Loading…"
-      // spinner for a moment while that fetch was in flight, stacked on
-      // top of the header's own refresh spinner, which looked broken
-      // (two spinners) and made a normal load fail to show ANYTHING
-      // if the refetch hit a rate limit. Keeping old data on screen
-      // until the fresh data actually arrives is strictly better.
+      // Deliberately does NOT clear the cache — it marks every entry
+      // STALE instead. The page's own load() (called right after this by
+      // Shell's hardRefresh) re-runs getSheetCached(), and because those
+      // entries are now stale they revalidate against the network past
+      // the freshness gate — so the Refresh button always fetches fresh
+      // data even for a sheet read seconds ago. Keeping the (stale) data
+      // in the cache means pages render it instantly while the refetch is
+      // in flight rather than blanking back to a "Loading…" spinner, and
+      // it survives a refetch that hits a rate limit. Wiping the cache
+      // first used to blank the page and, stacked on the header's own
+      // refresh spinner, looked broken (two spinners).
+      cache.forEach((entry, key) => {
+        entry.fetchedAt = 0;
+        persistToStorage_(key, entry);
+      });
       return Array.from(cache.keys());
     },
 
@@ -442,6 +495,10 @@ const Api = (() => {
      * to a permission error before updating its own UI.
      */
     writeRow(sheetName, rowData, { matchColumn = null, matchColumns = null, optimistic = true } = {}) {
+      // This sheet's cached rows no longer reflect reality — force the
+      // next read to revalidate rather than serve pre-write data from the
+      // freshness window.
+      markSheetStale_(sheetName);
       const body = { sheet: sheetName, row: rowData, matchColumn, matchColumns };
       if (!optimistic) return performWrite_("write", body);
       // Fire the real request in the background (errors surface via
@@ -457,6 +514,7 @@ const Api = (() => {
      * matchValues. Same optimistic-by-default behavior as writeRow.
      */
     deleteRow(sheetName, matchValues, { matchColumn = null, matchColumns = null, optimistic = true } = {}) {
+      markSheetStale_(sheetName);
       const body = { sheet: sheetName, matchValues, matchColumn, matchColumns };
       if (!optimistic) return performWrite_("delete", body);
       performWrite_("delete", body).catch(() => { /* status already reported via setSyncStatus_ */ });
