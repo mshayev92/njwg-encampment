@@ -16,7 +16,12 @@ html, body {
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   -webkit-font-smoothing: antialiased;
+  /* Long unbroken strings (Cap IDs, emails, URLs) wrap instead of
+     stretching the layout; a final guard against horizontal scroll. */
+  overflow-wrap: break-word;
 }
+
+body { overflow-x: hidden; }
 
 /* ---- Custom browser chrome: scrollbars, selection ----
    Native scrollbars/selection are grey/blue by default and break the
@@ -117,13 +122,14 @@ h1, h2, h3, h4 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-5);
+  gap: var(--space-4);
   padding: var(--space-5) var(--space-6);
   background: transparent;
   color: var(--ink-900);
   z-index: var(--z-header);
   flex-wrap: wrap;
   height: auto;
+  min-width: 0;
 }
 
 .app-header__title {
@@ -132,12 +138,21 @@ h1, h2, h3, h4 {
   font-weight: 600;
   color: var(--indigo-900);
   margin: 0;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
+/* The action cluster must be allowed to WRAP — otherwise its row of
+   buttons sets a min content width wider than a phone viewport, which
+   forces the whole grid (and every page's content) to overflow
+   horizontally. Wrapping keeps everything inside the viewport. */
 .app-header__user {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  min-width: 0;
   font-size: var(--fs-sm);
   color: var(--ink-600);
 }
@@ -360,6 +375,10 @@ h1, h2, h3, h4 {
   padding: var(--space-6);
   max-width: var(--content-max-width);
   width: 100%;
+  /* Grid items default to min-width:auto, which lets wide content (long
+     names, tables, Cap IDs) push the column past the viewport. Pinning
+     it to 0 lets the column shrink and keeps content within bounds. */
+  min-width: 0;
 }
 
 .page-header {
@@ -1030,45 +1049,84 @@ h1, h2, h3, h4 {
    RESPONSIVE
    ============================================================ */
 
-/* Tablet: nav rail narrows */
+/* The header Refresh button carries both an icon and a text label; the
+   icon is hidden on wide screens (label shown) and swapped in on small
+   screens where space is tight (see the mobile block below). */
+.hard-refresh-icon { display: none; }
+.hard-refresh-icon svg { width: 18px; height: 18px; }
+
+/* Tablet: nav rail narrows to icons only. Tablets are the primary staff
+   device, so the icon rail + a compact, still-reachable Log out. */
 @media (max-width: 1024px) {
   .app-shell { grid-template-columns: 76px 1fr; }
   .nav-rail__link-label,
   .nav-rail__crest-text { display: none; }
   .nav-rail__link { justify-content: center; }
   .nav-rail__crest { justify-content: center; }
+
+  /* The footer card is too wide for the 76px rail — drop the eyebrow and
+     position label, keep a compact centered Log out that still fits. */
+  .nav-rail__footer { padding: var(--space-3) var(--space-1) 0; text-align: center; }
+  .nav-rail__footer-label,
+  .nav-rail__footer-position { display: none; }
+  .nav-rail__footer .btn--ghost {
+    padding: var(--space-2) var(--space-1);
+    font-size: var(--fs-2xs);
+  }
+
+  .app-main { padding: var(--space-5); }
 }
 
-/* Mobile: nav rail becomes bottom tab bar */
+/* Mobile: nav rail becomes a bottom tab bar */
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: var(--header-height) 1fr var(--bottom-tab-height);
+    grid-template-rows: auto 1fr var(--bottom-tab-height);
     grid-template-areas:
       "header"
       "main"
       "nav";
   }
 
+  .app-header {
+    padding: var(--space-4);
+    gap: var(--space-3);
+  }
+  .app-header__title { font-size: var(--fs-lg); }
+
+  /* Refresh collapses to an icon-only button to save a whole row of
+     header width on phones. */
+  #hard-refresh-label { display: none; }
+  .hard-refresh-icon { display: inline-flex; }
+  #hard-refresh-btn { padding: var(--space-2); }
+
   .nav-rail {
     flex-direction: row;
-    align-items: center;
+    align-items: stretch;
     justify-content: space-around;
-    padding: var(--space-2);
+    padding: 0;
     border-top: 1px solid var(--indigo-700);
     position: sticky;
     bottom: 0;
     z-index: var(--z-nav);
+    /* Keep the tab bar clear of the iOS/Android home indicator. */
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
-  .nav-rail__crest { display: none; }
+  .nav-rail__crest,
+  .nav-rail__footer { display: none; }
 
   .nav-rail__link {
+    flex: 1;
     flex-direction: column;
-    gap: var(--space-1);
-    padding: var(--space-2);
+    justify-content: center;
+    gap: 2px;
+    padding: var(--space-2) var(--space-1);
     font-size: var(--fs-2xs);
+    text-align: center;
   }
+  .nav-rail__link-label { display: block; font-size: 10px; }
+  .nav-rail__link-icon { width: 22px; height: 22px; }
 
   .nav-rail__link[aria-current="page"] {
     box-shadow: none;
@@ -1079,6 +1137,8 @@ h1, h2, h3, h4 {
   .app-main { padding: var(--space-4); }
   .page-header h1 { font-size: var(--fs-xl); }
 
+  /* Tables collapse to labelled cards (label from each cell's
+     data-label attribute). */
   .data-table thead { display: none; }
   .data-table, .data-table tbody, .data-table tr, .data-table td {
     display: block;
@@ -1105,6 +1165,10 @@ h1, h2, h3, h4 {
     color: var(--ink-600);
     flex-shrink: 0;
   }
+
+  /* Full-width primary actions read better under the thumb on phones. */
+  .modal-card__actions { flex-direction: column-reverse; }
+  .modal-card__actions .btn { width: 100%; }
 }
 
 /* Small phones */
@@ -1113,7 +1177,30 @@ h1, h2, h3, h4 {
     --space-5: 1.25rem;
     --space-6: 1.5rem;
   }
-  .app-header__title { font-size: var(--fs-sm); }
+  .app-header__title { font-size: var(--fs-md); }
+  .nav-rail__link-label { display: none; } /* icons only when very narrow */
+}
+
+/* ---- Touch devices (phones + tablets): larger hit targets ----
+   Applies by INPUT type, not width, so a tablet with a mouse keeps the
+   tighter desktop sizing while any finger-driven device gets ≥44px
+   targets and zoom-proof 16px form fields. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .tabs__tab { min-height: 40px; }
+  .nav-rail__link { min-height: 48px; }
+  .dropdown__trigger,
+  .dropdown__option { min-height: 44px; }
+  .context-menu__item { min-height: 44px; }
+  .announcements-popover__close,
+  .search-overlay__close { min-width: 44px; min-height: 44px; }
+
+  /* iOS zooms the page when a focused field's text is under 16px — pin
+     form controls to 16px so tapping into them never yanks the layout. */
+  input, select, textarea,
+  .field input, .field select, .field textarea {
+    font-size: 16px !important;
+  }
 }
 
 /* ============================================================

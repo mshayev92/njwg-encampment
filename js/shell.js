@@ -183,6 +183,7 @@ const Shell = (() => {
           </button>
           <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
             <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
+            <span class="hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
             <span id="hard-refresh-label">Refresh</span>
           </button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
