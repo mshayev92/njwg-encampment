@@ -111,6 +111,13 @@ const Shell = (() => {
   function applyCollapsedState_(collapsed) {
     const shell = document.querySelector(".app-shell");
     if (shell) shell.classList.toggle("app-shell--collapsed", collapsed);
+    // Keep the <html> class an inline anti-FOUC script sets at first
+    // paint (see .nav-rail-collapsed in css/app.css) in sync with the
+    // LIVE toggle too — otherwise it stays stuck at whatever it was on
+    // page load and its CSS rule (which targets <html>, so it never
+    // reacts to the .app-shell--collapsed class above) keeps forcing
+    // the collapsed width even after the crest button expands the rail.
+    document.documentElement.classList.toggle("nav-rail-collapsed", collapsed);
   }
 
   function toggleNavCollapsed_() {
@@ -119,9 +126,28 @@ const Shell = (() => {
     applyCollapsedState_(collapsed);
   }
 
+  /**
+   * The crest button (icon + unit name) is pre-rendered statically in
+   * each page's own HTML now, not generated here — see the markup right
+   * inside #nav-rail in any page. It used to be built into the same
+   * innerHTML blast as the nav links below, which meant the crest
+   * image was torn down and recreated from scratch on every single
+   * page load (this is a static multi-page app, so THAT happens on
+   * every tab switch), producing a visible pop/reload of the icon each
+   * time even though the image bytes were already cached. Rendering it
+   * statically means it's part of the very first paint, identical
+   * every navigation, and never gets touched again — renderNav() below
+   * only wires its click handler and fills in the links/footer below
+   * it, it doesn't recreate it.
+   */
   function renderNav(activePage) {
     const rail = document.getElementById("nav-rail");
     if (!rail) return;
+
+    // Fall back to the crest's old JS-rendered behavior if a page
+    // hasn't been updated with the static markup for some reason, so
+    // this never silently renders an empty rail.
+    const linksContainer = document.getElementById("nav-rail-links") || rail;
 
     const links = getAllowedNavItems().map(item => `
       <a class="nav-rail__link" href="${window.APP_BASE_PATH}${item.href}" ${item.id === activePage ? 'aria-current="page"' : ''}>
@@ -132,11 +158,7 @@ const Shell = (() => {
 
     const session = Auth.getSession();
 
-    rail.innerHTML = `
-      <button type="button" class="nav-rail__crest" id="nav-rail-crest" aria-label="Toggle navigation width">
-        <span class="nav-rail__crest-mark"><img src="${window.APP_BASE_PATH}icons/icon-192.png" alt="${window.APP_CONFIG.UNIT_SHORT}"></span>
-        <span class="nav-rail__crest-text">${window.APP_CONFIG.UNIT_SHORT}<span>${window.APP_CONFIG.UNIT_NAME.replace(window.APP_CONFIG.UNIT_SHORT, "").trim() || "Encampment"}</span></span>
-      </button>
+    linksContainer.innerHTML = `
       ${links}
       ${session ? `
         <div class="nav-rail__footer">
@@ -182,14 +204,14 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
           </button>
+          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
+            <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
+          </button>
           <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
             <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
             <span class="hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
             <span id="hard-refresh-label">Refresh</span>
-          </button>
-          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
-            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
-            <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
           </button>
         ` : ""}
       </div>

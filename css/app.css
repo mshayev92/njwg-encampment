@@ -117,9 +117,19 @@ h1, h2, h3, h4 {
    before the page's first paint — so a collapsed rail renders at its
    collapsed width immediately, instead of painting expanded for a
    frame and then visibly transitioning to collapsed once js/shell.js
-   runs and applies .app-shell--collapsed itself. */
+   runs and applies .app-shell--collapsed itself. The crest button is
+   static markup (present at first paint too, see #nav-rail-crest in
+   each page), so its label also needs to hide under this same early
+   class — otherwise "NJWG Encampment" would flash squeezed into the
+   76px collapsed rail until js/shell.js caught up and hid it. */
 html.nav-rail-collapsed .app-shell {
   --nav-rail-width: var(--nav-rail-width-collapsed);
+}
+html.nav-rail-collapsed .nav-rail__crest-text {
+  display: none;
+}
+html.nav-rail-collapsed .nav-rail__crest {
+  justify-content: center;
 }
 
 /* ---- Header ----
