@@ -108,13 +108,41 @@ hex string:
 npx wrangler secret put PASSPHRASE_HASH
 ```
 
+**`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`** —
+*optional*, only needed for Web Push (New Announcement / Black Flag
+alerts delivered to staff devices even when the app is closed). If you
+skip these, push is simply disabled: the app hides its "enable alerts"
+button and everything else works unchanged.
+
+Generate the keypair once (the standard VAPID format this Worker expects):
+
+```
+npx web-push generate-vapid-keys
+```
+
+Set all three — the public and private keys from that command, plus a
+`mailto:` (or `https:`) subject that identifies you to the push service:
+
+```
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY
+npx wrangler secret put VAPID_SUBJECT     # e.g. mailto:admin@yourunit.org
+```
+
+The **public** key is not secret (the browser needs it to subscribe, and
+the Worker serves it via the `pushConfig` action) — but setting it as a
+secret alongside the private key keeps the pair together. Rotating the
+VAPID keys invalidates every existing device subscription; staff just
+re-tap "enable alerts" once.
+
 Verify everything is set:
 
 ```
 npx wrangler secret list
 ```
 
-You should see all five names listed (values are never shown).
+You should see the five required names (and any optional VAPID ones)
+listed — values are never shown.
 
 ### 4. Confirm the Sheet is shared with the service account
 
@@ -233,6 +261,36 @@ Once you're confident:
 - **Rotating `SESSION_SECRET`:** invalidates every outstanding device
   and session token immediately — everyone has to unlock the device and
   log in again. Only do this if you suspect a token leaked.
+
+## Abuse prevention
+
+Beyond the per-token rate limit on authenticated calls (60/min), the
+Worker has a few additional layers aimed specifically at unauthenticated
+or otherwise cheap-to-hammer requests:
+
+- **Per-IP auth lockout.** `deviceLogin` (the shared passphrase) and
+  `login` (a position's password, e.g. CCT/Administrator) are guessable
+  secrets reachable with no token at all. Each is now guarded per-IP
+  (via Cloudflare's `CF-Connecting-IP` header, not spoofable by the
+  client): a tight attempt-rate cap (10/min), plus an escalating lockout
+  after 5 failures in a 10-minute window — 5 minutes locked out the
+  first time, doubling on each repeat up to a 2-hour ceiling. A staff
+  member who mistypes a password twice is unaffected; a script grinding
+  through a wordlist gets slower, not faster, and can't burn through
+  everyone else's shared login budget to do it (the previous limiter
+  used a single counter shared by every caller, which one attacker could
+  exhaust and lock legitimate staff out of signing in).
+- **Request body size cap** (64KB) on every POST, checked before
+  `JSON.parse` — rejects an oversized payload before paying to parse or
+  process it.
+- **Row-payload shape limits** on `write`/`delete`: at most 60 fields
+  per row, 20,000 characters per field value (generous for any real
+  rich-text Notes/Announcements body), and 10 match columns. Bounds how
+  much a single request can cost regardless of how often it's allowed to
+  run.
+
+None of this weakens legitimate use — normal staff traffic never comes
+close to any of these ceilings.
 
 ## Known differences from Code.gs
 

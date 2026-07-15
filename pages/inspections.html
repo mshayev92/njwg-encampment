@@ -401,6 +401,26 @@
       font-family: var(--font-mono);
       color: var(--ink-600);
     }
+
+    /* The 200px fixed label column overflows narrow phones — stack the
+       item label above its bar there. */
+    @media (max-width: 560px) {
+      .trend-item-row {
+        grid-template-columns: 1fr auto;
+        grid-template-areas: "label pct" "track track";
+        gap: var(--space-1) var(--space-3);
+      }
+      .trend-item-row__label { grid-area: label; }
+      .trend-item-row__pct { grid-area: pct; }
+      .trend-item-row__track { grid-area: track; }
+    }
+
+    /* Scoring is the core tablet interaction — make the 0/1 toggles a
+       comfortable finger target on touch devices. */
+    @media (pointer: coarse) {
+      .scorecard-toggle button { min-height: 44px; min-width: 56px; }
+      .tabs__tab { min-height: 40px; }
+    }
   </style>
 </head>
 <body>
@@ -1071,8 +1091,19 @@
     });
 
     Shell.registerRefresh(load);
+
+    // Export the active inspection type's records, scoped to the flights
+    // this position may view, in the sheet's column order.
+    Shell.registerExport(() => {
+      const items = INSPECTION_TYPES[activeType].items;
+      const columns = ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp",
+        ...items.map(i => i.key), "TotalPoints", "Notes"];
+      const rows = (inspectionsByType[activeType].all || []).filter(r => isFlightAllowed(r.Flight));
+      return { filename: `inspections-${activeType}-${new Date().toISOString().slice(0, 10)}.csv`, columns, rows };
+    });
+
     load();
-  </script>
+</script>
 
   <script>
     if ("serviceWorker" in navigator) {

@@ -16,7 +16,9 @@ import {
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
-  assertPageWriteAccess
+  assertPageWriteAccess,
+  getClientIp, assertNotLockedOut, checkAuthAttemptRate, recordAuthResult,
+  MAX_REQUEST_BODY_BYTES, assertReasonableRowPayload, assertReasonableMatchColumns
 } from "./auth.js";
 
 import {
@@ -24,6 +26,8 @@ import {
 } from "./sheets.js";
 
 import { getCachedSheetValues, invalidateSheetCache } from "./readCache.js";
+
+import { sendPush } from "./webPush.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -38,7 +42,7 @@ function respond(obj) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
@@ -48,7 +52,7 @@ export default {
         return await handleGet(request, env);
       }
       if (request.method === "POST") {
-        return await handlePost(request, env);
+        return await handlePost(request, env, ctx);
       }
       return respond({ ok: false, error: "Unsupported method." });
     } catch (err) {
@@ -75,27 +79,56 @@ async function handleGet(request, env) {
     return respond(await handleListPositions(env));
   }
 
+  if (action === "pushConfig") {
+    await requireDeviceToken(env, params.deviceToken);
+    await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    return respond(handlePushConfig(env));
+  }
+
+  if (action === "adminListStaffAccess") {
+    await requireDeviceToken(env, params.deviceToken);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    assertAdmin(session);
+    return respond(await handleAdminListStaffAccess(env));
+  }
+
+  if (action === "adminListLoginLog") {
+    await requireDeviceToken(env, params.deviceToken);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    assertAdmin(session);
+    return respond(await handleAdminListLoginLog(env, params));
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
-async function handlePost(request, env) {
+async function handlePost(request, env, ctx) {
   const bodyText = await request.text();
+  // Reject oversized bodies before paying for JSON.parse or any downstream
+  // Sheets API work — see MAX_REQUEST_BODY_BYTES in auth.js.
+  if (bodyText.length > MAX_REQUEST_BODY_BYTES) {
+    return respond({ ok: false, error: "Request body too large." });
+  }
   const body = JSON.parse(bodyText);
+  const ip = getClientIp(request);
 
   if (body.action === "deviceLogin") {
-    return respond(await handleDeviceLogin(env, body));
+    return respond(await handleDeviceLogin(env, body, ip));
   }
 
   if (body.action === "login") {
     await requireDeviceToken(env, body.deviceToken);
-    return respond(await handleLogin(env, body));
+    return respond(await handleLogin(env, body, ip));
   }
 
   if (body.action === "write") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
     await checkRateLimit(env, body.token);
-    return respond(await handleWrite(env, body, session));
+    return respond(await handleWrite(env, body, session, ctx));
   }
 
   if (body.action === "delete") {
@@ -105,15 +138,43 @@ async function handlePost(request, env) {
     return respond(await handleDelete(env, body, session));
   }
 
+  if (body.action === "savePushSubscription") {
+    await requireDeviceToken(env, body.deviceToken);
+    await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    return respond(await handleSavePushSubscription(env, body));
+  }
+
+  if (body.action === "adminSaveStaffAccess") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond(await handleAdminSaveStaffAccess(env, body, session));
+  }
+
+  if (body.action === "adminDeleteStaffAccess") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond(await handleAdminDeleteStaffAccess(env, body, session));
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for POST." });
 }
 
 // ---- LOGIN / TOKENS ---------------------------------------------
 
-async function handleDeviceLogin(env, body) {
+async function handleDeviceLogin(env, body, ip) {
   const passphrase = String(body.passphrase || "");
   const deviceType = body.deviceType === "shared" ? "shared" : "personal";
 
+  // Per-IP guards come first (see auth.js): a locked-out or flooding IP
+  // never even reaches the passphrase comparison below. The existing
+  // global "deviceLogin" key stays as a secondary, shared soft cap.
+  await assertNotLockedOut(env, ip);
+  await checkAuthAttemptRate(env, ip);
   await checkRateLimit(env, "deviceLogin");
 
   const attemptHash = await hashString(passphrase);
@@ -121,6 +182,7 @@ async function handleDeviceLogin(env, body) {
   const success = attemptHash === correctHash;
 
   await logLoginAttempt(env, { type: "device", identifier: deviceType, success });
+  await recordAuthResult(env, ip, success);
 
   if (!success) throw new Error("Incorrect passphrase.");
 
@@ -158,10 +220,17 @@ async function handleListPositions(env) {
   return { ok: true, positions, passwordProtected };
 }
 
-async function handleLogin(env, body) {
+async function handleLogin(env, body, ip) {
   const position = String(body.position || "").trim();
   if (!position) throw new Error("Select a position.");
 
+  // Per-IP guards first — same reasoning as handleDeviceLogin. This is
+  // where CCT/Administrator password guessing would otherwise be limited
+  // only by the position-keyed "login:<position>" global counter, which
+  // one attacker could exhaust to lock out everyone else trying to sign
+  // in as that position during the same window.
+  await assertNotLockedOut(env, ip);
+  await checkAuthAttemptRate(env, ip);
   await checkRateLimit(env, "login:" + position);
 
   const values = await getStaffAccessValues(env);
@@ -178,6 +247,7 @@ async function handleLogin(env, body) {
 
   if (!matchRow) {
     await logLoginAttempt(env, { type: "session", identifier: position, success: false });
+    await recordAuthResult(env, ip, false);
     throw new Error("That position isn't recognized. Check the list and try again.");
   }
 
@@ -190,11 +260,13 @@ async function handleLogin(env, body) {
     const submittedPassword = String(body.password || "");
     if (submittedPassword !== storedPassword) {
       await logLoginAttempt(env, { type: "session", identifier: position, success: false });
+      await recordAuthResult(env, ip, false);
       throw new Error("Incorrect password for that position.");
     }
   }
 
   await logLoginAttempt(env, { type: "session", identifier: position, success: true });
+  await recordAuthResult(env, ip, true);
 
   const rawPages = pagesCol !== -1 ? String(matchRow[pagesCol] || "") : "";
   const pages = rawPages.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean);
@@ -228,6 +300,285 @@ async function logLoginAttempt(env, entry) {
   } catch (err) {
     // Swallow — logging must never break login itself.
   }
+}
+
+// ---- ADMIN (StaffAccess management + LoginLog viewer) -------------------
+//
+// These manage the very sheet that governs who can do what, so every one
+// is gated TWICE: the client only shows the Admin page to a session whose
+// Pages include "admin", and each action here re-checks the same thing
+// server-side (assertAdmin) — the client gate is a convenience, this is
+// the boundary. StaffAccess passwords are never sent to the client; only
+// a hasPassword flag is. Bootstrapping the first admin is a one-time
+// manual edit of the StaffAccess sheet (add "admin" to a position's Pages).
+
+const STAFF_ACCESS_HEADERS = ["Position", "Pages", "Flights", "Password"];
+
+function assertAdmin(session) {
+  const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
+  if (!pages.includes("admin")) {
+    throw new Error("Administrator access required.");
+  }
+}
+
+function splitList(value) {
+  return String(value || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+/** position(lowercased) -> { position, pages[] } for the last-admin guard. */
+function readStaffPagesMap(values) {
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  const pagesCol = headers.indexOf("Pages");
+  const map = new Map();
+  if (posCol === -1) return map;
+  values.slice(1).forEach((row) => {
+    const name = String(row[posCol] || "").trim();
+    if (!name) return;
+    const pages = pagesCol !== -1 ? splitList(row[pagesCol]).map((p) => p.toLowerCase()) : [];
+    map.set(name.toLowerCase(), { position: name, pages });
+  });
+  return map;
+}
+
+function countAdmins(map) {
+  let n = 0;
+  for (const v of map.values()) if (v.pages.includes("admin")) n++;
+  return n;
+}
+
+async function handleAdminListStaffAccess(env) {
+  const values = await getStaffAccessValues(env);
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  const pagesCol = headers.indexOf("Pages");
+  const flightsCol = headers.indexOf("Flights");
+  const pwCol = headers.indexOf("Password");
+  if (posCol === -1) return { ok: true, positions: [] };
+
+  const positions = values.slice(1)
+    .filter((row) => String(row[posCol] || "").trim())
+    .map((row) => ({
+      Position: String(row[posCol] || "").trim(),
+      Pages: pagesCol !== -1 ? splitList(row[pagesCol]) : [],
+      Flights: flightsCol !== -1 ? splitList(row[flightsCol]) : [],
+      // Never expose the password itself — only whether one is set.
+      hasPassword: pwCol !== -1 && !!String(row[pwCol] || "").trim()
+    }));
+
+  return { ok: true, positions };
+}
+
+async function handleAdminSaveStaffAccess(env, body, session) {
+  const position = String(body.position || "").trim();
+  if (!position) throw new Error("Position name is required.");
+
+  const pages = (Array.isArray(body.pages) ? body.pages : [])
+    .map((p) => String(p).trim().toLowerCase()).filter(Boolean);
+  const flights = (Array.isArray(body.flights) ? body.flights : [])
+    .map((f) => String(f).trim()).filter(Boolean);
+
+  // Make sure the sheet + its standard columns exist before writing.
+  await ensureSheetExists(env, "StaffAccess", STAFF_ACCESS_HEADERS);
+  let values = await getStaffAccessValues(env);
+  let headers = (values[0] || []).slice();
+  for (const col of STAFF_ACCESS_HEADERS) {
+    if (!headers.includes(col)) {
+      headers.push(col);
+      await setHeaderCell(env, "StaffAccess", headers.length - 1, col);
+    }
+  }
+  const posCol = headers.indexOf("Position");
+  const pwCol = headers.indexOf("Password");
+
+  // Locate an existing row for this position (case-insensitive).
+  let rowNumber = 0;
+  let existingRow = null;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][posCol] || "").trim().toLowerCase() === position.toLowerCase()) {
+      rowNumber = i + 1; // 1-based sheet row (values[0] is row 1)
+      existingRow = values[i];
+      break;
+    }
+  }
+
+  // Guard: this edit must not remove the last remaining admin.
+  const map = readStaffPagesMap(values);
+  map.set(position.toLowerCase(), { position, pages });
+  if (countAdmins(map) === 0) {
+    throw new Error("At least one position must keep Administrator (\"admin\") access.");
+  }
+
+  // Password: blank/omitted means keep the existing one; clearPassword
+  // wipes it. The plaintext is never sent to the client, so we read the
+  // current value from the sheet to preserve it on an ordinary edit.
+  const existingPassword = existingRow && pwCol !== -1 ? String(existingRow[pwCol] || "") : "";
+  const newPassword = body.clearPassword
+    ? ""
+    : (typeof body.password === "string" && body.password !== "" ? body.password : existingPassword);
+
+  const rowData = {
+    Position: position,
+    Pages: pages.join(", "),
+    Flights: flights.join(", "),
+    Password: newPassword
+  };
+  // Preserve any other columns that already exist on an edited row.
+  const rowArray = headers.map((h, i) => (h in rowData ? rowData[h] : (existingRow ? (existingRow[i] ?? "") : "")));
+
+  if (rowNumber > 0) {
+    await setRow(env, "StaffAccess", rowNumber, rowArray);
+    return { ok: true, action: "updated", position };
+  }
+  await appendRow(env, "StaffAccess", rowArray);
+  return { ok: true, action: "created", position };
+}
+
+async function handleAdminDeleteStaffAccess(env, body, session) {
+  const position = String(body.position || "").trim();
+  if (!position) throw new Error("Position is required.");
+
+  if (position.toLowerCase() === String(session.position || "").trim().toLowerCase()) {
+    throw new Error("You can't delete the position you're currently signed in as.");
+  }
+
+  const values = await getStaffAccessValues(env);
+  const headers = values[0] || [];
+  const posCol = headers.indexOf("Position");
+  if (posCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
+
+  const map = readStaffPagesMap(values);
+  map.delete(position.toLowerCase());
+  if (countAdmins(map) === 0) {
+    throw new Error("Can't delete the last position with Administrator access.");
+  }
+
+  let rowNumber = 0;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][posCol] || "").trim().toLowerCase() === position.toLowerCase()) {
+      rowNumber = i + 1;
+      break;
+    }
+  }
+  if (!rowNumber) throw new Error("Position not found.");
+
+  await deleteRow(env, "StaffAccess", rowNumber);
+  return { ok: true, action: "deleted", position };
+}
+
+async function handleAdminListLoginLog(env, params) {
+  let values;
+  try {
+    values = await getAllValues(env, "LoginLog");
+  } catch (err) {
+    // Sheet doesn't exist yet (no logins recorded) — treat as empty.
+    return { ok: true, entries: [], total: 0 };
+  }
+  if (values.length < 2) return { ok: true, entries: [], total: 0 };
+
+  const headers = values[0];
+  const rows = values.slice(1).map((row) => {
+    const obj = {};
+    headers.forEach((h, i) => (obj[h] = row[i]));
+    return obj;
+  });
+  rows.reverse(); // newest first (LoginLog is appended chronologically)
+
+  const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 1000);
+  return { ok: true, entries: rows.slice(0, limit), total: rows.length };
+}
+
+// ---- WEB PUSH ------------------------------------------------------------
+//
+// Subscriptions live in the same KV namespace under the "push:" prefix
+// (keyed by a hash of the endpoint, so re-registering the same device is
+// idempotent). Writes here are rare — once per device when a staffer
+// enables alerts — so they don't meaningfully add to KV write volume.
+
+const PUSH_KEY_PREFIX = "push:";
+const PUSH_SUB_TTL_SECONDS = 90 * 24 * 60 * 60; // prune devices silent for ~90 days
+
+function handlePushConfig(env) {
+  const enabled = !!(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
+  return { ok: true, enabled, vapidPublicKey: enabled ? env.VAPID_PUBLIC_KEY : null };
+}
+
+async function handleSavePushSubscription(env, body) {
+  const sub = body.subscription;
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    throw new Error("Invalid push subscription.");
+  }
+  const key = PUSH_KEY_PREFIX + (await hashString(sub.endpoint));
+  const stored = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
+  await env.NJWG_KV.put(key, JSON.stringify(stored), { expirationTtl: PUSH_SUB_TTL_SECONDS });
+  return { ok: true };
+}
+
+function stripHtml(html) {
+  return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isBlackFlagActive(row) {
+  const v = row.Active;
+  return v === true || v === "TRUE" || v === "true" || v === "1" || v === 1;
+}
+
+/**
+ * Decides whether a write to Announcements / BlackFlagStatus warrants a
+ * push, builds the payload, and fans it out in the background. Silent
+ * no-op when push isn't configured or the sheet isn't a broadcast one.
+ */
+function maybeDispatchPush(env, ctx, sheetName, rowData, action) {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
+
+  let payload = null;
+  if (sheetName === "Announcements" && action === "appended") {
+    const text = stripHtml(rowData.Message);
+    payload = {
+      title: "📣 New Announcement",
+      body: `${rowData.Position ? rowData.Position + ": " : ""}${text}`.slice(0, 200) || "New announcement posted.",
+      tag: "announcement",
+      url: "pages/announcements.html"
+    };
+  } else if (sheetName === "BlackFlagStatus") {
+    const active = isBlackFlagActive(rowData);
+    payload = {
+      title: active ? "⚑ Black Flag Activated" : "⚑ Black Flag Lifted",
+      body: active
+        ? "Outdoor activity is now restricted."
+        : "Outdoor activity restrictions have been lifted.",
+      tag: "blackflag",
+      url: "pages/overview.html"
+    };
+  }
+
+  if (!payload) return;
+  const work = dispatchPush(env, payload);
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
+}
+
+async function dispatchPush(env, payload) {
+  let cursor;
+  do {
+    const list = await env.NJWG_KV.list({ prefix: PUSH_KEY_PREFIX, cursor });
+    for (const entry of list.keys) {
+      const raw = await env.NJWG_KV.get(entry.name);
+      if (!raw) continue;
+      let sub;
+      try { sub = JSON.parse(raw); } catch { continue; }
+      try {
+        const res = await sendPush(env, sub, payload);
+        // 404/410 mean the subscription is permanently gone — prune it so
+        // we stop paying to try (and to keep the list small).
+        if (res.status === 404 || res.status === 410) {
+          await env.NJWG_KV.delete(entry.name);
+        }
+      } catch (err) {
+        // One unreachable endpoint shouldn't abort the whole fan-out.
+      }
+    }
+    cursor = list.list_complete ? null : list.cursor;
+  } while (cursor);
 }
 
 // ---- READ ---------------------------------------------------------------
@@ -266,16 +617,19 @@ async function handleRead(env, params) {
 
 // ---- WRITE ---------------------------------------------------------------
 
-async function handleWrite(env, body, session) {
+async function handleWrite(env, body, session, ctx) {
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
   assertPageWriteAccess(sheetName, session);
 
+  const rowData = body.row || {};
+  assertReasonableRowPayload(rowData);
+  assertReasonableMatchColumns(body.matchColumns);
+
   await ensureAutoCreatedTab(env, sheetName);
 
   const headers = await getHeaderRow(env, sheetName);
-  const rowData = body.row || {};
 
   for (const key of Object.keys(rowData)) {
     if (!headers.includes(key)) {
@@ -290,18 +644,24 @@ async function handleWrite(env, body, session) {
     ? body.matchColumns
     : (body.matchColumn ? [body.matchColumn] : []);
 
+  let action = "appended";
   if (matchColumns.length && matchColumns.every((c) => headers.includes(c))) {
     const rowNumber = await findMatchingRowNumber(env, sheetName, headers, matchColumns, rowData);
     if (rowNumber > 0) {
       await setRow(env, sheetName, rowNumber, newRowArray);
-      await invalidateSheetCache(env, sheetName);
-      return { ok: true, action: "updated", row: rowData };
+      action = "updated";
     }
   }
-
-  await appendRow(env, sheetName, newRowArray);
+  if (action === "appended") {
+    await appendRow(env, sheetName, newRowArray);
+  }
   await invalidateSheetCache(env, sheetName);
-  return { ok: true, action: "appended", row: rowData };
+
+  // Fan out a Web Push alert for the two staff-facing broadcast sheets,
+  // in the background so the write's own response isn't delayed by it.
+  maybeDispatchPush(env, ctx, sheetName, rowData, action);
+
+  return { ok: true, action, row: rowData };
 }
 
 async function handleDelete(env, body, session) {
@@ -309,6 +669,9 @@ async function handleDelete(env, body, session) {
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
   assertPageWriteAccess(sheetName, session);
+
+  assertReasonableRowPayload(body.matchValues || body.row);
+  assertReasonableMatchColumns(body.matchColumns);
 
   const headers = await getHeaderRow(env, sheetName);
   if (headers.length === 0) throw new Error(`Sheet "${sheetName}" has no data.`);

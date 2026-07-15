@@ -97,7 +97,10 @@ window.APP_CONFIG = {
     { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
     { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },
     { id: "notes",        label: "Notes",        href: "pages/notes.html",        icon: "edit" },
-    { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" }
+    { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" },
+    // Administrator-only: gated by the "admin" page token (server-enforced
+    // too). Only positions granted "admin" in their StaffAccess Pages see it.
+    { id: "admin", label: "Admin", href: "pages/admin.html", icon: "shield" }
     // Add future pages here, e.g.:
     // { id: "forms", label: "Forms", href: "pages/forms.html", icon: "file" },
   ],

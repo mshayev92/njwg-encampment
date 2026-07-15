@@ -154,6 +154,19 @@ Already registered at the bottom of every page via `window.APP_BASE_PATH`. Nothi
 
 Just add or remove a row in `StaffAccess` — no code changes needed. If the new position is named exactly `CCT` or `Administrator` (case-insensitive), it automatically requires its `Password` cell to be filled in and checked at login; any other name is a no-password option.
 
+You can also do this from inside the app — see the Administrator page below — instead of editing the sheet by hand.
+
+## Administrator page (in-app staff management + login log)
+
+The **Admin** page (`pages/admin.html`) lets a privileged position manage `StaffAccess` and review login activity without opening the Google Sheet:
+
+- **Staff Access** — add, edit, or delete positions; grant/revoke each position's pages with checkboxes; set flights; set, keep, or clear a position's password. Passwords are **never sent to the browser** — the page only shows whether one is set, and on edit you either type a new one or leave the field blank to keep the current one.
+- **Login Activity** — the `LoginLog` sheet (every device unlock and position sign-in, success or failure), newest first, with a "failures only" filter and CSV export. Nothing else in the app surfaces this.
+
+**Access is gated by an `admin` page token**, enforced both client-side (the nav item and page) and independently server-side (every admin action re-checks that the session's `Pages` include `admin` — the client gate is only convenience). Guards prevent locking yourself out: you can't delete the position you're signed in as, and you can't remove the **last** position that has `admin`.
+
+**Bootstrapping the first administrator** (one time): add `admin` to some position's `Pages` cell in the `StaffAccess` sheet directly (e.g. the `Administrator` row → `Pages` = `...,admin`), then sign in fresh as that position. From then on, everything else can be managed in-app.
+
 ## Writing data back to the Sheet
 
 `Api.writeRow(sheetName, rowData, { matchColumn })` is wired up in `js/api.js`. Note: `StaffAccess` cannot be written (or read) through this API at all — see the security tradeoff section. Example, writing to an allowed sheet:

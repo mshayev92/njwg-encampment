@@ -176,37 +176,45 @@ export function nextMidnight() {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 0, 0);
 }
 
-// ---- Rate limiting (KV-backed, with an isolate-local write buffer) --------
+// ---- Rate limiting (isolate-local count, KV only for heavy keys) ----------
 //
 // Writing to KV on every request is what blows through Cloudflare's
 // free-plan 1,000-writes/day cap, since this runs on nearly every
-// authenticated request. To cut that down, each Worker isolate keeps an
-// in-memory counter per rate-limit key and only PUTs to KV every
-// RATE_LIMIT_FLUSH_EVERY increments (or immediately the first time a key
-// hits the cap, so other isolates see the block promptly). The
-// accept/reject decision itself always uses the exact in-memory count —
-// only the KV *write* is deferred, not the enforcement — so a burst
-// hitting the same warm isolate is throttled at exactly 60/min, same as
-// before.
+// authenticated request. Instead, each Worker isolate keeps an in-memory
+// counter per rate-limit key and enforces the cap against that exact
+// count — the accept/reject decision never depends on KV. KV is used
+// only to *persist* a key's count, and only once that count is heavy
+// enough (>= RATE_LIMIT_COORD_THRESHOLD, half the cap) that coordinating
+// across isolates / surviving an isolate eviction actually matters.
 //
-// The one thing this weakens: if concurrent requests for the same key
-// land on *different* isolates within the same 60s window, each isolate
-// only reseeds its local count from KV at the start of its own window
-// (or when its buffer flushes), so it may not see writes another isolate
-// buffered but hasn't flushed yet. Worst case, a key could exceed 60/min
-// by roughly (flush interval x number of isolates handling it) before
-// every isolate converges. For this app's actual traffic (a few dozen
-// staff devices, not a public-facing service under adversarial load)
-// that's an acceptable loosening of precision on a soft cap — it does
-// not remove the cap, and a single isolate still enforces the exact
-// limit on its own. This is the same category of caveat already present
-// in the old non-atomic read-then-write shape (and the old
-// CacheService-based limiter in Code.gs).
+// The upshot for write volume: normal light traffic — a staff device
+// doing a handful of requests a minute, nowhere near 60 — never writes
+// to KV at all. That's the overwhelming majority of requests, so the
+// rate limiter's KV writes drop to essentially zero in steady state.
+// Writes only start once a single key is genuinely bursting toward the
+// cap, and even then they're throttled to every RATE_LIMIT_FLUSH_EVERY
+// increments; once a key is blocked at the cap it writes nothing further
+// that window (the guard throws before any write).
 //
-// This buffering is isolate-lifetime state, so it's Workers-specific;
-// there's no equivalent Apps Script quota problem to port it for, since
-// CacheService isn't write-count-limited the way Workers KV is on the
-// free plan.
+// What this trades away: enforcement is now fundamentally per-isolate,
+// with KV as a best-effort shared floor for heavy keys. If requests for
+// one key are spread across several isolates in the same 60s window,
+// each isolate enforces its own 60/min and only inherits another
+// isolate's count when it (re)seeds at the start of its window, so the
+// effective cap can rise toward 60 x (isolates handling that key). For
+// this app's traffic — a few dozen staff devices, not a public-facing
+// service under adversarial distributed load — that's an acceptable
+// loosening of precision on a soft cap: it still hard-caps any single
+// runaway/abusive client per isolate, and heavy keys still persist so a
+// burst can't be reset for free by isolate churn. It's the same class of
+// caveat the old non-atomic read-then-write already carried (and the old
+// CacheService limiter in Code.gs).
+//
+// This is Workers-specific (it leans on isolate-lifetime module state)
+// and deliberately NOT ported to Code.gs: Apps Script's CacheService
+// isn't write-count-limited the way free-plan Workers KV is, so there's
+// no equivalent quota problem to solve there.
+const RATE_LIMIT_COORD_THRESHOLD = Math.floor(RATE_LIMIT_PER_MINUTE / 2);
 const RATE_LIMIT_FLUSH_EVERY = 5;
 const rateLimitMemory = new Map(); // cacheKey -> { count, windowStart, unflushed }
 
@@ -217,6 +225,10 @@ export async function checkRateLimit(env, key) {
 
   let entry = rateLimitMemory.get(cacheKey);
   if (!entry || now - entry.windowStart >= 60000) {
+    // Fresh window: inherit any persisted count from another isolate (or
+    // from this isolate before an eviction). Light keys never persisted
+    // anything, so this reads null and starts at 0 — reads aren't the
+    // quota-limited operation, writes are.
     const stored = Number((await env.NJWG_KV.get(cacheKey)) || 0);
     entry = { count: stored, windowStart: now, unflushed: 0 };
     rateLimitMemory.set(cacheKey, entry);
@@ -229,10 +241,152 @@ export async function checkRateLimit(env, key) {
   entry.count++;
   entry.unflushed++;
 
-  const justHitCap = entry.count >= RATE_LIMIT_PER_MINUTE;
-  if (entry.unflushed >= RATE_LIMIT_FLUSH_EVERY || justHitCap) {
+  // Persist only heavy keys, and only every Nth increment (or on the
+  // exact request that reaches the cap, so a concurrent isolate can see
+  // the block promptly). Everything below the threshold stays purely
+  // in-memory and costs zero KV writes.
+  const heavy = entry.count >= RATE_LIMIT_COORD_THRESHOLD;
+  const reachedCap = entry.count >= RATE_LIMIT_PER_MINUTE;
+  if (heavy && (entry.unflushed >= RATE_LIMIT_FLUSH_EVERY || reachedCap)) {
     await env.NJWG_KV.put(cacheKey, String(entry.count), { expirationTtl: 60 });
     entry.unflushed = 0;
+  }
+}
+
+// ---- Per-IP auth abuse prevention (deviceLogin / login) -------------------
+//
+// checkRateLimit() above is keyed by TOKEN, which is exactly right for
+// authenticated read/write/delete — but the two secret-guessing endpoints,
+// deviceLogin (the shared passphrase) and login (a position's password,
+// e.g. CCT/Administrator), happen BEFORE any token exists. Those were
+// previously throttled only by a single GLOBAL key ("deviceLogin", or
+// "login:<position>") shared across every caller — which caps total
+// guesses per minute, but doesn't stop one attacker from consuming that
+// whole shared budget (locking out legitimate staff trying to sign in
+// during the same window) and doesn't get any harder for a persistent
+// attacker over time.
+//
+// This adds a PER-IP layer on top: a tight per-IP attempt-rate cap, plus
+// an escalating lockout once an IP racks up repeated FAILURES specifically
+// (not just requests) — 5 wrong guesses locks that IP out for 5 minutes,
+// doubling on each subsequent lockout up to a 2-hour ceiling. A genuine
+// staff member fat-fingering a passphrase twice is unaffected; a script
+// grinding through a wordlist gets slower, not faster, and can no longer
+// burn through everyone else's shared quota to do it.
+//
+// IP-keyed KV writes are inherently bounded by how often someone actually
+// attempts to log in — rare in steady state, and only spike under an
+// actual attack, which is exactly when paying for the write is worth it.
+
+export function getClientIp(request) {
+  // CF-Connecting-IP is set by Cloudflare's edge on every request reaching
+  // a Worker and can't be spoofed by the client (Cloudflare overwrites
+  // whatever the client sends) — the correct IP source in this runtime,
+  // unlike X-Forwarded-For which a client could forge.
+  return request.headers.get("CF-Connecting-IP") || "unknown";
+}
+
+const AUTH_ATTEMPT_LIMIT_PER_MINUTE = 10;
+const AUTH_FAILURE_LOCKOUT_THRESHOLD = 5;
+const AUTH_FAILURE_WINDOW_SECONDS = 10 * 60;
+const AUTH_LOCKOUT_BASE_SECONDS = 5 * 60;
+const AUTH_LOCKOUT_MAX_SECONDS = 2 * 60 * 60;
+const AUTH_LOCKOUT_HISTORY_SECONDS = 24 * 60 * 60;
+
+/** Throws if this IP is currently serving out an escalating lockout. */
+export async function assertNotLockedOut(env, ip) {
+  const lockKey = "authlock:" + (await hashString(ip));
+  const locked = await env.NJWG_KV.get(lockKey);
+  if (locked) {
+    throw new Error("Too many failed attempts. Please wait before trying again.");
+  }
+}
+
+/**
+ * Tight per-IP cap on how often an auth endpoint can even be CALLED,
+ * independent of whether the attempt succeeds — bounds raw request
+ * volume (and thus Sheets API / Worker cost) from a single source before
+ * the failure-based lockout below ever has to kick in.
+ */
+export async function checkAuthAttemptRate(env, ip) {
+  const key = "authrate:" + (await hashString(ip));
+  const current = Number((await env.NJWG_KV.get(key)) || 0);
+  if (current >= AUTH_ATTEMPT_LIMIT_PER_MINUTE) {
+    throw new Error("Too many attempts. Please wait a moment and try again.");
+  }
+  await env.NJWG_KV.put(key, String(current + 1), { expirationTtl: 60 });
+}
+
+/**
+ * Records whether this IP's auth attempt succeeded or failed. A success
+ * clears its failure count. A failure increments it; hitting the
+ * threshold locks the IP out for an escalating duration (doubling per
+ * repeat lockout, capped at 2 hours) and resets the failure counter —
+ * the lockout itself is what continues to apply while it's active.
+ */
+export async function recordAuthResult(env, ip, success) {
+  const hashedIp = await hashString(ip);
+  const failKey = "authfail:" + hashedIp;
+
+  if (success) {
+    await env.NJWG_KV.delete(failKey);
+    return;
+  }
+
+  const failures = Number((await env.NJWG_KV.get(failKey)) || 0) + 1;
+  if (failures >= AUTH_FAILURE_LOCKOUT_THRESHOLD) {
+    const lockCountKey = "authlockcount:" + hashedIp;
+    const priorLockouts = Number((await env.NJWG_KV.get(lockCountKey)) || 0);
+    const lockSeconds = Math.min(
+      AUTH_LOCKOUT_BASE_SECONDS * Math.pow(2, priorLockouts),
+      AUTH_LOCKOUT_MAX_SECONDS
+    );
+    await env.NJWG_KV.put("authlock:" + hashedIp, "1", { expirationTtl: lockSeconds });
+    await env.NJWG_KV.put(lockCountKey, String(priorLockouts + 1), { expirationTtl: AUTH_LOCKOUT_HISTORY_SECONDS });
+    await env.NJWG_KV.delete(failKey);
+  } else {
+    await env.NJWG_KV.put(failKey, String(failures), { expirationTtl: AUTH_FAILURE_WINDOW_SECONDS });
+  }
+}
+
+// ---- Payload size limits (write / delete) ---------------------------------
+//
+// Nothing previously bounded how large a single write's row data (or how
+// many match columns a write/delete specified) could be. A legitimate
+// note or announcement body is at most a few KB of rich text; nothing in
+// this app needs more. Capping it bounds both the Sheets API cost of an
+// individual write and how much damage one runaway/malicious client can
+// do in a single request — independent of the per-token rate limit, which
+// only bounds how OFTEN a token can write, not how big each write is.
+
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024; // 64KB — generous for any real form on this app
+const MAX_ROW_FIELDS = 60;
+const MAX_FIELD_KEY_LENGTH = 100;
+const MAX_FIELD_VALUE_LENGTH = 20000; // generous for a rich-text Notes/Announcements body
+const MAX_MATCH_COLUMNS = 10;
+
+/** Bounds the shape/size of a write's row data (or a delete's matchValues). */
+export function assertReasonableRowPayload(rowData) {
+  if (!rowData || typeof rowData !== "object") return;
+  const keys = Object.keys(rowData);
+  if (keys.length > MAX_ROW_FIELDS) {
+    throw new Error(`Too many fields in row data (max ${MAX_ROW_FIELDS}).`);
+  }
+  for (const key of keys) {
+    if (key.length > MAX_FIELD_KEY_LENGTH) {
+      throw new Error("A field name is too long.");
+    }
+    const value = rowData[key];
+    if (value !== null && value !== undefined && String(value).length > MAX_FIELD_VALUE_LENGTH) {
+      throw new Error(`Field "${key}" is too long (max ${MAX_FIELD_VALUE_LENGTH} characters).`);
+    }
+  }
+}
+
+/** Bounds how many match columns a write/delete can specify. */
+export function assertReasonableMatchColumns(matchColumns) {
+  if (Array.isArray(matchColumns) && matchColumns.length > MAX_MATCH_COLUMNS) {
+    throw new Error(`Too many match columns (max ${MAX_MATCH_COLUMNS}).`);
   }
 }
 
