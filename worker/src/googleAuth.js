@@ -37,6 +37,13 @@ function base64UrlEncodeString(str) {
  */
 async function importPrivateKey(pem) {
   const pemContents = pem
+    // The secret is typically pasted straight from the service account
+    // JSON, where newlines are the literal two-character sequence "\n"
+    // (backslash + n), not real line breaks — convert those to real
+    // whitespace first so the next line's \s+ strip actually removes
+    // them. Without this, a stray backslash stays in the base64 payload
+    // and atob() throws "invalid base64-encoded data".
+    .replace(/\\n/g, "\n")
     .replace(/-----BEGIN PRIVATE KEY-----/, "")
     .replace(/-----END PRIVATE KEY-----/, "")
     .replace(/\s+/g, "");
