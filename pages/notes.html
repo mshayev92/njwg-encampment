@@ -26,7 +26,57 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       background: var(--surface-sunken);
+    }
+
+    .subject-autocomplete {
+      position: relative;
       margin-bottom: var(--space-3);
+    }
+
+    .subject-suggestions {
+      position: absolute;
+      top: calc(100% + var(--space-1));
+      left: 0;
+      right: 0;
+      z-index: 20;
+      max-height: 240px;
+      overflow-y: auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .subject-suggestions button {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-3);
+      width: 100%;
+      text-align: left;
+      padding: var(--space-2) var(--space-3);
+      background: none;
+      border: none;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      color: var(--ink-900);
+    }
+
+    .subject-suggestions button:last-child { border-bottom: none; }
+
+    .subject-suggestions button:hover,
+    .subject-suggestions button.is-active {
+      background: var(--surface-sunken);
+    }
+
+    .subject-suggestions__meta {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      white-space: nowrap;
     }
 
     .richtext-toolbar {
@@ -138,17 +188,33 @@
     const session = Auth.getSession();
     const esc = Shell.escapeHtml;
 
+    const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
+
+    /** Empty/absent Flights on the session means "all flights" per Code.gs. */
+    function isFlightAllowed(flight) {
+      if (!allowedFlights.length) return true;
+      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
+      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+    }
+
     let rosterRows = [];
     let notes = [];
+
+    // Only cadets in flights this position is scoped to are offered as
+    // Subject suggestions — matches the same Flights-column scoping
+    // Inspections uses, so a flight-restricted position can't browse
+    // names outside its own flights via the Notes autocomplete either.
+    function allowedRoster() {
+      return rosterRows.filter(r => isFlightAllowed(r.Flight));
+    }
 
     function renderPostForm() {
       return `
         <div class="card note-form">
           <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Add a Note</h2>
-          <input type="text" id="subject-input" list="subject-roster-list" placeholder="Subject — a cadet's name from the roster, or any subject…">
-          <datalist id="subject-roster-list">
-            ${rosterRows.map(r => `<option value="${esc(r.Name)}">${esc(r.Rank || "")} · ${esc(r.Flight || "")}</option>`).join("")}
-          </datalist>
+          <div class="subject-autocomplete" id="subject-autocomplete">
+            <input type="text" id="subject-input" autocomplete="off" placeholder="Subject — a cadet's name from the roster, or any subject…">
+          </div>
           ${RichText.TOOLBAR_HTML}
           <div class="richtext-editor" id="body-editor" contenteditable="true" data-placeholder="Write your note…"></div>
           <button class="btn btn--primary" id="post-note-btn">Add Note</button>
@@ -185,6 +251,62 @@
       RichText.attach(toolbar, editor);
 
       document.getElementById("post-note-btn").addEventListener("click", postNote);
+      initSubjectAutocomplete();
+    }
+
+    /**
+     * Small custom autocomplete over the flight-scoped roster — replaces
+     * a native <datalist>, which can't be styled and renders as a bare
+     * system listbox (inconsistent look, and on some browsers overlaps
+     * the page rather than docking under the input). Still a completely
+     * free-text field: picking a suggestion just fills the input, typing
+     * anything else and ignoring the list works too.
+     */
+    function initSubjectAutocomplete() {
+      const wrap = document.getElementById("subject-autocomplete");
+      const input = document.getElementById("subject-input");
+      let suggestionsEl = null;
+
+      function closeSuggestions() {
+        if (suggestionsEl) { suggestionsEl.remove(); suggestionsEl = null; }
+      }
+
+      function openSuggestions() {
+        const query = input.value.trim().toLowerCase();
+        const matches = allowedRoster()
+          .filter(r => !query || String(r.Name || "").toLowerCase().includes(query))
+          .slice(0, 25);
+
+        closeSuggestions();
+        if (!matches.length) return;
+
+        suggestionsEl = document.createElement("div");
+        suggestionsEl.className = "subject-suggestions";
+        suggestionsEl.innerHTML = matches.map(r => `
+          <button type="button" data-name="${esc(r.Name)}">
+            <span>${esc(r.Name)}</span>
+            <span class="subject-suggestions__meta">${esc(r.Rank || "")} · ${esc(r.Flight || "")}</span>
+          </button>
+        `).join("");
+        wrap.appendChild(suggestionsEl);
+
+        suggestionsEl.querySelectorAll("button").forEach(btn => {
+          // mousedown (fires before the input's blur) so picking a
+          // suggestion doesn't get preempted by the blur-close below.
+          btn.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            input.value = btn.dataset.name;
+            closeSuggestions();
+          });
+        });
+      }
+
+      input.addEventListener("input", openSuggestions);
+      input.addEventListener("focus", openSuggestions);
+      input.addEventListener("blur", () => setTimeout(closeSuggestions, 100));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Escape") closeSuggestions();
+      });
     }
 
     async function postNote() {
