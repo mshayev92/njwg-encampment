@@ -226,7 +226,10 @@
         <div class="announcement-feed">
           ${sorted.map(a => `
             <div class="announcement-card">
-              <div class="announcement-card__meta">${esc(a.Position || "—")} · ${esc(new Date(a.Timestamp).toLocaleString())}</div>
+              <div class="announcement-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
+                <span>${esc(a.Position || "—")} · ${esc(new Date(a.Timestamp).toLocaleString())}</span>
+                ${canPost ? `<button class="btn btn--ghost" data-delete-id="${esc(a.Id)}" data-tooltip="Delete announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Delete announcement">✕</button>` : ""}
+              </div>
               <div class="announcement-card__message">${RichText.sanitize(a.Message || "")}</div>
             </div>
           `).join("")}
@@ -251,6 +254,11 @@
       const toolbar = contentEl.querySelector(".richtext-toolbar");
       const editor = document.getElementById("message-input");
       if (toolbar && editor) RichText.attach(toolbar, editor);
+
+      contentEl.querySelectorAll("[data-delete-id]").forEach(btn => {
+        btn.addEventListener("click", () => deleteAnnouncement(btn.dataset.deleteId));
+      });
+      Shell.wireTooltips(contentEl);
     }
 
     /**
@@ -316,6 +324,25 @@
         postBtn.disabled = false;
         postBtn.textContent = "Post Announcement";
       }
+    }
+
+    async function deleteAnnouncement(id) {
+      const confirmed = await Shell.confirm({
+        title: "Delete announcement?",
+        message: "This can't be undone.",
+        confirmLabel: "Delete",
+      });
+      if (!confirmed) return;
+
+      // Optimistic, same as every other write on this page: update local
+      // state and re-render instantly; the real delete fires in the
+      // background (Api's queue), with the header's sync indicator — not
+      // a rejected promise here — reflecting whether it actually lands.
+      Api.deleteRow("Announcements", { Id: id }, { matchColumns: ["Id"] });
+      announcements = announcements.filter(a => String(a.Id) !== String(id));
+      render();
+      Shell.showToast("Announcement deleted.", { type: "success" });
+      Shell.refreshGlobalAlerts();
     }
 
     let announcementsLoaded = false;

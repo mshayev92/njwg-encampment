@@ -37,6 +37,36 @@
       display: flex;
       gap: var(--space-3);
     }
+
+    .audience-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+
+    .audience-chip {
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--fs-sm);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--ink-900);
+      cursor: pointer;
+    }
+
+    .audience-chip:hover { border-color: var(--gold-500); }
+
+    .audience-chip.is-selected {
+      background: var(--indigo-900);
+      border-color: var(--indigo-900);
+      color: var(--surface);
+    }
+
+    .schedule-pending {
+      margin-top: var(--space-4);
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--line);
+    }
   </style>
 </head>
 <body>
@@ -88,6 +118,26 @@
 
     let scheduleRows = [];
     let editingRow = null; // the original row object being edited, or null for "adding new"
+    let pendingRows = []; // staged rows in "add" mode, written all together on Save All
+    let currentAudience = ""; // selected audience chip value; "" = All
+    let formDay = ""; // carried across staged rows in "add" mode for convenience
+
+    // Audience options (Flights + Squadrons) come from the same
+    // StaffAccess Position list the login page uses — every non-admin
+    // position IS a flight or squadron name, so this is the same
+    // enumerable list without hardcoding "Alpha".."Hotel"/"Squadron 1-4"
+    // separately. CCT/Administrator aren't audiences, so excluded.
+    const NON_AUDIENCE_POSITIONS = new Set(["cct", "administrator"]);
+    let audienceOptions = [];
+
+    async function loadAudienceOptions() {
+      try {
+        const res = await Api.listPositions();
+        audienceOptions = (res.positions || []).filter(p => !NON_AUDIENCE_POSITIONS.has(String(p).trim().toLowerCase()));
+      } catch (err) {
+        audienceOptions = [];
+      }
+    }
 
     function groupByDay(rows) {
       return rows.reduce((groups, row) => {
@@ -143,7 +193,7 @@
             {
               label: "Edit row",
               icon: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
-              onSelect: () => openForm(row)
+              onSelect: () => openEditForm(row)
             },
             "divider",
             {
@@ -166,36 +216,159 @@
      * items ever share all three, editing one could affect the other;
      * unlikely for a daily schedule, but worth knowing.
      */
-    function openForm(row) {
-      editingRow = row || null;
+    function renderAudienceChips(selected) {
+      const chips = [{ label: "All", value: "" }, ...audienceOptions.map(p => ({ label: p, value: p }))];
+      return `
+        <div class="audience-chips">
+          ${chips.map(c => `
+            <button type="button" class="audience-chip ${(selected || "") === c.value ? "is-selected" : ""}" data-value="${esc(c.value)}">${esc(c.label)}</button>
+          `).join("")}
+        </div>
+      `;
+    }
+
+    function renderPendingTable() {
+      return `
+        <div class="schedule-pending">
+          <h4 style="font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-3);">
+            Rows to add (${pendingRows.length})
+          </h4>
+          <table class="data-table">
+            <thead><tr><th>Day</th><th>Time</th><th>Activity</th><th>Location</th><th>Audience</th><th></th></tr></thead>
+            <tbody>
+              ${pendingRows.map((r, i) => `
+                <tr>
+                  <td data-label="Day">${esc(r.Day)}</td>
+                  <td data-label="Time" class="mono">${esc(r.Time) || "—"}</td>
+                  <td data-label="Activity">${esc(r.Activity)}</td>
+                  <td data-label="Location">${esc(r.Location) || "—"}</td>
+                  <td data-label="Audience">${r.Flight ? esc(r.Flight) : "All"}</td>
+                  <td data-label=""><button class="btn btn--ghost" data-remove-pending="${i}" style="padding: var(--space-1) var(--space-2);" aria-label="Remove staged row">✕</button></td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    /**
+     * One form drives two modes:
+     *   "add"  — supports staging several rows (+ Add Row) before a
+     *            single "Save All" writes everything at once, so adding
+     *            a whole day's schedule doesn't mean N separate saves.
+     *   "edit" — a single existing row, saved immediately as before.
+     */
+    function renderFormUI(mode, row) {
+      const dayValue = mode === "add" ? formDay : (row?.Day || "");
+      const timeValue = mode === "edit" ? (row?.Time || "") : "";
+      const activityValue = mode === "edit" ? (row?.Activity || "") : "";
+      const locationValue = mode === "edit" ? (row?.Location || "") : "";
 
       formContainer.innerHTML = `
         <div class="card" style="margin-bottom: var(--space-5);">
           <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
-            ${editingRow ? "Edit Schedule Item" : "Add Schedule Item"}
+            ${mode === "add" ? "Add Schedule Items" : "Edit Schedule Item"}
           </h3>
           <div class="schedule-form">
-            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${esc(editingRow?.Day || "")}" placeholder="e.g. Monday"></div>
-            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${esc(editingRow?.Time || "")}" placeholder="e.g. 0600"></div>
-            <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(editingRow?.Activity || "")}"></div>
-            <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(editingRow?.Location || "")}"></div>
-            <div class="field"><label for="f-flight">Flight (optional)</label><input id="f-flight" value="${esc(editingRow?.Flight || "")}" placeholder="blank = all flights"></div>
+            <div class="field"><label for="f-day">Day</label><input id="f-day" value="${esc(dayValue)}" placeholder="e.g. Monday"></div>
+            <div class="field"><label for="f-time">Time</label><input id="f-time" value="${esc(timeValue)}" placeholder="e.g. 0600"></div>
+            <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(activityValue)}"></div>
+            <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(locationValue)}"></div>
+            <div class="field" style="grid-column: 1 / -1;">
+              <label>Audience</label>
+              ${renderAudienceChips(currentAudience)}
+            </div>
             <div class="schedule-form-actions">
-              <button class="btn btn--primary" id="save-item-btn">Save</button>
+              ${mode === "add" ? `
+                <button class="btn btn--ghost" id="add-row-btn">+ Add Row</button>
+                <button class="btn btn--primary" id="save-item-btn" ${pendingRows.length ? "" : "disabled"}>Save All${pendingRows.length ? ` (${pendingRows.length})` : ""}</button>
+              ` : `
+                <button class="btn btn--primary" id="save-item-btn">Save</button>
+              `}
               <button class="btn btn--ghost" id="cancel-item-btn">Cancel</button>
             </div>
           </div>
+          ${mode === "add" && pendingRows.length ? renderPendingTable() : ""}
         </div>
       `;
 
       document.getElementById("cancel-item-btn").addEventListener("click", closeForm);
-      document.getElementById("save-item-btn").addEventListener("click", saveItem);
+      document.getElementById("save-item-btn").addEventListener("click", () => mode === "add" ? saveAllPending() : saveEdit());
+      if (mode === "add") document.getElementById("add-row-btn").addEventListener("click", stageRow);
+
+      formContainer.querySelectorAll(".audience-chip").forEach(btn => {
+        btn.addEventListener("click", () => {
+          currentAudience = btn.dataset.value;
+          formContainer.querySelectorAll(".audience-chip").forEach(b => b.classList.toggle("is-selected", b.dataset.value === currentAudience));
+        });
+      });
+
+      if (mode === "add") {
+        formContainer.querySelectorAll("[data-remove-pending]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            pendingRows.splice(Number(btn.dataset.removePending), 1);
+            renderFormUI("add");
+          });
+        });
+      }
+
       formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    function openAddForm() {
+      editingRow = null;
+      pendingRows = [];
+      currentAudience = "";
+      formDay = "";
+      renderFormUI("add");
+    }
+
+    function openEditForm(row) {
+      editingRow = row;
+      currentAudience = row.Flight || "";
+      renderFormUI("edit", row);
     }
 
     function closeForm() {
       editingRow = null;
+      pendingRows = [];
       formContainer.innerHTML = "";
+    }
+
+    /** Validates and stages the current field values as one pending row, then clears Time/Activity/Location for the next entry (Day and Audience carry over). */
+    function stageRow() {
+      formDay = document.getElementById("f-day").value.trim();
+      const time = document.getElementById("f-time").value.trim();
+      const activity = document.getElementById("f-activity").value.trim();
+      const location = document.getElementById("f-location").value.trim();
+
+      if (!formDay || !activity) {
+        Shell.showToast("Day and Activity are required.", { type: "error" });
+        return;
+      }
+
+      pendingRows.push({ Day: formDay, Time: time, Activity: activity, Location: location, Flight: currentAudience });
+      renderFormUI("add");
+    }
+
+    /**
+     * Writes every staged row in one go. Each write is still its own
+     * optimistic Api.writeRow() call (fire-and-forget, queued in the
+     * background) — "one save" here means one user action and one
+     * combined success toast, not a single network request.
+     */
+    function saveAllPending() {
+      if (!pendingRows.length) return;
+      pendingRows.forEach(row => {
+        Api.writeRow("Schedule", row, { matchColumns: ["Day", "Time", "Activity"] });
+        scheduleRows.push(row);
+      });
+      const count = pendingRows.length;
+      pendingRows = [];
+      closeForm();
+      Shell.showToast(`${count} schedule item${count === 1 ? "" : "s"} added.`, { type: "success" });
+      render(scheduleRows);
     }
 
     /**
@@ -207,13 +380,13 @@
      * failed — so a failure isn't silent, it just doesn't block the
      * person's next action to surface.
      */
-    function saveItem() {
+    function saveEdit() {
       const newRow = {
         Day: document.getElementById("f-day").value.trim(),
         Time: document.getElementById("f-time").value.trim(),
         Activity: document.getElementById("f-activity").value.trim(),
         Location: document.getElementById("f-location").value.trim(),
-        Flight: document.getElementById("f-flight").value.trim()
+        Flight: currentAudience
       };
 
       if (!newRow.Day || !newRow.Activity) {
@@ -221,23 +394,18 @@
         return;
       }
 
-      if (editingRow) {
-        const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
-        if (keyChanged) {
-          // The match key itself changed (e.g. renamed the Activity) —
-          // matching on the NEW values wouldn't find the old row, so
-          // delete the old row explicitly, then add the new one.
-          Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
-          Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
-        } else {
-          Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
-        }
-        const idx = scheduleRows.indexOf(editingRow);
-        if (idx >= 0) scheduleRows[idx] = newRow;
+      const keyChanged = editingRow.Day !== newRow.Day || editingRow.Time !== newRow.Time || editingRow.Activity !== newRow.Activity;
+      if (keyChanged) {
+        // The match key itself changed (e.g. renamed the Activity) —
+        // matching on the NEW values wouldn't find the old row, so
+        // delete the old row explicitly, then add the new one.
+        Api.deleteRow("Schedule", editingRow, { matchColumns: ["Day", "Time", "Activity"] });
+        Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
       } else {
         Api.writeRow("Schedule", newRow, { matchColumns: ["Day", "Time", "Activity"] });
-        scheduleRows.push(newRow);
       }
+      const idx = scheduleRows.indexOf(editingRow);
+      if (idx >= 0) scheduleRows[idx] = newRow;
 
       closeForm();
       Shell.showToast("Schedule updated.", { type: "success" });
@@ -258,7 +426,8 @@
       render(scheduleRows);
     }
 
-    addItemBtn.addEventListener("click", () => openForm(null));
+    addItemBtn.addEventListener("click", openAddForm);
+    if (canEditSchedule) loadAudienceOptions();
 
     // Instant-then-revalidate load, spinner, error state, and Refresh
     // wiring are all handled by Shell.mountSheet — see js/shell.js. This
