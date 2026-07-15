@@ -711,6 +711,46 @@ const Api = (() => {
         requireDevice: true,
         requireSession: true
       });
+    },
+
+    // ---- Admin (Administrator page only; server re-checks "admin") ----
+
+    /** Lists every StaffAccess position (Pages/Flights/hasPassword — never the password itself). */
+    adminListStaffAccess() {
+      return request("adminListStaffAccess", { requireDevice: true, requireSession: true });
+    },
+
+    /**
+     * Creates or updates a StaffAccess position. row = { position, pages[],
+     * flights[], password?, clearPassword? }. Omitting password keeps the
+     * existing one; clearPassword:true removes it.
+     */
+    adminSaveStaffAccess(row) {
+      return request("adminSaveStaffAccess", {
+        method: "POST",
+        body: row,
+        requireDevice: true,
+        requireSession: true
+      });
+    },
+
+    /** Deletes a StaffAccess position by name. */
+    adminDeleteStaffAccess(position) {
+      return request("adminDeleteStaffAccess", {
+        method: "POST",
+        body: { position },
+        requireDevice: true,
+        requireSession: true
+      });
+    },
+
+    /** Returns recent LoginLog entries, newest first (device + session attempts). */
+    adminListLoginLog({ limit = 200 } = {}) {
+      return request("adminListLoginLog", {
+        params: { limit },
+        requireDevice: true,
+        requireSession: true
+      });
     }
   };
 })();
