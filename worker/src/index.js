@@ -25,6 +25,8 @@ import {
 
 import { getCachedSheetValues, invalidateSheetCache } from "./readCache.js";
 
+import { sendPush } from "./webPush.js";
+
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -38,7 +40,7 @@ function respond(obj) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") {
       return new Response(null, { headers: CORS_HEADERS });
     }
@@ -48,7 +50,7 @@ export default {
         return await handleGet(request, env);
       }
       if (request.method === "POST") {
-        return await handlePost(request, env);
+        return await handlePost(request, env, ctx);
       }
       return respond({ ok: false, error: "Unsupported method." });
     } catch (err) {
@@ -75,10 +77,17 @@ async function handleGet(request, env) {
     return respond(await handleListPositions(env));
   }
 
+  if (action === "pushConfig") {
+    await requireDeviceToken(env, params.deviceToken);
+    await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    return respond(handlePushConfig(env));
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
-async function handlePost(request, env) {
+async function handlePost(request, env, ctx) {
   const bodyText = await request.text();
   const body = JSON.parse(bodyText);
 
@@ -95,7 +104,7 @@ async function handlePost(request, env) {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
     await checkRateLimit(env, body.token);
-    return respond(await handleWrite(env, body, session));
+    return respond(await handleWrite(env, body, session, ctx));
   }
 
   if (body.action === "delete") {
@@ -103,6 +112,13 @@ async function handlePost(request, env) {
     const session = await requireSession(env, body.token);
     await checkRateLimit(env, body.token);
     return respond(await handleDelete(env, body, session));
+  }
+
+  if (body.action === "savePushSubscription") {
+    await requireDeviceToken(env, body.deviceToken);
+    await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    return respond(await handleSavePushSubscription(env, body));
   }
 
   return respond({ ok: false, error: "Unknown or missing action for POST." });
@@ -230,6 +246,99 @@ async function logLoginAttempt(env, entry) {
   }
 }
 
+// ---- WEB PUSH ------------------------------------------------------------
+//
+// Subscriptions live in the same KV namespace under the "push:" prefix
+// (keyed by a hash of the endpoint, so re-registering the same device is
+// idempotent). Writes here are rare — once per device when a staffer
+// enables alerts — so they don't meaningfully add to KV write volume.
+
+const PUSH_KEY_PREFIX = "push:";
+const PUSH_SUB_TTL_SECONDS = 90 * 24 * 60 * 60; // prune devices silent for ~90 days
+
+function handlePushConfig(env) {
+  const enabled = !!(env.VAPID_PUBLIC_KEY && env.VAPID_PRIVATE_KEY);
+  return { ok: true, enabled, vapidPublicKey: enabled ? env.VAPID_PUBLIC_KEY : null };
+}
+
+async function handleSavePushSubscription(env, body) {
+  const sub = body.subscription;
+  if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
+    throw new Error("Invalid push subscription.");
+  }
+  const key = PUSH_KEY_PREFIX + (await hashString(sub.endpoint));
+  const stored = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
+  await env.NJWG_KV.put(key, JSON.stringify(stored), { expirationTtl: PUSH_SUB_TTL_SECONDS });
+  return { ok: true };
+}
+
+function stripHtml(html) {
+  return String(html || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function isBlackFlagActive(row) {
+  const v = row.Active;
+  return v === true || v === "TRUE" || v === "true" || v === "1" || v === 1;
+}
+
+/**
+ * Decides whether a write to Announcements / BlackFlagStatus warrants a
+ * push, builds the payload, and fans it out in the background. Silent
+ * no-op when push isn't configured or the sheet isn't a broadcast one.
+ */
+function maybeDispatchPush(env, ctx, sheetName, rowData, action) {
+  if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;
+
+  let payload = null;
+  if (sheetName === "Announcements" && action === "appended") {
+    const text = stripHtml(rowData.Message);
+    payload = {
+      title: "📣 New Announcement",
+      body: `${rowData.Position ? rowData.Position + ": " : ""}${text}`.slice(0, 200) || "New announcement posted.",
+      tag: "announcement",
+      url: "pages/announcements.html"
+    };
+  } else if (sheetName === "BlackFlagStatus") {
+    const active = isBlackFlagActive(rowData);
+    payload = {
+      title: active ? "⚑ Black Flag Activated" : "⚑ Black Flag Lifted",
+      body: active
+        ? "Outdoor activity is now restricted."
+        : "Outdoor activity restrictions have been lifted.",
+      tag: "blackflag",
+      url: "pages/overview.html"
+    };
+  }
+
+  if (!payload) return;
+  const work = dispatchPush(env, payload);
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
+}
+
+async function dispatchPush(env, payload) {
+  let cursor;
+  do {
+    const list = await env.NJWG_KV.list({ prefix: PUSH_KEY_PREFIX, cursor });
+    for (const entry of list.keys) {
+      const raw = await env.NJWG_KV.get(entry.name);
+      if (!raw) continue;
+      let sub;
+      try { sub = JSON.parse(raw); } catch { continue; }
+      try {
+        const res = await sendPush(env, sub, payload);
+        // 404/410 mean the subscription is permanently gone — prune it so
+        // we stop paying to try (and to keep the list small).
+        if (res.status === 404 || res.status === 410) {
+          await env.NJWG_KV.delete(entry.name);
+        }
+      } catch (err) {
+        // One unreachable endpoint shouldn't abort the whole fan-out.
+      }
+    }
+    cursor = list.list_complete ? null : list.cursor;
+  } while (cursor);
+}
+
 // ---- READ ---------------------------------------------------------------
 
 async function handleRead(env, params) {
@@ -266,7 +375,7 @@ async function handleRead(env, params) {
 
 // ---- WRITE ---------------------------------------------------------------
 
-async function handleWrite(env, body, session) {
+async function handleWrite(env, body, session, ctx) {
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
@@ -290,18 +399,24 @@ async function handleWrite(env, body, session) {
     ? body.matchColumns
     : (body.matchColumn ? [body.matchColumn] : []);
 
+  let action = "appended";
   if (matchColumns.length && matchColumns.every((c) => headers.includes(c))) {
     const rowNumber = await findMatchingRowNumber(env, sheetName, headers, matchColumns, rowData);
     if (rowNumber > 0) {
       await setRow(env, sheetName, rowNumber, newRowArray);
-      await invalidateSheetCache(env, sheetName);
-      return { ok: true, action: "updated", row: rowData };
+      action = "updated";
     }
   }
-
-  await appendRow(env, sheetName, newRowArray);
+  if (action === "appended") {
+    await appendRow(env, sheetName, newRowArray);
+  }
   await invalidateSheetCache(env, sheetName);
-  return { ok: true, action: "appended", row: rowData };
+
+  // Fan out a Web Push alert for the two staff-facing broadcast sheets,
+  // in the background so the write's own response isn't delayed by it.
+  maybeDispatchPush(env, ctx, sheetName, rowData, action);
+
+  return { ok: true, action, row: rowData };
 }
 
 async function handleDelete(env, body, session) {

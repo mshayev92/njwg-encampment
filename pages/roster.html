@@ -437,6 +437,22 @@
 
     searchInput.addEventListener("input", applyFilter);
     Shell.registerRefresh(load);
+
+    // Export the full roster. Lead with the common identity columns, then
+    // any additional columns present in the data.
+    Shell.registerExport(() => {
+      const lead = ["Name", "CapId", "Rank", "Flight"];
+      const extra = Array.from(allRows.reduce((set, r) => {
+        Object.keys(r || {}).forEach(k => { if (!lead.includes(k)) set.add(k); });
+        return set;
+      }, new Set()));
+      return {
+        filename: `roster-${new Date().toISOString().slice(0, 10)}.csv`,
+        columns: [...lead, ...extra],
+        rows: allRows
+      };
+    });
+
     load();
   </script>
 

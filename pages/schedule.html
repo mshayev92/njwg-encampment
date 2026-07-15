@@ -437,7 +437,14 @@
       loadingText: "Loading schedule…",
       render: (rows) => { scheduleRows = rows; render(scheduleRows); }
     });
-  </script>
+
+    // Export the schedule as it currently stands (columns inferred from
+    // whatever the Schedule sheet holds).
+    Shell.registerExport(() => ({
+      filename: `schedule-${new Date().toISOString().slice(0, 10)}.csv`,
+      rows: scheduleRows
+    }));
+</script>
 
   <script>
     if ("serviceWorker" in navigator) {

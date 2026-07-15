@@ -50,7 +50,10 @@ const Shell = (() => {
     check:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
     bell:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>',
     edit:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4z"/></svg>',
-    refresh:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>'
+    refresh:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16M3 21v-5h5"/></svg>',
+    search:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>',
+    bellPlus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-9.9-4.5"/><path d="M6 8c0 7-3 9-3 9h13"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18 3v6M15 6h6"/></svg>'
   };
 
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
@@ -169,8 +172,18 @@ const Shell = (() => {
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label">Synced</span>
           </span>
+          <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (⌘/Ctrl-K)" aria-label="Search" style="padding: var(--space-2);">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.search}</span>
+          </button>
+          <button class="btn btn--ghost" id="export-btn" data-tooltip="Export this page to CSV" aria-label="Export CSV" style="display:none; padding: var(--space-2);">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.download}</span>
+          </button>
+          <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
+          </button>
           <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
             <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
+            <span class="hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
             <span id="hard-refresh-label">Refresh</span>
           </button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
@@ -200,6 +213,20 @@ const Shell = (() => {
       hardRefreshBtn.addEventListener("click", () => hardRefresh());
     }
 
+    const searchBtn = document.getElementById("global-search-btn");
+    if (searchBtn) searchBtn.addEventListener("click", () => openSearch_());
+
+    const exportBtn = document.getElementById("export-btn");
+    if (exportBtn) {
+      exportBtn.addEventListener("click", () => runExport_());
+      // A page may have registered its export before the header was
+      // (re)rendered — reflect that here so the button shows immediately.
+      if (exportConfig_) exportBtn.style.display = "inline-flex";
+    }
+
+    const pushBtn = document.getElementById("push-enable-btn");
+    if (pushBtn) pushBtn.addEventListener("click", () => enablePush_());
+
     wireSyncIndicator_();
     wireTooltips_(header);
   }
@@ -224,7 +251,15 @@ const Shell = (() => {
       }
       if (status === "syncing") {
         el.classList.add("sync-indicator--syncing");
-        label.textContent = pending > 1 ? `Pending (${pending})` : "Pending…";
+        // Distinguish "actively syncing" from "queued while offline" —
+        // the latter is normal and self-heals on reconnect, so say so
+        // rather than implying a live upload is in progress.
+        const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+        if (offline && pending > 0) {
+          label.textContent = pending > 1 ? `Offline — ${pending} queued` : "Offline — 1 queued";
+        } else {
+          label.textContent = pending > 1 ? `Pending (${pending})` : "Pending…";
+        }
       } else if (status === "error") {
         el.classList.add("sync-indicator--error");
         label.textContent = "Sync failed — tap Refresh";
@@ -346,6 +381,344 @@ const Shell = (() => {
       if (btn) { btn.disabled = false; btn.classList.remove("is-spinning"); }
       if (spinner) spinner.style.display = "none";
       if (label) label.textContent = "Refresh";
+    }
+  }
+
+  // ---- CSV export (of data already on the current page) -----------------
+  //
+  // A page opts in by calling Shell.registerExport(fn) once its data is
+  // loaded. fn() is called at click time and returns
+  //   { filename, rows, columns? }
+  // — computed live so it always reflects the page's CURRENT, already
+  // flight-scoped/visible rows (the same rows on screen), not the raw
+  // sheet. If columns is omitted, the union of keys across rows is used.
+  // Registering reveals the header Export button; passing null hides it.
+
+  let exportConfig_ = null;
+
+  function registerExport(fn) {
+    exportConfig_ = fn;
+    const btn = document.getElementById("export-btn");
+    if (btn) btn.style.display = fn ? "inline-flex" : "none";
+  }
+
+  /** Quote a single CSV field per RFC 4180 (double quotes doubled, wrap when needed). */
+  function csvField_(value) {
+    if (value === null || value === undefined) return "";
+    const str = String(value);
+    return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+  }
+
+  function buildCsv_(rows, columns) {
+    const cols = columns && columns.length
+      ? columns
+      : Array.from(rows.reduce((set, r) => { Object.keys(r || {}).forEach((k) => set.add(k)); return set; }, new Set()));
+    const header = cols.map(csvField_).join(",");
+    const body = rows.map((r) => cols.map((c) => csvField_(r ? r[c] : "")).join(",")).join("\r\n");
+    return header + "\r\n" + body;
+  }
+
+  /**
+   * Builds a CSV from rows and triggers a client-side download — no
+   * server round-trip, since the data is already in hand. Exposed as
+   * Shell.exportCsv for pages that want to export on their own trigger
+   * rather than via the header button.
+   */
+  function exportCsv(filename, rows, columns) {
+    const csv = buildCsv_(rows || [], columns);
+    // Prepend a UTF-8 BOM so Excel opens accented names / unicode correctly.
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename || "export.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Revoke on the next tick so the download has a chance to start first.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
+
+  function runExport_() {
+    if (!exportConfig_) return;
+    let result;
+    try {
+      result = exportConfig_();
+    } catch (e) {
+      showToast("Couldn't build the export.", { type: "error" });
+      return;
+    }
+    if (!result || !Array.isArray(result.rows) || !result.rows.length) {
+      showToast("Nothing to export on this page yet.", { type: "error" });
+      return;
+    }
+    const stamp = new Date().toISOString().slice(0, 10);
+    const filename = result.filename || `${activePage_ || "export"}-${stamp}.csv`;
+    exportCsv(filename, result.rows, result.columns);
+    showToast(`Exported ${result.rows.length} row${result.rows.length === 1 ? "" : "s"}.`, { type: "success" });
+  }
+
+  // ---- Cross-sheet search (client-side, over already-cached sheets) -----
+  //
+  // Searches only sheets whose corresponding PAGE this position is
+  // allowed to see (so search never surfaces data from a page the
+  // position can't open), and applies the same per-Flight scoping the
+  // pages themselves use for Roster/Inspections/Notes. All data comes
+  // from Api's persisted cache — the same rows already warmed on every
+  // page load — so this makes no extra network calls of its own beyond
+  // the background revalidation getSheetCached always does.
+
+  const SEARCH_SOURCES = [
+    {
+      sheet: "Roster", page: "roster", label: "Roster", href: "pages/roster.html",
+      flightField: "Flight",
+      fields: ["Name", "CapId", "Rank", "Flight"],
+      title: (r) => r.Name || r.CapId || "—",
+      meta: (r) => [r.Rank, r.CapId, r.Flight].filter(Boolean).join(" · ")
+    },
+    {
+      sheet: "UniformInspections", page: "inspections", label: "Uniform inspection", href: "pages/inspections.html",
+      flightField: "Flight",
+      fields: ["StudentName", "StudentCapId", "InspectingPosition"],
+      title: (r) => r.StudentName || r.StudentCapId || "—",
+      meta: (r) => [r.Date, r.Flight, (r.TotalPoints != null ? `${r.TotalPoints} pts` : "")].filter(Boolean).join(" · ")
+    },
+    {
+      sheet: "RoomInspections", page: "inspections", label: "Room inspection", href: "pages/inspections.html",
+      flightField: "Flight",
+      fields: ["StudentName", "StudentCapId", "InspectingPosition"],
+      title: (r) => r.StudentName || r.StudentCapId || "—",
+      meta: (r) => [r.Date, r.Flight, (r.TotalPoints != null ? `${r.TotalPoints} pts` : "")].filter(Boolean).join(" · ")
+    },
+    {
+      sheet: "Notes", page: "notes", label: "Note", href: "pages/notes.html",
+      flightField: "Flight", flightBlankVisible: true,
+      fields: ["Subject", "AuthorPosition", "__bodyText"],
+      title: (r) => r.Subject || "(no subject)",
+      meta: (r) => [r.AuthorPosition, r.Flight].filter(Boolean).join(" · "),
+      snippet: (r) => r.__bodyText
+    },
+    {
+      sheet: "Announcements", page: "announcements", label: "Announcement", href: "pages/announcements.html",
+      fields: ["Position", "__bodyText"],
+      title: (r) => r.Position || "Announcement",
+      meta: (r) => r.Timestamp ? new Date(r.Timestamp).toLocaleString() : "",
+      snippet: (r) => r.__bodyText
+    },
+    {
+      sheet: "Schedule", page: "schedule", label: "Schedule", href: "pages/schedule.html",
+      // No explicit fields — search every value in the row.
+      title: (r) => r.Activity || r.Event || r.Title || Object.values(r).find(Boolean) || "—",
+      meta: (r) => [r.Day, r.Date, r.Time, r.Location].filter(Boolean).join(" · ")
+    }
+  ];
+
+  function sessionFlights_() {
+    const s = Auth.getSession();
+    return (s && Array.isArray(s.Flights)) ? s.Flights : [];
+  }
+
+  function isFlightAllowed_(flight) {
+    const flights = sessionFlights_();
+    if (!flights.length) return true;
+    if (flights.some((f) => String(f).toLowerCase() === "all")) return true;
+    return flights.some((f) => String(f).toLowerCase() === String(flight || "").toLowerCase());
+  }
+
+  /** Flattens a rich-text/HTML value to plain searchable text. */
+  function htmlToText_(html) {
+    if (!html) return "";
+    const t = document.createElement("template");
+    t.innerHTML = String(html);
+    return (t.content.textContent || "").replace(/\s+/g, " ").trim();
+  }
+
+  let searchOverlayEl_ = null;
+  let searchKeyHandler_ = null;
+
+  function closeSearch_() {
+    if (searchOverlayEl_) { searchOverlayEl_.remove(); searchOverlayEl_ = null; }
+    if (searchKeyHandler_) { document.removeEventListener("keydown", searchKeyHandler_); searchKeyHandler_ = null; }
+  }
+
+  function allowedSearchSources_() {
+    const allowed = getAllowedPageIds();
+    return SEARCH_SOURCES.filter((src) => allowed.has(src.page));
+  }
+
+  function runSearch_(query, resultsEl) {
+    const q = query.trim().toLowerCase();
+    if (q.length < 2) {
+      resultsEl.innerHTML = `<div class="search-overlay__hint">Type at least 2 characters…</div>`;
+      return;
+    }
+
+    const groups = [];
+    allowedSearchSources_().forEach((src) => {
+      const handle = Api.getSheetCached(src.sheet);
+      const rows = (handle.data && handle.data.rows) || [];
+      const matches = [];
+      for (const raw of rows) {
+        // Notes/Announcements bodies are HTML — expose a plain-text field.
+        const row = ("Body" in raw || "Message" in raw)
+          ? { ...raw, __bodyText: htmlToText_(raw.Body || raw.Message || "") }
+          : raw;
+
+        // Flight scoping: skip rows this position isn't allowed to see.
+        if (src.flightField) {
+          const flight = row[src.flightField];
+          const blankOk = src.flightBlankVisible && !flight;
+          if (!blankOk && !isFlightAllowed_(flight)) continue;
+        }
+
+        const haystack = src.fields
+          ? src.fields.map((f) => row[f]).join(" ")
+          : Object.values(row).join(" ");
+        if (String(haystack).toLowerCase().includes(q)) {
+          matches.push(row);
+          if (matches.length >= 8) break; // cap per source
+        }
+      }
+      if (matches.length) groups.push({ src, matches });
+    });
+
+    if (!groups.length) {
+      resultsEl.innerHTML = `<div class="search-overlay__hint">No matches for “${escapeHtml_(query)}”.</div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = groups.map((g) => `
+      <div class="search-overlay__group">
+        <div class="search-overlay__group-label">${escapeHtml_(g.src.label)}</div>
+        ${g.matches.map((r) => {
+          const snippet = g.src.snippet ? g.src.snippet(r) : "";
+          const meta = g.src.meta ? g.src.meta(r) : "";
+          return `
+            <a class="search-overlay__result" href="${window.APP_BASE_PATH}${g.src.href}">
+              <div class="search-overlay__result-title">${escapeHtml_(g.src.title(r))}</div>
+              ${meta ? `<div class="search-overlay__result-meta">${escapeHtml_(meta)}</div>` : ""}
+              ${snippet ? `<div class="search-overlay__result-snippet">${escapeHtml_(snippet.slice(0, 140))}</div>` : ""}
+            </a>`;
+        }).join("")}
+      </div>
+    `).join("");
+  }
+
+  /**
+   * Opens the global search overlay. Debounces input, searches the
+   * allowed cached sheets, and lets the person click through to the
+   * relevant page. Closes on Escape, an outside click, or the × button.
+   */
+  function openSearch_() {
+    if (searchOverlayEl_) { closeSearch_(); return; }
+
+    const overlay = document.createElement("div");
+    overlay.className = "search-overlay";
+    overlay.innerHTML = `
+      <div class="search-overlay__panel" role="dialog" aria-modal="true" aria-label="Search">
+        <div class="search-overlay__bar">
+          <span class="search-overlay__icon">${ICONS.search}</span>
+          <input type="text" id="search-overlay-input" class="search-overlay__input" placeholder="Search cadets, inspections, notes, announcements…" autocomplete="off" spellcheck="false">
+          <button type="button" class="search-overlay__close" aria-label="Close">&times;</button>
+        </div>
+        <div class="search-overlay__results" id="search-overlay-results">
+          <div class="search-overlay__hint">Type at least 2 characters…</div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    searchOverlayEl_ = overlay;
+
+    const input = overlay.querySelector("#search-overlay-input");
+    const results = overlay.querySelector("#search-overlay-results");
+
+    // Warm the searchable sheets so a cold cache fills in and re-search
+    // once data lands (getSheetCached kicks off the background fetch).
+    allowedSearchSources_().forEach((src) => {
+      Api.getSheetCached(src.sheet, () => {
+        if (searchOverlayEl_ === overlay && input.value.trim().length >= 2) runSearch_(input.value, results);
+      });
+    });
+
+    let debounce = null;
+    input.addEventListener("input", () => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => runSearch_(input.value, results), 150);
+    });
+
+    overlay.querySelector(".search-overlay__close").addEventListener("click", closeSearch_);
+    overlay.addEventListener("mousedown", (e) => { if (e.target === overlay) closeSearch_(); });
+    searchKeyHandler_ = (e) => { if (e.key === "Escape") closeSearch_(); };
+    document.addEventListener("keydown", searchKeyHandler_);
+
+    input.focus();
+  }
+
+  // ---- Web Push (opt-in per device) -------------------------------------
+  //
+  // Real Web Push so a staff device gets a New Announcement / Black Flag
+  // alert even when the app is closed or backgrounded (the in-app alert
+  // modal only fires while a page is open). Entirely optional and
+  // gracefully absent when the backend has no VAPID keys configured —
+  // pushConfig reports enabled:false and the enable button stays hidden.
+
+  function urlBase64ToUint8Array_(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+    return out;
+  }
+
+  async function initPush_() {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
+    let config;
+    try {
+      config = await Api.getPushConfig();
+    } catch (e) {
+      return; // backend unreachable or push not wired — stay silent
+    }
+    if (!config || !config.enabled || !config.vapidPublicKey) return;
+    pushVapidKey_ = config.vapidPublicKey;
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) {
+        // Already subscribed on this device — make sure the backend still
+        // has it (cheap, idempotent), and keep the button hidden.
+        Api.savePushSubscription(existing.toJSON()).catch(() => {});
+        return;
+      }
+    } catch (e) { /* fall through to showing the button */ }
+
+    if (Notification.permission === "denied") return; // can't prompt again
+    const btn = document.getElementById("push-enable-btn");
+    if (btn) btn.style.display = "inline-flex";
+  }
+
+  let pushVapidKey_ = null;
+
+  async function enablePush_() {
+    const btn = document.getElementById("push-enable-btn");
+    if (!pushVapidKey_) { showToast("Alerts aren't available right now.", { type: "error" }); return; }
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        showToast("Alerts need notification permission to work.", { type: "error" });
+        return;
+      }
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array_(pushVapidKey_)
+      });
+      await Api.savePushSubscription(sub.toJSON());
+      if (btn) btn.style.display = "none";
+      showToast("Alerts enabled on this device.", { type: "success" });
+    } catch (e) {
+      showToast("Couldn't enable alerts. Try again.", { type: "error" });
     }
   }
 
@@ -1004,9 +1377,29 @@ const Shell = (() => {
     renderNav(activePage);
     renderHeader(activePage);
     wireTooltips_(document);
+    // Global search keyboard shortcut (⌘/Ctrl-K), available on every page.
+    if (requireAuth) {
+      document.addEventListener("keydown", (e) => {
+        if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+          e.preventDefault();
+          openSearch_();
+        }
+      });
+    }
     if (requireAuth) {
       wireIdleTimeout();
       loadGlobalAlerts_();
+      // Replay any writes queued while offline — now (in case this page
+      // loaded back online) and whenever the tab is refocused.
+      if (Api.flushOutbox) {
+        Api.flushOutbox();
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") Api.flushOutbox();
+        });
+      }
+      // Best-effort: reveal the "enable alerts" button if this device
+      // supports push and the backend has it configured.
+      initPush_();
       // Keep the banner/badge reasonably fresh without a full reload.
       setInterval(loadGlobalAlerts_, 2 * 60 * 1000);
       // Warm every sheet ANY page reads from, not just this one — so by
@@ -1027,6 +1420,7 @@ const Shell = (() => {
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
-    enhanceSelect, openContextMenu
+    enhanceSelect, openContextMenu,
+    registerExport, exportCsv, openSearch: openSearch_
   };
 })();

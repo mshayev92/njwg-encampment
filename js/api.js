@@ -329,17 +329,112 @@ const Api = (() => {
   let pendingWrites = 0;
   const syncListeners = new Set();
 
+  // Durable outbox for writes that couldn't reach the server (offline /
+  // network error). Persisted to localStorage so a queued write survives
+  // a page navigation or the app being closed, and replayed when
+  // connectivity returns — see flushOutbox_ below. Loaded up front so its
+  // length is reflected in the sync indicator's pending count immediately.
+  const OUTBOX_STORAGE_KEY = "njwg_outbox_v1";
+  let outbox = loadOutbox_();
+  // If writes were left queued from a previous (offline) session, reflect
+  // that as pending from the start rather than a misleading "Synced".
+  if (outbox.length) syncStatus = "syncing";
+
+  function loadOutbox_() {
+    try {
+      const raw = localStorage.getItem(OUTBOX_STORAGE_KEY);
+      const arr = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? arr : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveOutbox_() {
+    try { localStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(outbox)); } catch (e) { /* quota/unavailable */ }
+  }
+
+  /** Reported pending = writes in flight now + writes waiting in the outbox. */
+  function totalPending_() {
+    return pendingWrites + outbox.length;
+  }
+
   function setSyncStatus_(status) {
     syncStatus = status;
-    syncListeners.forEach((cb) => { try { cb(status, pendingWrites); } catch (e) { /* ignore */ } });
+    syncListeners.forEach((cb) => { try { cb(status, totalPending_()); } catch (e) { /* ignore */ } });
     // "synced" is a momentary confirmation, not a resting state — fall
     // back to idle shortly after so the indicator doesn't sit lit up
     // forever after the last write of a session.
     if (status === "synced") {
       setTimeout(() => {
-        if (pendingWrites === 0 && syncStatus === "synced") setSyncStatus_("idle");
+        if (totalPending_() === 0 && syncStatus === "synced") setSyncStatus_("idle");
       }, 2500);
     }
+  }
+
+  function isNetworkError_(err) {
+    return err && /network error|timed out/i.test(err.message || "");
+  }
+
+  /** Queue a write that couldn't reach the server, to replay later. */
+  function enqueueOutbox_(action, body) {
+    outbox.push({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      action,
+      body,
+      queuedAt: Date.now()
+    });
+    saveOutbox_();
+    // There's pending work again — reflect it as syncing/pending rather
+    // than leaving the indicator stuck on the transient "error" that the
+    // failed immediate attempt just set.
+    setSyncStatus_("syncing");
+  }
+
+  let flushingOutbox_ = false;
+
+  /**
+   * Replays queued writes in order. Stops (keeping the rest) the moment
+   * another network error happens — we're still offline/unreachable, so
+   * try again on the next trigger (reconnect / page load / visibility).
+   * A write the server actively REJECTS (permission, validation, expired
+   * token) can never succeed on replay, so it's dropped and surfaced,
+   * rather than blocking the queue forever. Safe to call anytime; it
+   * no-ops if empty, already running, or the browser reports offline.
+   */
+  async function flushOutbox_() {
+    if (flushingOutbox_ || !outbox.length) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+
+    flushingOutbox_ = true;
+    setSyncStatus_("syncing");
+    try {
+      while (outbox.length) {
+        const item = outbox[0];
+        try {
+          await request(item.action, { method: "POST", body: item.body });
+          // Landed — the sheet's cached rows may now be behind the server.
+          if (item.body && item.body.sheet) markSheetStale_(item.body.sheet);
+          outbox.shift();
+          saveOutbox_();
+          setSyncStatus_("syncing"); // refresh pending count as it drains
+        } catch (err) {
+          if (isNetworkError_(err)) break; // still offline — retry later
+          // Permanent rejection: drop it so it can't wedge the queue.
+          outbox.shift();
+          saveOutbox_();
+          setSyncStatus_("error");
+        }
+      }
+    } finally {
+      flushingOutbox_ = false;
+      if (totalPending_() === 0 && syncStatus !== "error") setSyncStatus_("synced");
+    }
+  }
+
+  // Retry the outbox as soon as the browser regains connectivity.
+  if (typeof window !== "undefined") {
+    window.addEventListener("online", () => flushOutbox_());
   }
 
   /**
@@ -504,8 +599,12 @@ const Api = (() => {
       // Fire the real request in the background (errors surface via
       // onSyncStatusChange -> "error", not a rejected promise here) and
       // resolve immediately so the caller can update its own UI without
-      // waiting on the network round-trip.
-      performWrite_("write", body).catch(() => { /* status already reported via setSyncStatus_ */ });
+      // waiting on the network round-trip. If it fails specifically
+      // because the device is offline/unreachable, park it in the durable
+      // outbox to replay on reconnect instead of silently dropping it.
+      performWrite_("write", body).catch((err) => {
+        if (isNetworkError_(err)) enqueueOutbox_("write", body);
+      });
       return Promise.resolve({ ok: true, action: "queued", row: rowData });
     },
 
@@ -517,19 +616,35 @@ const Api = (() => {
       markSheetStale_(sheetName);
       const body = { sheet: sheetName, matchValues, matchColumn, matchColumns };
       if (!optimistic) return performWrite_("delete", body);
-      performWrite_("delete", body).catch(() => { /* status already reported via setSyncStatus_ */ });
+      performWrite_("delete", body).catch((err) => {
+        if (isNetworkError_(err)) enqueueOutbox_("delete", body);
+      });
       return Promise.resolve({ ok: true, action: "queued" });
     },
 
     /** Subscribe to sync status changes: cb(status, pendingCount). Returns an unsubscribe function. */
     onSyncStatusChange(cb) {
       syncListeners.add(cb);
-      cb(syncStatus, pendingWrites);
+      cb(syncStatus, totalPending_());
       return () => syncListeners.delete(cb);
     },
 
     getSyncStatus() {
-      return { status: syncStatus, pending: pendingWrites };
+      return { status: syncStatus, pending: totalPending_() };
+    },
+
+    /**
+     * Replay any writes queued while offline. Called by Shell on page
+     * load / when the tab becomes visible, and automatically on the
+     * browser's `online` event. No-ops when the outbox is empty.
+     */
+    flushOutbox() {
+      return flushOutbox_();
+    },
+
+    /** Number of writes currently waiting in the offline outbox. */
+    pendingOutboxCount() {
+      return outbox.length;
     },
 
     /**
@@ -570,6 +685,31 @@ const Api = (() => {
         body: { position, password },
         requireDevice: true,
         requireSession: false
+      });
+    },
+
+    /**
+     * Returns { enabled, vapidPublicKey } describing whether Web Push is
+     * configured on the backend. enabled is false (and vapidPublicKey
+     * null) when no VAPID keys are set, so the client can hide the
+     * "enable alerts" affordance entirely. Requires a signed-in session.
+     */
+    getPushConfig() {
+      return request("pushConfig", { requireDevice: true, requireSession: true });
+    },
+
+    /**
+     * Registers this device's Web Push subscription with the backend so
+     * it receives Announcement / Black Flag alerts. subscription is the
+     * PushSubscription.toJSON() shape ({ endpoint, keys: { p256dh, auth } }).
+     * Idempotent — re-registering the same endpoint just refreshes it.
+     */
+    savePushSubscription(subscription) {
+      return request("savePushSubscription", {
+        method: "POST",
+        body: { subscription },
+        requireDevice: true,
+        requireSession: true
       });
     }
   };
