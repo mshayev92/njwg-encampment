@@ -12,7 +12,7 @@
  */
 
 import {
-  UNIFORM_INSPECTION_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS,
+  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS,
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, isPasswordProtectedPosition, assertAllowedSheet, assertPermission,
@@ -341,6 +341,9 @@ async function findMatchingRowNumber(env, sheetName, headers, matchColumns, matc
 async function ensureAutoCreatedTab(env, sheetName) {
   if (sheetName === "UniformInspections") {
     await ensureSheetExists(env, "UniformInspections", UNIFORM_INSPECTION_COLUMNS);
+  }
+  if (sheetName === "RoomInspections") {
+    await ensureSheetExists(env, "RoomInspections", ROOM_INSPECTION_COLUMNS);
   }
   if (sheetName === "Announcements") {
     await ensureSheetExists(env, "Announcements", ANNOUNCEMENT_COLUMNS);

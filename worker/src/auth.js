@@ -13,7 +13,7 @@
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "Announcements", "BlackFlagStatus"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus"
 ];
 
 export const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
@@ -25,6 +25,7 @@ export const SHEET_PERMISSIONS = {
   Roster:             { read: "any", write: "page" },
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
+  RoomInspections:    { read: "any", write: "any" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" }
 };
@@ -45,6 +46,13 @@ export const UNIFORM_INSPECTION_COLUMNS = [
   "Haircut", "CosmeticsOrShave", "CleanlinessPress", "ShirtTuck",
   "PatchesNametag", "InsigniaRibbons", "GigLine",
   "BootBlousingShoeShine", "MilitaryBearingCourtesy",
+  "TotalPoints", "Notes"
+];
+export const ROOM_INSPECTION_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp",
+  "HospitalCorners", "Pillow", "Collar", "SheetsBlanket", "Shoes",
+  "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
 ];
 export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];

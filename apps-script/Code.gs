@@ -125,7 +125,7 @@
 // StaffAccess is deliberately NOT in this list — see security tradeoff
 // note above. Only handleLogin/handleListPositions may touch it.
 const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "Announcements", "BlackFlagStatus"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus"
 ];
 
 // Positions that require a password, checked directly against the
@@ -147,6 +147,7 @@ const SHEET_PERMISSIONS = {
   Roster:             { read: "any", write: "page" },
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
+  RoomInspections:    { read: "any", write: "any" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" }
 };
@@ -198,6 +199,14 @@ const UNIFORM_INSPECTION_COLUMNS = [
   "Haircut", "CosmeticsOrShave", "CleanlinessPress", "ShirtTuck",
   "PatchesNametag", "InsigniaRibbons", "GigLine",
   "BootBlousingShoeShine", "MilitaryBearingCourtesy",
+  "TotalPoints", "Notes"
+];
+
+const ROOM_INSPECTION_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp",
+  "HospitalCorners", "Pillow", "Collar", "SheetsBlanket", "Shoes",
+  "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
 ];
 
@@ -526,6 +535,7 @@ function handleRead(params, session) {
   assertPermission_(sheetName, "read");
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
+  if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
@@ -600,6 +610,7 @@ function handleWrite(body, session) {
   assertPageWriteAccess_(sheetName, session);
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
+  if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
