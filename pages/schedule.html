@@ -49,30 +49,6 @@
       gap: var(--space-3);
     }
 
-    .audience-chips {
-      display: flex;
-      flex-wrap: wrap;
-      gap: var(--space-2);
-    }
-
-    .audience-chip {
-      padding: var(--space-2) var(--space-3);
-      font-size: var(--fs-sm);
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      background: var(--surface);
-      color: var(--ink-900);
-      cursor: pointer;
-    }
-
-    .audience-chip:hover { border-color: var(--gold-500); }
-
-    .audience-chip.is-selected {
-      background: var(--indigo-900);
-      border-color: var(--indigo-900);
-      color: var(--surface);
-    }
-
     .schedule-pending {
       margin-top: var(--space-4);
       padding-top: var(--space-4);
@@ -341,14 +317,19 @@
      * affect the other; unlikely for a daily schedule, but worth
      * knowing. See matchColumnsFor() above.
      */
-    function renderAudienceChips(selected) {
-      const chips = [{ label: "All", value: "" }, ...audienceOptions.map(p => ({ label: p, value: p }))];
+    /**
+     * A single dropdown instead of a chip cloud — with a Flight/Squadron
+     * per position, that cloud ran to a dozen-plus pills wrapping across
+     * two rows just to pick ONE value. Reuses Shell's themed dropdown
+     * (enhanceSelect), same as everywhere else the app replaces a native
+     * <select>.
+     */
+    function renderAudienceField(selected) {
+      const options = [{ label: "All", value: "" }, ...audienceOptions.map(p => ({ label: p, value: p }))];
       return `
-        <div class="audience-chips">
-          ${chips.map(c => `
-            <button type="button" class="audience-chip ${(selected || "") === c.value ? "is-selected" : ""}" data-value="${esc(c.value)}">${esc(c.label)}</button>
-          `).join("")}
-        </div>
+        <select id="f-audience">
+          ${options.map(o => `<option value="${esc(o.value)}" ${(selected || "") === o.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
+        </select>
       `;
     }
 
@@ -402,10 +383,7 @@
             <div class="field"><label for="f-time">Time</label><input type="time" id="f-time" value="${esc(timeValue)}"></div>
             <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(activityValue)}"></div>
             <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(locationValue)}"></div>
-            <div class="field" style="grid-column: 1 / -1;">
-              <label>Audience</label>
-              ${renderAudienceChips(currentAudience)}
-            </div>
+            <div class="field"><label for="f-audience">Audience</label>${renderAudienceField(currentAudience)}</div>
             <div class="schedule-form-actions">
               ${mode === "add" ? `
                 <button class="btn btn--ghost" id="add-row-btn">+ Add Row</button>
@@ -424,12 +402,15 @@
       document.getElementById("save-item-btn").addEventListener("click", () => mode === "add" ? saveAllPending() : saveEdit());
       if (mode === "add") document.getElementById("add-row-btn").addEventListener("click", stageRow);
 
-      formContainer.querySelectorAll(".audience-chip").forEach(btn => {
-        btn.addEventListener("click", () => {
-          currentAudience = btn.dataset.value;
-          formContainer.querySelectorAll(".audience-chip").forEach(b => b.classList.toggle("is-selected", b.dataset.value === currentAudience));
-        });
-      });
+      const dateInput = document.getElementById("f-date");
+      Shell.enhanceDateInput(dateInput);
+      dateInput.addEventListener("change", () => { if (mode === "add") formDate = dateInput.value; });
+
+      Shell.enhanceTimeInput(document.getElementById("f-time"));
+
+      const audienceSelect = document.getElementById("f-audience");
+      Shell.enhanceSelect(audienceSelect);
+      audienceSelect.addEventListener("change", () => { currentAudience = audienceSelect.value; });
 
       if (mode === "add") {
         formContainer.querySelectorAll("[data-remove-pending]").forEach(btn => {

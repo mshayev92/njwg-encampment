@@ -54,7 +54,8 @@ const Shell = (() => {
     search:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
     download: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></svg>',
     bellPlus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-9.9-4.5"/><path d="M6 8c0 7-3 9-3 9h13"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18 3v6M15 6h6"/></svg>',
-    shield:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>'
+    shield:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
+    clock:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>'
   };
 
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
@@ -802,11 +803,12 @@ const Shell = (() => {
     return hours * 60 + minutes;
   }
 
+  function pad2_(n) { return String(n).padStart(2, "0"); }
+
   /** Today's date as YYYY-MM-DD, in the device's local timezone. */
   function todayIso_() {
     const d = new Date();
-    const pad = (n) => String(n).padStart(2, "0");
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${d.getFullYear()}-${pad2_(d.getMonth() + 1)}-${pad2_(d.getDate())}`;
   }
 
   /**
@@ -1248,6 +1250,237 @@ const Shell = (() => {
     return { refresh: () => enhanceSelect(selectEl), close };
   }
 
+  // ---- Custom date field (replaces native <input type="date">) ----------
+  //
+  // Same progressive-enhancement idea as enhanceSelect: the native
+  // input stays in the DOM (hidden) as the source of truth — its .value
+  // is what code elsewhere still reads, and a real "change" event still
+  // fires on it — while a themed trigger + calendar popover replace the
+  // browser's own (unthemed, OS-styled) date picker UI.
+
+  const MONTH_NAMES_ = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const WEEKDAY_ABBR_ = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+  function isoFromParts_(y, m, d) { return `${y}-${pad2_(m + 1)}-${pad2_(d)}`; }
+
+  function enhanceDateInput(inputEl) {
+    if (!inputEl) return null;
+
+    const previous = inputEl.previousElementSibling;
+    if (previous && previous.classList && previous.classList.contains("date-field") && previous.dataset.forInput === inputEl.id) {
+      previous.remove();
+    }
+
+    inputEl.style.display = "none";
+
+    const wrap = document.createElement("div");
+    wrap.className = "date-field";
+    if (inputEl.id) wrap.dataset.forInput = inputEl.id;
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "date-field__trigger";
+    trigger.innerHTML = `<span class="date-field__label"></span><span class="date-field__icon">${ICONS.calendar}</span>`;
+    wrap.appendChild(trigger);
+    inputEl.parentNode.insertBefore(wrap, inputEl);
+
+    const labelEl = trigger.querySelector(".date-field__label");
+    let viewYear, viewMonth; // 0-based month currently shown in the open panel
+    let panelEl = null;
+    let outsideHandler = null;
+
+    function syncLabel() {
+      if (inputEl.value) {
+        const [y, m, d] = inputEl.value.split("-").map(Number);
+        labelEl.textContent = `${MONTH_NAMES_[m - 1].slice(0, 3)} ${d}, ${y}`;
+        labelEl.classList.remove("date-field__placeholder");
+      } else {
+        labelEl.textContent = "Select date";
+        labelEl.classList.add("date-field__placeholder");
+      }
+    }
+    syncLabel();
+
+    function close() {
+      if (panelEl) { panelEl.remove(); panelEl = null; }
+      wrap.classList.remove("is-open");
+      if (outsideHandler) { document.removeEventListener("mousedown", outsideHandler, true); outsideHandler = null; }
+    }
+
+    function pick(iso) {
+      inputEl.value = iso;
+      inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+      syncLabel();
+      close();
+    }
+
+    function renderPanel() {
+      if (panelEl) panelEl.remove();
+
+      const first = new Date(viewYear, viewMonth, 1);
+      const startWeekday = first.getDay();
+      const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+      const daysInPrevMonth = new Date(viewYear, viewMonth, 0).getDate();
+      const todayIso = todayIso_();
+      const selectedIso = inputEl.value;
+
+      const cells = [];
+      for (let i = 0; i < startWeekday; i++) {
+        cells.push({ day: daysInPrevMonth - startWeekday + i + 1, muted: true });
+      }
+      for (let d = 1; d <= daysInMonth; d++) {
+        cells.push({ day: d, muted: false, iso: isoFromParts_(viewYear, viewMonth, d) });
+      }
+      let trailing = 1;
+      while (cells.length < 42) cells.push({ day: trailing++, muted: true });
+
+      panelEl = document.createElement("div");
+      panelEl.className = "date-field__panel";
+      panelEl.innerHTML = `
+        <div class="date-field__header">
+          <button type="button" class="date-field__nav-btn" data-nav="-1" aria-label="Previous month">‹</button>
+          <span>${MONTH_NAMES_[viewMonth]} ${viewYear}</span>
+          <button type="button" class="date-field__nav-btn" data-nav="1" aria-label="Next month">›</button>
+        </div>
+        <div class="date-field__weekdays">
+          ${WEEKDAY_ABBR_.map(w => `<span class="date-field__weekday">${w}</span>`).join("")}
+        </div>
+        <div class="date-field__days">
+          ${cells.map(c => {
+            if (c.muted) return `<span class="date-field__day is-muted">${c.day}</span>`;
+            const classes = ["date-field__day"];
+            if (c.iso === todayIso) classes.push("is-today");
+            if (c.iso === selectedIso) classes.push("is-selected");
+            return `<button type="button" class="${classes.join(" ")}" data-iso="${c.iso}">${c.day}</button>`;
+          }).join("")}
+        </div>
+        <div class="date-field__footer">
+          <button type="button" data-action="today">Today</button>
+          ${inputEl.value ? `<button type="button" data-action="clear">Clear</button>` : "<span></span>"}
+        </div>
+      `;
+      wrap.appendChild(panelEl);
+
+      panelEl.querySelectorAll("[data-nav]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          viewMonth += Number(btn.dataset.nav);
+          if (viewMonth < 0) { viewMonth = 11; viewYear--; }
+          if (viewMonth > 11) { viewMonth = 0; viewYear++; }
+          renderPanel();
+        });
+      });
+      panelEl.querySelectorAll("[data-iso]").forEach(btn => {
+        btn.addEventListener("click", () => pick(btn.dataset.iso));
+      });
+      const todayBtn = panelEl.querySelector("[data-action='today']");
+      if (todayBtn) todayBtn.addEventListener("click", () => pick(todayIso_()));
+      const clearBtn = panelEl.querySelector("[data-action='clear']");
+      if (clearBtn) clearBtn.addEventListener("click", () => pick(""));
+    }
+
+    function open() {
+      close();
+      const base = inputEl.value ? new Date(inputEl.value + "T00:00:00") : new Date();
+      viewYear = base.getFullYear();
+      viewMonth = base.getMonth();
+      renderPanel();
+      wrap.classList.add("is-open");
+      outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      setTimeout(() => document.addEventListener("mousedown", outsideHandler, true), 0);
+    }
+
+    trigger.addEventListener("click", () => {
+      if (wrap.classList.contains("is-open")) close(); else open();
+    });
+
+    return { refresh: syncLabel, close };
+  }
+
+  // ---- Custom time field (replaces native <input type="time">) ----------
+  //
+  // Same progressive-enhancement approach, offering 15-minute
+  // increments (0:00 through 23:45) — plenty of precision for a
+  // schedule, and far simpler than reproducing a hardware-clock-style
+  // scroll wheel.
+
+  function enhanceTimeInput(inputEl) {
+    if (!inputEl) return null;
+
+    const previous = inputEl.previousElementSibling;
+    if (previous && previous.classList && previous.classList.contains("time-field") && previous.dataset.forInput === inputEl.id) {
+      previous.remove();
+    }
+
+    inputEl.style.display = "none";
+
+    const wrap = document.createElement("div");
+    wrap.className = "time-field";
+    if (inputEl.id) wrap.dataset.forInput = inputEl.id;
+
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "time-field__trigger";
+    trigger.innerHTML = `<span class="time-field__label"></span><span class="time-field__icon">${ICONS.clock}</span>`;
+    wrap.appendChild(trigger);
+    inputEl.parentNode.insertBefore(wrap, inputEl);
+
+    const labelEl = trigger.querySelector(".time-field__label");
+    let panelEl = null;
+    let outsideHandler = null;
+
+    function syncLabel() {
+      if (inputEl.value) {
+        labelEl.textContent = inputEl.value;
+        labelEl.classList.remove("time-field__placeholder");
+      } else {
+        labelEl.textContent = "Select time";
+        labelEl.classList.add("time-field__placeholder");
+      }
+    }
+    syncLabel();
+
+    const SLOTS = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) SLOTS.push(`${pad2_(h)}:${pad2_(m)}`);
+    }
+
+    function close() {
+      if (panelEl) { panelEl.remove(); panelEl = null; }
+      wrap.classList.remove("is-open");
+      if (outsideHandler) { document.removeEventListener("mousedown", outsideHandler, true); outsideHandler = null; }
+    }
+
+    function open() {
+      close();
+      panelEl = document.createElement("div");
+      panelEl.className = "time-field__panel";
+      panelEl.innerHTML = SLOTS.map(t => `<button type="button" class="time-field__option ${t === inputEl.value ? "is-selected" : ""}" data-time="${t}">${t}</button>`).join("");
+      wrap.appendChild(panelEl);
+      wrap.classList.add("is-open");
+
+      panelEl.querySelectorAll("[data-time]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          inputEl.value = btn.dataset.time;
+          inputEl.dispatchEvent(new Event("change", { bubbles: true }));
+          syncLabel();
+          close();
+        });
+      });
+
+      const selected = panelEl.querySelector(".is-selected");
+      if (selected) selected.scrollIntoView({ block: "center" });
+
+      outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      setTimeout(() => document.addEventListener("mousedown", outsideHandler, true), 0);
+    }
+
+    trigger.addEventListener("click", () => {
+      if (wrap.classList.contains("is-open")) close(); else open();
+    });
+
+    return { refresh: syncLabel, close };
+  }
+
   // ---- Custom context menu (replaces native right-click menu) -----------
 
   let contextMenuEl_ = null;
@@ -1552,7 +1785,7 @@ const Shell = (() => {
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
-    enhanceSelect, openContextMenu,
+    enhanceSelect, enhanceDateInput, enhanceTimeInput, openContextMenu,
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
