@@ -128,10 +128,6 @@ const ALLOWED_SHEETS = [
   "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
-// Positions that require a password, checked directly against the
-// StaffAccess "Password" column. Matched case-insensitively.
-const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
-
 // Device token lifetime after a correct passphrase entry.
 const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14; // ~2 weeks
 const DEVICE_TOKEN_LIFETIME_HOURS_SHARED = 8;          // one duty day
@@ -267,10 +263,6 @@ function getPassphraseHash_() {
   return hash;
 }
 
-function isPasswordProtectedPosition_(position) {
-  return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
-}
-
 // ---- ENTRY POINTS ------------------------------------------------------
 
 function doGet(e) {
@@ -383,17 +375,27 @@ function requireDeviceToken_(deviceToken) {
 function handleListPositions() {
   const sheet = getSheetOrThrow("StaffAccess");
   const values = sheet.getDataRange().getValues();
-  if (values.length === 0) return { ok: true, positions: [] };
+  if (values.length === 0) return { ok: true, positions: [], passwordProtected: [] };
 
   const headers = values[0];
   const positionCol = headers.indexOf("Position");
+  const passwordCol = headers.indexOf("Password");
   if (positionCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
 
-  const positions = values.slice(1)
-    .map((row) => String(row[positionCol] || "").trim())
-    .filter(Boolean);
+  const positions = [];
+  const passwordProtected = [];
+  values.slice(1).forEach((row) => {
+    const name = String(row[positionCol] || "").trim();
+    if (!name) return;
+    positions.push(name);
+    // Data-driven, NOT a hardcoded name list — any position with a
+    // non-empty Password cell requires one, not just "CCT"/"Administrator"
+    // by name. Only exposes WHICH positions are protected, never the
+    // password value itself.
+    if (passwordCol !== -1 && String(row[passwordCol] || "").trim()) passwordProtected.push(name);
+  });
 
-  return { ok: true, positions };
+  return { ok: true, positions, passwordProtected };
 }
 
 function handleLogin(body) {
@@ -420,12 +422,14 @@ function handleLogin(body) {
     throw new Error("That position isn't recognized. Check the list and try again.");
   }
 
-  if (isPasswordProtectedPosition_(position)) {
-    const storedPassword = passwordCol !== -1 ? String(matchRow[passwordCol] || "") : "";
+  // Password-protected means THIS row's Password cell is actually
+  // filled in — not a hardcoded "cct"/"administrator" name check, so any
+  // position an admin assigns a password to in the sheet is enforced,
+  // not just those two specific names.
+  const storedPassword = passwordCol !== -1 ? String(matchRow[passwordCol] || "").trim() : "";
+  if (storedPassword) {
     const submittedPassword = String(body.password || "");
-    const passwordOk = !!storedPassword && submittedPassword === storedPassword;
-
-    if (!passwordOk) {
+    if (submittedPassword !== storedPassword) {
       logLoginAttempt_({ type: "session", identifier: position, success: false });
       throw new Error("Incorrect password for that position.");
     }

@@ -57,7 +57,7 @@
       overflow: hidden;
       position: relative;
       z-index: 1;
-      border-top: 3px solid var(--gold-500);
+      border: 3px solid var(--gold-500);
     }
 
     .login-card__left {
@@ -171,6 +171,53 @@
       color: var(--ink-600);
     }
 
+    /* ---- Flights / Squadrons collapsible groups ---- */
+    .position-group__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      width: 100%;
+      padding: var(--space-3) var(--space-4);
+      background: var(--indigo-900);
+      border: none;
+      border-radius: var(--radius-md);
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      letter-spacing: var(--tracking-wide);
+      text-transform: uppercase;
+      color: var(--surface);
+      cursor: pointer;
+    }
+
+    .position-group__count {
+      font-family: var(--font-body);
+      text-transform: none;
+      letter-spacing: normal;
+      font-size: var(--fs-2xs);
+      color: var(--steel-300);
+    }
+
+    .position-group__chevron {
+      transition: transform var(--duration-fast) var(--ease-standard);
+    }
+
+    .position-group.is-open .position-group__chevron {
+      transform: rotate(180deg);
+    }
+
+    .position-group__items {
+      display: none;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-top: var(--space-2);
+      padding-left: var(--space-3);
+    }
+
+    .position-group.is-open .position-group__items {
+      display: flex;
+    }
+
     /* ---- Password step (replaces the position list in place) ---- */
     .password-step { display: none; }
     .password-step.is-visible { display: flex; flex-direction: column; gap: var(--space-4); }
@@ -233,15 +280,27 @@
     const passwordInput = document.getElementById("password-input");
     const submitBtn = document.getElementById("login-submit");
 
-    // Positions that require a password in addition to picking them.
-    // Kept in sync with PASSWORD_PROTECTED_POSITIONS in
-    // apps-script/Code.gs / worker/src/auth.js — the backend is the real
-    // enforcement point; this only decides whether the password step
-    // shows client-side.
-    const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
+    // Which positions require a password — filled in from the backend
+    // (Auth.listPositions()) once loaded, data-driven from whether each
+    // position's own StaffAccess Password cell is non-empty, not a
+    // hardcoded name list. See isPasswordProtected() below.
+    let passwordProtectedSet = new Set();
 
     function isPasswordProtected(position) {
-      return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
+      return passwordProtectedSet.has(String(position || "").trim().toLowerCase());
+    }
+
+    // Flight names are fixed callsigns; anything matching "Squadron <n>"
+    // is a squadron; everything else (CCT, Administrator, or any other
+    // custom position) is shown ungrouped.
+    const FLIGHT_NAMES = new Set(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]);
+    const SQUADRON_PATTERN = /^squadron\s*\d+$/i;
+
+    function classifyPosition(position) {
+      const lower = String(position || "").trim().toLowerCase();
+      if (FLIGHT_NAMES.has(lower)) return "flight";
+      if (SQUADRON_PATTERN.test(lower)) return "squadron";
+      return "other";
     }
 
     // Must have already unlocked this device with the passphrase.
@@ -316,19 +375,54 @@
       });
     }
 
+    function chipHtml(p) {
+      return `
+        <button type="button" class="position-chip" data-position="${Shell.escapeHtml(p)}">
+          <span>${Shell.escapeHtml(p)}</span>
+          ${isPasswordProtected(p) ? `<span class="position-chip__lock">🔒 Password</span>` : ""}
+        </button>
+      `;
+    }
+
+    function groupHtml(key, label, items) {
+      return `
+        <div class="position-group" data-group="${key}">
+          <button type="button" class="position-group__header">
+            <span>${label} <span class="position-group__count">(${items.length})</span></span>
+            <span class="position-group__chevron">▾</span>
+          </button>
+          <div class="position-group__items">
+            ${items.map(chipHtml).join("")}
+          </div>
+        </div>
+      `;
+    }
+
     async function loadPositions() {
       try {
-        const positions = await Auth.listPositions();
+        const { positions, passwordProtected } = await Auth.listPositions();
+        passwordProtectedSet = new Set(passwordProtected.map(p => String(p).trim().toLowerCase()));
+
         if (!positions.length) {
           positionListEl.innerHTML = `<div class="state-message"><p>No positions configured.</p></div>`;
           return;
         }
-        positionListEl.innerHTML = positions.map(p => `
-          <button type="button" class="position-chip" data-position="${Shell.escapeHtml(p)}">
-            <span>${Shell.escapeHtml(p)}</span>
-            ${isPasswordProtected(p) ? `<span class="position-chip__lock">🔒 Password</span>` : ""}
-          </button>
-        `).join("");
+
+        const flights = positions.filter(p => classifyPosition(p) === "flight");
+        const squadrons = positions.filter(p => classifyPosition(p) === "squadron");
+        const others = positions.filter(p => classifyPosition(p) === "other");
+
+        positionListEl.innerHTML = [
+          flights.length ? groupHtml("flights", "Flights", flights) : "",
+          squadrons.length ? groupHtml("squadrons", "Squadrons", squadrons) : "",
+          others.map(chipHtml).join("")
+        ].join("");
+
+        positionListEl.querySelectorAll(".position-group__header").forEach(header => {
+          header.addEventListener("click", () => {
+            header.closest(".position-group").classList.toggle("is-open");
+          });
+        });
 
         positionListEl.querySelectorAll(".position-chip").forEach(btn => {
           btn.addEventListener("click", () => onPositionClick(btn.dataset.position, btn));

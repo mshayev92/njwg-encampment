@@ -144,12 +144,14 @@ const Auth = (() => {
 
   /**
    * Fetches the list of valid position names from the backend
-   * (StaffAccess sheet tab), for populating the login dropdown.
-   * Requires the device gate to already be unlocked.
+   * (StaffAccess sheet tab), plus which of them require a password —
+   * data-driven from whether that position's own Password cell is
+   * filled in, not a hardcoded name list. Requires the device gate to
+   * already be unlocked.
    */
   async function listPositions() {
     const data = await Api.listPositions();
-    return data.positions || [];
+    return { positions: data.positions || [], passwordProtected: data.passwordProtected || [] };
   }
 
   /**
