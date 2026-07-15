@@ -16,7 +16,9 @@ import {
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
-  assertPageWriteAccess
+  assertPageWriteAccess,
+  getClientIp, assertNotLockedOut, checkAuthAttemptRate, recordAuthResult,
+  MAX_REQUEST_BODY_BYTES, assertReasonableRowPayload, assertReasonableMatchColumns
 } from "./auth.js";
 
 import {
@@ -105,15 +107,21 @@ async function handleGet(request, env) {
 
 async function handlePost(request, env, ctx) {
   const bodyText = await request.text();
+  // Reject oversized bodies before paying for JSON.parse or any downstream
+  // Sheets API work — see MAX_REQUEST_BODY_BYTES in auth.js.
+  if (bodyText.length > MAX_REQUEST_BODY_BYTES) {
+    return respond({ ok: false, error: "Request body too large." });
+  }
   const body = JSON.parse(bodyText);
+  const ip = getClientIp(request);
 
   if (body.action === "deviceLogin") {
-    return respond(await handleDeviceLogin(env, body));
+    return respond(await handleDeviceLogin(env, body, ip));
   }
 
   if (body.action === "login") {
     await requireDeviceToken(env, body.deviceToken);
-    return respond(await handleLogin(env, body));
+    return respond(await handleLogin(env, body, ip));
   }
 
   if (body.action === "write") {
@@ -158,10 +166,15 @@ async function handlePost(request, env, ctx) {
 
 // ---- LOGIN / TOKENS ---------------------------------------------
 
-async function handleDeviceLogin(env, body) {
+async function handleDeviceLogin(env, body, ip) {
   const passphrase = String(body.passphrase || "");
   const deviceType = body.deviceType === "shared" ? "shared" : "personal";
 
+  // Per-IP guards come first (see auth.js): a locked-out or flooding IP
+  // never even reaches the passphrase comparison below. The existing
+  // global "deviceLogin" key stays as a secondary, shared soft cap.
+  await assertNotLockedOut(env, ip);
+  await checkAuthAttemptRate(env, ip);
   await checkRateLimit(env, "deviceLogin");
 
   const attemptHash = await hashString(passphrase);
@@ -169,6 +182,7 @@ async function handleDeviceLogin(env, body) {
   const success = attemptHash === correctHash;
 
   await logLoginAttempt(env, { type: "device", identifier: deviceType, success });
+  await recordAuthResult(env, ip, success);
 
   if (!success) throw new Error("Incorrect passphrase.");
 
@@ -206,10 +220,17 @@ async function handleListPositions(env) {
   return { ok: true, positions, passwordProtected };
 }
 
-async function handleLogin(env, body) {
+async function handleLogin(env, body, ip) {
   const position = String(body.position || "").trim();
   if (!position) throw new Error("Select a position.");
 
+  // Per-IP guards first — same reasoning as handleDeviceLogin. This is
+  // where CCT/Administrator password guessing would otherwise be limited
+  // only by the position-keyed "login:<position>" global counter, which
+  // one attacker could exhaust to lock out everyone else trying to sign
+  // in as that position during the same window.
+  await assertNotLockedOut(env, ip);
+  await checkAuthAttemptRate(env, ip);
   await checkRateLimit(env, "login:" + position);
 
   const values = await getStaffAccessValues(env);
@@ -226,6 +247,7 @@ async function handleLogin(env, body) {
 
   if (!matchRow) {
     await logLoginAttempt(env, { type: "session", identifier: position, success: false });
+    await recordAuthResult(env, ip, false);
     throw new Error("That position isn't recognized. Check the list and try again.");
   }
 
@@ -238,11 +260,13 @@ async function handleLogin(env, body) {
     const submittedPassword = String(body.password || "");
     if (submittedPassword !== storedPassword) {
       await logLoginAttempt(env, { type: "session", identifier: position, success: false });
+      await recordAuthResult(env, ip, false);
       throw new Error("Incorrect password for that position.");
     }
   }
 
   await logLoginAttempt(env, { type: "session", identifier: position, success: true });
+  await recordAuthResult(env, ip, true);
 
   const rawPages = pagesCol !== -1 ? String(matchRow[pagesCol] || "") : "";
   const pages = rawPages.split(",").map((p) => p.trim().toLowerCase()).filter(Boolean);
@@ -599,10 +623,13 @@ async function handleWrite(env, body, session, ctx) {
   assertPermission(sheetName, "write");
   assertPageWriteAccess(sheetName, session);
 
+  const rowData = body.row || {};
+  assertReasonableRowPayload(rowData);
+  assertReasonableMatchColumns(body.matchColumns);
+
   await ensureAutoCreatedTab(env, sheetName);
 
   const headers = await getHeaderRow(env, sheetName);
-  const rowData = body.row || {};
 
   for (const key of Object.keys(rowData)) {
     if (!headers.includes(key)) {
@@ -642,6 +669,9 @@ async function handleDelete(env, body, session) {
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
   assertPageWriteAccess(sheetName, session);
+
+  assertReasonableRowPayload(body.matchValues || body.row);
+  assertReasonableMatchColumns(body.matchColumns);
 
   const headers = await getHeaderRow(env, sheetName);
   if (headers.length === 0) throw new Error(`Sheet "${sheetName}" has no data.`);
