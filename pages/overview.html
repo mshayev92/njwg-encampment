@@ -253,7 +253,7 @@
       const { current, next } = Shell.currentAndNextScheduleItems(scheduleRows, allowedFlights);
       return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900); margin-bottom: var(--space-2);">Your Activity Today</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Your Activity Today</h2>
           ${renderActivityRow("Now", current)}
           ${renderActivityRow("Next", next)}
         </div>
@@ -277,7 +277,7 @@
 
       return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900); margin-bottom: var(--space-4);">Your Flights</h2>
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Your Flights</h2>
           <div class="flight-stat-grid">
             ${flightNames.map(flight => `
               <div class="flight-stat">

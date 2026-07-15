@@ -110,5 +110,5 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"]
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"]
 };

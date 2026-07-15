@@ -13,7 +13,7 @@
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
 export const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14;
@@ -24,16 +24,18 @@ export const SHEET_PERMISSIONS = {
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
+  InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
   Notes:              { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
-  Roster:          { viewPage: "roster",        editPage: "edit-roster" },
-  Schedule:        { viewPage: "schedule",       editPage: "edit-schedule" },
-  Announcements:   { viewPage: "announcements",  editPage: "edit-announcements" },
-  BlackFlagStatus: { viewPage: "announcements",  editPage: "edit-announcements" }
+  Roster:            { viewPage: "roster",        editPage: "edit-roster" },
+  Schedule:          { viewPage: "schedule",       editPage: "edit-schedule" },
+  InspectionPeriods: { viewPage: "inspections",    editPage: "edit-inspections" },
+  Announcements:     { viewPage: "announcements",  editPage: "edit-announcements" },
+  BlackFlagStatus:   { viewPage: "announcements",  editPage: "edit-announcements" }
 };
 
 export const RATE_LIMIT_PER_MINUTE = 60;
@@ -54,6 +56,12 @@ export const ROOM_INSPECTION_COLUMNS = [
   "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
 ];
+// A scheduled inspection period: a Date plus what's being inspected that
+// day. Category is "uniform" or "room"; UniformType ("OCP/ABU" or "Blues")
+// is only meaningful when Category is "uniform" — blank for a room
+// period. Surfaced on pages/inspections.html so a person starting a new
+// inspection sees what's scheduled for today rather than guessing.
+export const INSPECTION_PERIOD_COLUMNS = ["Id", "Date", "Category", "UniformType", "CreatedBy", "CreatedAt"];
 export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // Subject is free text — either a name typed/picked from the Roster (a
 // person can reference a cadet just by name, since CapId lookups are a

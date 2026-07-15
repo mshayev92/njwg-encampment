@@ -254,14 +254,31 @@ html.nav-rail-collapsed .nav-rail__crest {
   50% { opacity: 1; transform: scale(1); }
 }
 
-/* ---- Nav rail (desktop) ---- */
+/* ---- Nav rail (desktop) ----
+   Pinned to the viewport (not the grid row's computed height, which
+   grows with however tall the current page's main content is) so the
+   rail never scrolls away with the page. Only .nav-rail__links (the
+   link list) scrolls internally if it doesn't fit; the crest and the
+   footer card stay put. */
 .nav-rail {
   grid-area: nav;
+  position: sticky;
+  top: 0;
+  height: 100vh;
   background: var(--indigo-950);
   color: var(--steel-300);
   display: flex;
   flex-direction: column;
   padding: var(--space-5) var(--space-3);
+  gap: var(--space-1);
+  overflow: hidden;
+}
+
+.nav-rail__links {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-1);
   overflow-y: auto;
 }
@@ -327,9 +344,11 @@ html.nav-rail-collapsed .nav-rail__crest {
   justify-content: center;
 }
 
-/* ---- Nav rail footer card (signed-in-as / log out) ---- */
+/* ---- Nav rail footer card (signed-in-as / log out) ----
+   A direct sibling of .nav-rail__links (not inside it), so it never
+   scrolls with the link list — see .nav-rail/.nav-rail__links above. */
 .nav-rail__footer {
-  margin-top: auto;
+  flex-shrink: 0;
   padding: var(--space-4) var(--space-3);
   background: var(--indigo-900);
   border-radius: var(--radius-md);
@@ -433,6 +452,20 @@ html.nav-rail-collapsed .nav-rail__crest {
 .page-header h1 {
   font-size: var(--fs-2xl);
   color: var(--indigo-900);
+}
+
+/* ---- Section label ----
+   The small uppercase heading used above a block of content within a
+   page (a card section, a table, a pending-rows list, etc.) — several
+   pages used to hand-roll this same look via inline styles with subtly
+   different font sizes/margins each time. One shared class keeps every
+   page's sub-headings the same size and spacing. */
+.section-label {
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--ink-600);
+  margin-bottom: var(--space-4);
 }
 
 /* ---- Card ----
@@ -890,10 +923,14 @@ html.nav-rail-collapsed .nav-rail__crest {
   transform: rotate(180deg);
 }
 
+/* position: fixed and appended to <body> at open time (see
+   Shell.enhanceSelect) rather than absolutely positioned inside
+   .dropdown — an ancestor with overflow:hidden (e.g. .card, used on
+   every form) would otherwise clip the menu instead of letting it float
+   above the page. JS sets top/left/width inline from the trigger's own
+   getBoundingClientRect() at open time. */
 .dropdown__menu {
-  position: absolute;
-  top: 100%; left: 0; right: 0;
-  margin-top: var(--space-1);
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -951,10 +988,15 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--ink-400);
 }
 
+/* position: fixed and appended to <body> at open time (see
+   Shell.enhanceDateInput / enhanceTimeInput) rather than absolutely
+   positioned inside .date-field/.time-field — an ancestor with
+   overflow:hidden (e.g. .card, used on every form) would otherwise clip
+   the panel instead of letting it float above the page. JS sets
+   top/left inline from the trigger's own getBoundingClientRect() at
+   open time. */
 .date-field__panel, .time-field__panel {
-  position: absolute;
-  top: 100%; left: 0;
-  margin-top: var(--space-1);
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1302,10 +1344,17 @@ button.date-field__day:hover {
     padding: 0;
     border-top: 1px solid var(--indigo-700);
     position: sticky;
+    top: auto;
     bottom: 0;
+    height: auto;
     z-index: var(--z-nav);
     /* Keep the tab bar clear of the iOS/Android home indicator. */
     padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .nav-rail__links {
+    flex-direction: row;
+    overflow: visible;
   }
 
   .nav-rail__crest,

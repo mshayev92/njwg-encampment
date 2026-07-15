@@ -447,6 +447,8 @@
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
+      <div id="periods-section"></div>
+
       <div class="inspection-tabs tabs">
         <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
         <button class="tabs__tab" data-tab="room">Room</button>
@@ -543,6 +545,16 @@
     const session = Auth.getSession();
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
 
+    // Scheduling inspection PERIODS (this encampment does uniform X on
+    // this day, room Y on that day) is a separate write-gate from
+    // scoring an actual inspection — same "edit-<page>" convention as
+    // Roster/Schedule (see PAGE_WRITE_GATES in worker/src/auth.js).
+    const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
+    const canEditInspections = sessionPages.includes("edit-inspections");
+    let inspectionPeriods = [];
+    let editingPeriodId = null; // Id of the period being edited, or null; periods form is closed unless this or showPeriodForm is set
+    let showPeriodForm = false;
+
     /** Empty/absent Flights on the session means "all flights" per Code.gs. */
     function isFlightAllowed(flight) {
       if (!allowedFlights.length) return true;
@@ -560,10 +572,197 @@
         }, {});
     }
 
+    // ---- Inspection periods (scheduling what's inspected on what date) ----
+    //
+    // A period is one Sheet row: { Id, Date, Category, UniformType }.
+    // Category is "uniform" or "room" — matches an INSPECTION_TYPES key
+    // directly. UniformType ("OCP/ABU" or "Blues") only applies when
+    // Category is "uniform". Writing requires "edit-inspections" (see
+    // PAGE_WRITE_GATES in worker/src/auth.js); everyone signed in can
+    // read the schedule so they know what's coming up.
+
+    function periodLabel(p) {
+      return p.Category === "room" ? "Room Inspection" : `Uniform — ${p.UniformType || "—"}`;
+    }
+
+    /** The period (if any) scheduled for `dateStr` in the currently active tab's category. */
+    function periodForActiveType(dateStr) {
+      return inspectionPeriods.find(p => p.Date === dateStr && p.Category === activeType) || null;
+    }
+
+    function renderPeriodsSection() {
+      const container = document.getElementById("periods-section");
+      if (!container) return;
+
+      const todayStr = Shell.todayIso();
+      const upcoming = inspectionPeriods
+        .filter(p => p.Date >= todayStr)
+        .sort((a, b) => (a.Date < b.Date ? -1 : 1));
+
+      container.innerHTML = `
+        <div class="card" style="margin-bottom: var(--space-5);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3); flex-wrap:wrap;">
+            <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin: 0;">Inspection Periods</h3>
+            ${canEditInspections ? `<button class="btn btn--ghost" id="add-period-btn">${showPeriodForm ? "Cancel" : "+ Schedule Period"}</button>` : ""}
+          </div>
+          <div id="periods-form-slot"></div>
+          <div style="margin-top: var(--space-4);">
+            ${upcoming.length ? `
+              <div class="history-list" style="margin-bottom: 0;">
+                ${upcoming.map(p => `
+                  <div class="history-row">
+                    <div>
+                      <div class="history-row__date">${esc(p.Date)}${p.Date === todayStr ? " · Today" : ""}</div>
+                      <div class="history-row__meta">${esc(periodLabel(p))}</div>
+                    </div>
+                    ${canEditInspections ? `
+                      <span style="display:flex; gap: var(--space-1);">
+                        <button class="btn btn--ghost" data-edit-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Edit period">✎</button>
+                        <button class="btn btn--ghost" data-delete-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Delete period">✕</button>
+                      </span>
+                    ` : ""}
+                  </div>
+                `).join("")}
+              </div>
+            ` : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0;">No upcoming inspection periods scheduled.</p>`}
+          </div>
+        </div>
+      `;
+
+      if (showPeriodForm || editingPeriodId !== null) {
+        renderPeriodForm(editingPeriodId ? inspectionPeriods.find(p => String(p.Id) === String(editingPeriodId)) : null);
+      }
+
+      const addBtn = document.getElementById("add-period-btn");
+      if (addBtn) {
+        addBtn.addEventListener("click", () => {
+          if (editingPeriodId !== null) {
+            // Switch from editing an existing period to a fresh "new period" form.
+            editingPeriodId = null;
+            showPeriodForm = true;
+          } else {
+            showPeriodForm = !showPeriodForm;
+          }
+          renderPeriodsSection();
+        });
+      }
+
+      container.querySelectorAll("[data-edit-period]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          editingPeriodId = btn.dataset.editPeriod;
+          showPeriodForm = false;
+          renderPeriodsSection();
+        });
+      });
+      container.querySelectorAll("[data-delete-period]").forEach(btn => {
+        btn.addEventListener("click", () => deletePeriod(btn.dataset.deletePeriod));
+      });
+    }
+
+    function renderPeriodForm(existing) {
+      const slot = document.getElementById("periods-form-slot");
+      if (!slot || !canEditInspections) return;
+
+      const editing = !!existing;
+      let selection = existing
+        ? (existing.Category === "room" ? "room" : (existing.UniformType === "Blues" ? "uniform-blues" : "uniform-ocp"))
+        : "uniform-ocp";
+
+      slot.innerHTML = `
+        <div style="display:flex; flex-wrap:wrap; gap: var(--space-4); align-items:flex-end; margin: var(--space-4) 0; padding-top: var(--space-4); border-top: 1px solid var(--line);">
+          <div class="field" style="margin-bottom:0; min-width: 160px;"><label for="period-date">Date</label><input type="date" id="period-date" value="${esc(existing?.Date || "")}"></div>
+          <div class="field" style="margin-bottom:0;">
+            <label>Type</label>
+            <div class="trends-type-toggle" id="period-type-toggle">
+              <button type="button" data-type="uniform-ocp">OCP/ABU</button>
+              <button type="button" data-type="uniform-blues">Blues</button>
+              <button type="button" data-type="room">Room</button>
+            </div>
+          </div>
+          <div style="display:flex; gap: var(--space-3);">
+            <button class="btn btn--primary" id="save-period-btn">${editing ? "Save Changes" : "Add Period"}</button>
+            <button class="btn btn--ghost" id="cancel-period-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+
+      const dateInput = document.getElementById("period-date");
+      Shell.enhanceDateInput(dateInput);
+
+      const toggle = document.getElementById("period-type-toggle");
+      function syncToggleUI() {
+        toggle.querySelectorAll("button").forEach(btn => {
+          btn.classList.toggle("is-selected", btn.dataset.type === selection);
+        });
+      }
+      syncToggleUI();
+      toggle.querySelectorAll("button").forEach(btn => {
+        btn.addEventListener("click", () => { selection = btn.dataset.type; syncToggleUI(); });
+      });
+
+      document.getElementById("cancel-period-btn").addEventListener("click", () => {
+        showPeriodForm = false;
+        editingPeriodId = null;
+        renderPeriodsSection();
+      });
+
+      document.getElementById("save-period-btn").addEventListener("click", () => savePeriod(existing, dateInput, () => selection));
+    }
+
+    function savePeriod(existing, dateInput, getSelection) {
+      const dateStr = dateInput.value;
+      if (!dateStr) {
+        Shell.showToast("Pick a date before saving.", { type: "error" });
+        return;
+      }
+      const selection = getSelection();
+      const category = selection === "room" ? "room" : "uniform";
+      const uniformType = selection === "uniform-blues" ? "Blues" : (selection === "uniform-ocp" ? "OCP/ABU" : "");
+
+      const row = existing
+        ? { ...existing, Date: dateStr, Category: category, UniformType: uniformType }
+        : {
+            Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            Date: dateStr,
+            Category: category,
+            UniformType: uniformType,
+            CreatedBy: session.Position,
+            CreatedAt: new Date().toISOString()
+          };
+
+      Api.writeRow("InspectionPeriods", row, { matchColumns: ["Id"] });
+
+      const idx = inspectionPeriods.findIndex(p => String(p.Id) === String(row.Id));
+      if (idx >= 0) inspectionPeriods[idx] = row; else inspectionPeriods.push(row);
+
+      showPeriodForm = false;
+      editingPeriodId = null;
+      Shell.showToast(existing ? "Period updated." : "Period scheduled.", { type: "success" });
+      renderPeriodsSection();
+      if (currentView === "flights" || currentView === "history") renderActiveView();
+    }
+
+    async function deletePeriod(id) {
+      const confirmed = await Shell.confirm({
+        title: "Delete inspection period?",
+        message: "This can't be undone.",
+        confirmLabel: "Delete"
+      });
+      if (!confirmed) return;
+
+      Api.deleteRow("InspectionPeriods", { Id: id }, { matchColumns: ["Id"] });
+      inspectionPeriods = inspectionPeriods.filter(p => String(p.Id) !== String(id));
+      if (String(editingPeriodId) === String(id)) editingPeriodId = null;
+      Shell.showToast("Period deleted.", { type: "success" });
+      renderPeriodsSection();
+      if (currentView === "flights" || currentView === "history") renderActiveView();
+    }
+
     function renderFlightGrid() {
       currentView = "flights";
       const grouped = groupByFlight(rosterRows);
       const flightNames = Object.keys(grouped).sort();
+      const todaysPeriod = periodForActiveType(new Date().toLocaleDateString("en-CA"));
 
       if (!flightNames.length) {
         contentEl.innerHTML = `
@@ -575,6 +774,7 @@
       }
 
       contentEl.innerHTML = `
+        ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
         <div class="flight-grid">
           ${flightNames.map(flight => `
             <button class="flight-tile" data-flight="${esc(flight)}">
@@ -650,6 +850,7 @@
       const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
       const todayStr = new Date().toLocaleDateString("en-CA");
       const hasToday = history.some(h => h.Date === todayStr);
+      const todaysPeriod = periodForActiveType(todayStr);
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -662,6 +863,8 @@
           <div class="scorecard-meta__item"><span>Flight</span>${esc(selectedFlight)}</div>
           <div class="scorecard-meta__item"><span>Total Inspections</span>${history.length}</div>
         </div>
+
+        ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
 
         <button class="btn btn--primary" id="new-inspection-btn" style="margin-bottom: var(--space-5);">
           ${hasToday ? "Update Today's Inspection" : "New Inspection"}
@@ -919,7 +1122,7 @@
           </select>
         </div>
 
-        <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+        <h3 class="section-label">
           ${trendsType === "room" ? "Room Inspection Trends" : "Uniform Inspection Trends"}
         </h3>
 
@@ -942,7 +1145,7 @@
           </div>
 
           <div class="card">
-            <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+            <h3 class="section-label">
               Pass rate by item, across all flights
             </h3>
             <div class="trend-item-breakdown">
@@ -1053,10 +1256,17 @@
         reindexInspections("room", fresh.rows || []);
         renderActiveView();
       });
+      const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
+        inspectionPeriods = fresh.rows || [];
+        renderPeriodsSection();
+        renderActiveView();
+      });
 
       rosterCached = rosterHandle.data;
       uniformCached = uniformHandle.data;
       roomCached = roomHandle.data;
+      if (periodsHandle.data) inspectionPeriods = periodsHandle.data.rows || [];
+      renderPeriodsSection();
 
       if (rosterCached && uniformCached && roomCached) {
         rosterRows = rosterCached.rows || [];
@@ -1067,11 +1277,13 @@
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
-      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready])
-        .then(([rosterData, uniformData, roomData]) => {
+      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, periodsHandle.ready])
+        .then(([rosterData, uniformData, roomData, periodsData]) => {
           rosterRows = rosterData.rows || [];
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
+          inspectionPeriods = periodsData.rows || [];
+          renderPeriodsSection();
           if (!rosterCached || !uniformCached || !roomCached) {
             selectedFlight = null;
             selectedStudent = null;

@@ -125,7 +125,7 @@
 // StaffAccess is deliberately NOT in this list — see security tradeoff
 // note above. Only handleLogin/handleListPositions may touch it.
 const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
 // Device token lifetime after a correct passphrase entry.
@@ -144,6 +144,7 @@ const SHEET_PERMISSIONS = {
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
+  InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
   Notes:              { read: "any", write: "any" }
@@ -160,10 +161,11 @@ const SHEET_PERMISSIONS = {
 //        edit Schedule; Pages = "schedule" (no edit id) can view but
 //        NOT edit it.
 const PAGE_WRITE_GATES = {
-  Roster:          { viewPage: "roster",        editPage: "edit-roster" },
-  Schedule:        { viewPage: "schedule",       editPage: "edit-schedule" },
-  Announcements:   { viewPage: "announcements",  editPage: "edit-announcements" },
-  BlackFlagStatus: { viewPage: "announcements",  editPage: "edit-announcements" }
+  Roster:            { viewPage: "roster",        editPage: "edit-roster" },
+  Schedule:          { viewPage: "schedule",       editPage: "edit-schedule" },
+  InspectionPeriods: { viewPage: "inspections",    editPage: "edit-inspections" },
+  Announcements:     { viewPage: "announcements",  editPage: "edit-announcements" },
+  BlackFlagStatus:   { viewPage: "announcements",  editPage: "edit-announcements" }
 };
 
 // Max requests per token (or per login key) per rolling 60-second window.
@@ -206,6 +208,12 @@ const ROOM_INSPECTION_COLUMNS = [
   "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
 ];
+
+// A scheduled inspection period: a Date plus what's being inspected that
+// day. Category is "uniform" or "room"; UniformType ("OCP/ABU" or
+// "Blues") is only meaningful when Category is "uniform" — blank for a
+// room period.
+const INSPECTION_PERIOD_COLUMNS = ["Id", "Date", "Category", "UniformType", "CreatedBy", "CreatedAt"];
 
 const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 
@@ -551,6 +559,7 @@ function handleRead(params, session) {
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
+  if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
@@ -627,6 +636,7 @@ function handleWrite(body, session) {
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
+  if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
