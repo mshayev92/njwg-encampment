@@ -253,6 +253,143 @@ export async function checkRateLimit(env, key) {
   }
 }
 
+// ---- Per-IP auth abuse prevention (deviceLogin / login) -------------------
+//
+// checkRateLimit() above is keyed by TOKEN, which is exactly right for
+// authenticated read/write/delete — but the two secret-guessing endpoints,
+// deviceLogin (the shared passphrase) and login (a position's password,
+// e.g. CCT/Administrator), happen BEFORE any token exists. Those were
+// previously throttled only by a single GLOBAL key ("deviceLogin", or
+// "login:<position>") shared across every caller — which caps total
+// guesses per minute, but doesn't stop one attacker from consuming that
+// whole shared budget (locking out legitimate staff trying to sign in
+// during the same window) and doesn't get any harder for a persistent
+// attacker over time.
+//
+// This adds a PER-IP layer on top: a tight per-IP attempt-rate cap, plus
+// an escalating lockout once an IP racks up repeated FAILURES specifically
+// (not just requests) — 5 wrong guesses locks that IP out for 5 minutes,
+// doubling on each subsequent lockout up to a 2-hour ceiling. A genuine
+// staff member fat-fingering a passphrase twice is unaffected; a script
+// grinding through a wordlist gets slower, not faster, and can no longer
+// burn through everyone else's shared quota to do it.
+//
+// IP-keyed KV writes are inherently bounded by how often someone actually
+// attempts to log in — rare in steady state, and only spike under an
+// actual attack, which is exactly when paying for the write is worth it.
+
+export function getClientIp(request) {
+  // CF-Connecting-IP is set by Cloudflare's edge on every request reaching
+  // a Worker and can't be spoofed by the client (Cloudflare overwrites
+  // whatever the client sends) — the correct IP source in this runtime,
+  // unlike X-Forwarded-For which a client could forge.
+  return request.headers.get("CF-Connecting-IP") || "unknown";
+}
+
+const AUTH_ATTEMPT_LIMIT_PER_MINUTE = 10;
+const AUTH_FAILURE_LOCKOUT_THRESHOLD = 5;
+const AUTH_FAILURE_WINDOW_SECONDS = 10 * 60;
+const AUTH_LOCKOUT_BASE_SECONDS = 5 * 60;
+const AUTH_LOCKOUT_MAX_SECONDS = 2 * 60 * 60;
+const AUTH_LOCKOUT_HISTORY_SECONDS = 24 * 60 * 60;
+
+/** Throws if this IP is currently serving out an escalating lockout. */
+export async function assertNotLockedOut(env, ip) {
+  const lockKey = "authlock:" + (await hashString(ip));
+  const locked = await env.NJWG_KV.get(lockKey);
+  if (locked) {
+    throw new Error("Too many failed attempts. Please wait before trying again.");
+  }
+}
+
+/**
+ * Tight per-IP cap on how often an auth endpoint can even be CALLED,
+ * independent of whether the attempt succeeds — bounds raw request
+ * volume (and thus Sheets API / Worker cost) from a single source before
+ * the failure-based lockout below ever has to kick in.
+ */
+export async function checkAuthAttemptRate(env, ip) {
+  const key = "authrate:" + (await hashString(ip));
+  const current = Number((await env.NJWG_KV.get(key)) || 0);
+  if (current >= AUTH_ATTEMPT_LIMIT_PER_MINUTE) {
+    throw new Error("Too many attempts. Please wait a moment and try again.");
+  }
+  await env.NJWG_KV.put(key, String(current + 1), { expirationTtl: 60 });
+}
+
+/**
+ * Records whether this IP's auth attempt succeeded or failed. A success
+ * clears its failure count. A failure increments it; hitting the
+ * threshold locks the IP out for an escalating duration (doubling per
+ * repeat lockout, capped at 2 hours) and resets the failure counter —
+ * the lockout itself is what continues to apply while it's active.
+ */
+export async function recordAuthResult(env, ip, success) {
+  const hashedIp = await hashString(ip);
+  const failKey = "authfail:" + hashedIp;
+
+  if (success) {
+    await env.NJWG_KV.delete(failKey);
+    return;
+  }
+
+  const failures = Number((await env.NJWG_KV.get(failKey)) || 0) + 1;
+  if (failures >= AUTH_FAILURE_LOCKOUT_THRESHOLD) {
+    const lockCountKey = "authlockcount:" + hashedIp;
+    const priorLockouts = Number((await env.NJWG_KV.get(lockCountKey)) || 0);
+    const lockSeconds = Math.min(
+      AUTH_LOCKOUT_BASE_SECONDS * Math.pow(2, priorLockouts),
+      AUTH_LOCKOUT_MAX_SECONDS
+    );
+    await env.NJWG_KV.put("authlock:" + hashedIp, "1", { expirationTtl: lockSeconds });
+    await env.NJWG_KV.put(lockCountKey, String(priorLockouts + 1), { expirationTtl: AUTH_LOCKOUT_HISTORY_SECONDS });
+    await env.NJWG_KV.delete(failKey);
+  } else {
+    await env.NJWG_KV.put(failKey, String(failures), { expirationTtl: AUTH_FAILURE_WINDOW_SECONDS });
+  }
+}
+
+// ---- Payload size limits (write / delete) ---------------------------------
+//
+// Nothing previously bounded how large a single write's row data (or how
+// many match columns a write/delete specified) could be. A legitimate
+// note or announcement body is at most a few KB of rich text; nothing in
+// this app needs more. Capping it bounds both the Sheets API cost of an
+// individual write and how much damage one runaway/malicious client can
+// do in a single request — independent of the per-token rate limit, which
+// only bounds how OFTEN a token can write, not how big each write is.
+
+export const MAX_REQUEST_BODY_BYTES = 64 * 1024; // 64KB — generous for any real form on this app
+const MAX_ROW_FIELDS = 60;
+const MAX_FIELD_KEY_LENGTH = 100;
+const MAX_FIELD_VALUE_LENGTH = 20000; // generous for a rich-text Notes/Announcements body
+const MAX_MATCH_COLUMNS = 10;
+
+/** Bounds the shape/size of a write's row data (or a delete's matchValues). */
+export function assertReasonableRowPayload(rowData) {
+  if (!rowData || typeof rowData !== "object") return;
+  const keys = Object.keys(rowData);
+  if (keys.length > MAX_ROW_FIELDS) {
+    throw new Error(`Too many fields in row data (max ${MAX_ROW_FIELDS}).`);
+  }
+  for (const key of keys) {
+    if (key.length > MAX_FIELD_KEY_LENGTH) {
+      throw new Error("A field name is too long.");
+    }
+    const value = rowData[key];
+    if (value !== null && value !== undefined && String(value).length > MAX_FIELD_VALUE_LENGTH) {
+      throw new Error(`Field "${key}" is too long (max ${MAX_FIELD_VALUE_LENGTH} characters).`);
+    }
+  }
+}
+
+/** Bounds how many match columns a write/delete can specify. */
+export function assertReasonableMatchColumns(matchColumns) {
+  if (Array.isArray(matchColumns) && matchColumns.length > MAX_MATCH_COLUMNS) {
+    throw new Error(`Too many match columns (max ${MAX_MATCH_COLUMNS}).`);
+  }
+}
+
 export function assertAllowedSheet(sheetName) {
   if (!sheetName) throw new Error("Missing required 'sheet' parameter.");
   if (!ALLOWED_SHEETS.includes(sheetName)) {
