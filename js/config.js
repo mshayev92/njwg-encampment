@@ -36,18 +36,28 @@ window.APP_BASE_PATH = (() => {
 })();
 
 window.APP_CONFIG = {
-  // Paste your Apps Script Web App URL here after deploying
-  // (Deploy > New deployment > Web app > "Anyone" access).
-  // It looks like: https://script.google.com/macros/s/AKfycb.../exec
+  // Backend base URL — despite the name, this now points at the
+  // Cloudflare Worker in worker/ (deployed from worker/src/index.js),
+  // NOT apps-script/Code.gs. The Worker implements the identical
+  // action=read/write/delete/login/deviceLogin/listPositions contract
+  // against the same Google Sheet (via the Sheets API + a service
+  // account instead of running inside Apps Script), so js/api.js and
+  // every page needed zero changes for this switch. Key name kept as
+  // APPS_SCRIPT_URL rather than renamed, since every page/script
+  // references window.APP_CONFIG.APPS_SCRIPT_URL.
+  //
+  // ROLLBACK: apps-script/Code.gs is still deployed and untouched — to
+  // revert, just paste its /exec URL back here (see git history for the
+  // previous value) and redeploy the site. No other changes needed.
   //
   // SECURITY NOTE: this URL is NOT a secret. Because the site is hosted
   // publicly, anyone can view source and read this value, and call it
-  // directly. That's expected and accounted for — see apps-script/Code.gs,
-  // which requires a signed session token (issued at login) on every
-  // read/write. Permissions live in the StaffAccess tab's Pages column
-  // (per-position view/edit grants), not on the Roster — see
-  // SHEET_PERMISSIONS and PAGE_WRITE_GATES in Code.gs.
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbx3pa1fs27-HaXnESijYwvO0Vk04DGDmYZWANCuqUp49LGGbM50h5s0hScKHfcZwZTx/exec",
+  // directly. That's expected and accounted for — the backend requires
+  // a signed session token (issued at login) on every read/write.
+  // Permissions live in the StaffAccess tab's Pages column (per-position
+  // view/edit grants), not on the Roster — see SHEET_PERMISSIONS and
+  // PAGE_WRITE_GATES in worker/src/auth.js (ported from Code.gs).
+  APPS_SCRIPT_URL: "https://njwg-encampment-api.njwg-encampment-1.workers.dev",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.
