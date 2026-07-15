@@ -29,11 +29,25 @@
   <link rel="stylesheet" href="../css/app.css">
 
   <style>
+    /* One consistent gap between every top-level section (weather,
+       activity, flights) via flex `gap` — previously the weather grid
+       used its own margin-bottom (--space-5) while the cards below it
+       relied on .card + .card's margin-top (--space-4), so the gap
+       under the weather card didn't match the gap between the cards
+       following it. */
+    .overview-stack {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+    }
+    .overview-stack .card + .card {
+      margin-top: 0;
+    }
+
     .overview-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
       gap: var(--space-4);
-      margin-bottom: var(--space-5);
     }
 
     .weather-card {
@@ -290,11 +304,13 @@
         return;
       }
       contentEl.innerHTML = `
-        <div class="overview-grid">
-          ${renderWeatherCard(lastWeather)}
+        <div class="overview-stack">
+          <div class="overview-grid">
+            ${renderWeatherCard(lastWeather)}
+          </div>
+          ${renderActivityCard(lastScheduleRows)}
+          ${renderFlightStats(lastRosterRows)}
         </div>
-        ${renderActivityCard(lastScheduleRows)}
-        ${renderFlightStats(lastRosterRows)}
       `;
     }
 

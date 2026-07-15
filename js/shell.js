@@ -87,6 +87,29 @@ const Shell = (() => {
       .replace(/'/g, "&#39;");
   }
 
+  /**
+   * Formats a timestamp for display in 24-hour time everywhere in the
+   * app, regardless of the device's locale/OS setting — several
+   * browsers/OSes default to 12-hour AM/PM, which reads ambiguously for
+   * a military encampment schedule. Exposed as Shell.formatDateTime /
+   * Shell.formatTime; use these instead of raw toLocaleString() /
+   * toLocaleTimeString() for anything shown to a person.
+   */
+  function formatDateTime_(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleString(undefined, {
+      year: "numeric", month: "numeric", day: "numeric",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    });
+  }
+
+  function formatTime_(value) {
+    const d = value instanceof Date ? value : new Date(value);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
   // Set once by init() — lets the black flag banner/pill logic (and
   // anything else that cares) know which page is currently showing
   // without threading the value through every function signature.
@@ -525,7 +548,7 @@ const Shell = (() => {
       sheet: "Announcements", page: "announcements", label: "Announcement", href: "pages/announcements.html",
       fields: ["Position", "__bodyText"],
       title: (r) => r.Position || "Announcement",
-      meta: (r) => r.Timestamp ? new Date(r.Timestamp).toLocaleString() : "",
+      meta: (r) => r.Timestamp ? formatDateTime_(r.Timestamp) : "",
       snippet: (r) => r.__bodyText
     },
     {
@@ -779,6 +802,13 @@ const Shell = (() => {
     return hours * 60 + minutes;
   }
 
+  /** Today's date as YYYY-MM-DD, in the device's local timezone. */
+  function todayIso_() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  }
+
   /**
    * Loosely matches a Schedule row's Day value against "today" — every
    * encampment seems to label days differently, so this tries the
@@ -798,10 +828,22 @@ const Shell = (() => {
   }
 
   /**
+   * Whether a Schedule row belongs to "today". Prefers an exact match
+   * against the row's Date (YYYY-MM-DD, picked from a date input) when
+   * present — the precise, unambiguous signal — and falls back to the
+   * looser Day-text heuristic above for older rows saved before Date
+   * existed.
+   */
+  function isScheduleRowToday_(row) {
+    if (row && row.Date) return row.Date === todayIso_();
+    return isScheduleDayToday_(row && row.Day);
+  }
+
+  /**
    * Returns { current, next } — the Schedule row (by reference, from
    * `rows`) currently in progress and the one coming up next, scoped to
    * `flights` (same blank-Flight/"All"-means-everyone convention as
-   * Roster/Notes/Inspections) and to rows whose Day matches today.
+   * Roster/Notes/Inspections) and to rows whose Day/Date matches today.
    * Both null if nothing today has a parseable Time.
    */
   function currentAndNextScheduleItems(rows, flights) {
@@ -813,7 +855,7 @@ const Shell = (() => {
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
 
     const todays = (rows || [])
-      .filter((r) => isScheduleDayToday_(r.Day) && isAllowed(r))
+      .filter((r) => isScheduleRowToday_(r) && isAllowed(r))
       .map((r) => ({ row: r, minutes: parseScheduleTime_(r.Time) }))
       .filter((x) => x.minutes !== null)
       .sort((a, b) => a.minutes - b.minutes);
@@ -907,7 +949,7 @@ const Shell = (() => {
     const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
     return sorted.length ? sorted.map(a => `
       <div class="announcements-popover__item">
-        <div class="announcements-popover__meta">${escapeHtml_(a.Position || "—")} · ${escapeHtml_(new Date(a.Timestamp).toLocaleString())}</div>
+        <div class="announcements-popover__meta">${escapeHtml_(a.Position || "—")} · ${escapeHtml_(formatDateTime_(a.Timestamp))}</div>
         <div class="announcements-popover__message">${escapeHtml_(messagePreviewText_(a.Message || ""))}</div>
       </div>
     `).join("") : `<div class="announcements-popover__empty">No announcements yet.</div>`;
@@ -1512,6 +1554,8 @@ const Shell = (() => {
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, openContextMenu,
     registerExport, exportCsv, openSearch: openSearch_,
-    currentAndNextScheduleItems
+    currentAndNextScheduleItems,
+    isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
+    formatDateTime: formatDateTime_, formatTime: formatTime_
   };
 })();

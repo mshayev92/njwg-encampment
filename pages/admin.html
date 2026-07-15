@@ -402,7 +402,7 @@
             <tbody>
               ${shown.map(e => {
                 const ok = isSuccess(e);
-                const when = e.Timestamp ? new Date(e.Timestamp).toLocaleString() : "—";
+                const when = e.Timestamp ? Shell.formatDateTime(e.Timestamp) : "—";
                 return `
                   <tr>
                     <td data-label="Time" class="mono">${esc(when)}</td>
