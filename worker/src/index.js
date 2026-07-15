@@ -15,7 +15,7 @@ import {
   UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS,
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
-  checkRateLimit, isPasswordProtectedPosition, assertAllowedSheet, assertPermission,
+  checkRateLimit, assertAllowedSheet, assertPermission,
   assertPageWriteAccess
 } from "./auth.js";
 
@@ -136,14 +136,26 @@ async function handleDeviceLogin(env, body) {
 
 async function handleListPositions(env) {
   const values = await getStaffAccessValues(env);
-  if (values.length === 0) return { ok: true, positions: [] };
+  if (values.length === 0) return { ok: true, positions: [], passwordProtected: [] };
 
   const headers = values[0];
   const positionCol = headers.indexOf("Position");
+  const passwordCol = headers.indexOf("Password");
   if (positionCol === -1) throw new Error("StaffAccess sheet is missing a Position column.");
 
-  const positions = values.slice(1).map((row) => String(row[positionCol] || "").trim()).filter(Boolean);
-  return { ok: true, positions };
+  const positions = [];
+  const passwordProtected = [];
+  values.slice(1).forEach((row) => {
+    const name = String(row[positionCol] || "").trim();
+    if (!name) return;
+    positions.push(name);
+    // Data-driven, NOT a hardcoded name list — any position with a
+    // non-empty Password cell requires one, not just "CCT"/"Administrator"
+    // by name. Only exposes WHICH positions are protected, never the
+    // password value itself.
+    if (passwordCol !== -1 && String(row[passwordCol] || "").trim()) passwordProtected.push(name);
+  });
+  return { ok: true, positions, passwordProtected };
 }
 
 async function handleLogin(env, body) {
@@ -169,12 +181,14 @@ async function handleLogin(env, body) {
     throw new Error("That position isn't recognized. Check the list and try again.");
   }
 
-  if (isPasswordProtectedPosition(position)) {
-    const storedPassword = passwordCol !== -1 ? String(matchRow[passwordCol] || "") : "";
+  // Password-protected means THIS row's Password cell is actually
+  // filled in — not a hardcoded "cct"/"administrator" name check, so any
+  // position an admin assigns a password to in the sheet is enforced,
+  // not just those two specific names.
+  const storedPassword = passwordCol !== -1 ? String(matchRow[passwordCol] || "").trim() : "";
+  if (storedPassword) {
     const submittedPassword = String(body.password || "");
-    const passwordOk = !!storedPassword && submittedPassword === storedPassword;
-
-    if (!passwordOk) {
+    if (submittedPassword !== storedPassword) {
       await logLoginAttempt(env, { type: "session", identifier: position, success: false });
       throw new Error("Incorrect password for that position.");
     }

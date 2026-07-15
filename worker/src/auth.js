@@ -16,8 +16,6 @@ export const ALLOWED_SHEETS = [
   "Roster", "Schedule", "UniformInspections", "RoomInspections", "Announcements", "BlackFlagStatus", "Notes"
 ];
 
-export const PASSWORD_PROTECTED_POSITIONS = ["cct", "administrator"];
-
 export const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14;
 export const DEVICE_TOKEN_LIFETIME_HOURS_SHARED = 8;
 
@@ -195,10 +193,6 @@ export async function checkRateLimit(env, key) {
     throw new Error("Too many requests. Please wait a moment and try again.");
   }
   await env.NJWG_KV.put(cacheKey, String(current + 1), { expirationTtl: 60 });
-}
-
-export function isPasswordProtectedPosition(position) {
-  return PASSWORD_PROTECTED_POSITIONS.includes(String(position || "").trim().toLowerCase());
 }
 
 export function assertAllowedSheet(sheetName) {
