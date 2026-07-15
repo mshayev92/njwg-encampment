@@ -123,7 +123,23 @@ export async function verifyToken(env, token) {
 }
 
 export async function requireDeviceToken(env, deviceToken) {
-  const payload = await verifyToken(env, deviceToken);
+  // Any failure verifying the device token — missing, malformed, wrong
+  // type, or (most commonly, right after a SESSION_SECRET rotation like
+  // switching backends) a signature mismatch — MUST surface as a message
+  // containing "device". The frontend (js/api.js handleAuthFailure_)
+  // classifies which gate to bounce to purely by pattern-matching the
+  // error text (/device|passphrase/i vs /session token|invalid token/i),
+  // and verifyToken()'s generic "Invalid token..."/"Malformed token..."
+  // messages don't mention "device" — without this wrapper those get
+  // misclassified as a SESSION error. That redirects index.html back to
+  // itself instead of gate.html, and never clears the actually-broken
+  // device token, producing an infinite reload loop.
+  let payload;
+  try {
+    payload = await verifyToken(env, deviceToken);
+  } catch (err) {
+    throw new Error("Invalid device token. Please re-enter the passphrase.");
+  }
   if (payload.type !== "device") throw new Error("Invalid device token. Please re-enter the passphrase.");
   if (Date.now() > payload.exp) throw new Error("Device access expired. Please re-enter the passphrase.");
   return payload;

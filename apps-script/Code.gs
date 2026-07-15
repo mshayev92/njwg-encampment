@@ -341,7 +341,20 @@ function handleDeviceLogin(body) {
 }
 
 function requireDeviceToken_(deviceToken) {
-  const payload = verifyToken_(deviceToken);
+  // Any failure verifying the device token must surface as a message
+  // containing "device" — the frontend (js/api.js handleAuthFailure_)
+  // classifies which gate to bounce to purely by pattern-matching the
+  // error text, and verifyToken_'s generic "Invalid token..."/"Malformed
+  // token..." messages (e.g. after a SESSION_SECRET rotation) don't
+  // mention "device", which gets them misclassified as a session error —
+  // that bounces index.html back to itself without ever clearing the
+  // actually-broken device token, producing an infinite reload loop.
+  let payload;
+  try {
+    payload = verifyToken_(deviceToken);
+  } catch (err) {
+    throw new Error("Invalid device token. Please re-enter the passphrase.");
+  }
   if (payload.type !== "device") throw new Error("Invalid device token. Please re-enter the passphrase.");
   if (Date.now() > payload.exp) throw new Error("Device access expired. Please re-enter the passphrase.");
   return payload;
