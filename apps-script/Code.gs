@@ -217,7 +217,11 @@ const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // person can reference a cadet just by name, since CapId lookups are a
 // nice-to-have, not required) or a plain non-cadet subject. Body holds
 // sanitized rich-text HTML (see js/richtext.js).
-const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Body"];
+// Flight is auto-filled client-side from the Roster when Subject exactly
+// matches a cadet's name, blank otherwise — used to scope a note's
+// visibility to positions allowed to see that flight (blank = visible to
+// everyone), same as Inspections/Roster/Overview.
+const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body"];
 
 const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 
