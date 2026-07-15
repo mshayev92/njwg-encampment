@@ -472,8 +472,28 @@
     }
 
     Shell.registerRefresh(load);
+
+    // Export the notes currently visible to this position (same flight
+    // scoping as the feed), with the rich-text body flattened to text.
+    const noteBodyToText = (html) => {
+      const t = document.createElement("template");
+      t.innerHTML = html || "";
+      return (t.content.textContent || "").replace(/\s+/g, " ").trim();
+    };
+    Shell.registerExport(() => ({
+      filename: `notes-${new Date().toISOString().slice(0, 10)}.csv`,
+      columns: ["Timestamp", "AuthorPosition", "Subject", "Flight", "Body"],
+      rows: notes.filter(isNoteVisible).map(n => ({
+        Timestamp: n.Timestamp ? new Date(n.Timestamp).toLocaleString() : "",
+        AuthorPosition: n.AuthorPosition || "",
+        Subject: n.Subject || "",
+        Flight: n.Flight || "",
+        Body: noteBodyToText(n.Body || "")
+      }))
+    }));
+
     load();
-  </script>
+</script>
 
   <script>
     if ("serviceWorker" in navigator) {

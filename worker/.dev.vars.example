@@ -9,3 +9,11 @@ GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY--
 SPREADSHEET_ID="paste-the-id-from-your-sheet-url-here"
 SESSION_SECRET="generate-a-long-random-string"
 PASSPHRASE_HASH="sha256-hex-hash-of-your-passphrase"
+
+# OPTIONAL — Web Push (New Announcement / Black Flag alerts). Leave all
+# three unset to disable push entirely; the app then simply hides the
+# "enable alerts" button. Generate the keypair with:
+#   npx web-push generate-vapid-keys
+VAPID_PUBLIC_KEY=""
+VAPID_PRIVATE_KEY=""
+VAPID_SUBJECT="mailto:you@example.com"

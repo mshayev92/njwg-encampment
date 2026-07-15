@@ -108,13 +108,41 @@ hex string:
 npx wrangler secret put PASSPHRASE_HASH
 ```
 
+**`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`** —
+*optional*, only needed for Web Push (New Announcement / Black Flag
+alerts delivered to staff devices even when the app is closed). If you
+skip these, push is simply disabled: the app hides its "enable alerts"
+button and everything else works unchanged.
+
+Generate the keypair once (the standard VAPID format this Worker expects):
+
+```
+npx web-push generate-vapid-keys
+```
+
+Set all three — the public and private keys from that command, plus a
+`mailto:` (or `https:`) subject that identifies you to the push service:
+
+```
+npx wrangler secret put VAPID_PUBLIC_KEY
+npx wrangler secret put VAPID_PRIVATE_KEY
+npx wrangler secret put VAPID_SUBJECT     # e.g. mailto:admin@yourunit.org
+```
+
+The **public** key is not secret (the browser needs it to subscribe, and
+the Worker serves it via the `pushConfig` action) — but setting it as a
+secret alongside the private key keeps the pair together. Rotating the
+VAPID keys invalidates every existing device subscription; staff just
+re-tap "enable alerts" once.
+
 Verify everything is set:
 
 ```
 npx wrangler secret list
 ```
 
-You should see all five names listed (values are never shown).
+You should see the five required names (and any optional VAPID ones)
+listed — values are never shown.
 
 ### 4. Confirm the Sheet is shared with the service account
 

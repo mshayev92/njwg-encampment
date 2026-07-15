@@ -1071,8 +1071,19 @@
     });
 
     Shell.registerRefresh(load);
+
+    // Export the active inspection type's records, scoped to the flights
+    // this position may view, in the sheet's column order.
+    Shell.registerExport(() => {
+      const items = INSPECTION_TYPES[activeType].items;
+      const columns = ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp",
+        ...items.map(i => i.key), "TotalPoints", "Notes"];
+      const rows = (inspectionsByType[activeType].all || []).filter(r => isFlightAllowed(r.Flight));
+      return { filename: `inspections-${activeType}-${new Date().toISOString().slice(0, 10)}.csv`, columns, rows };
+    });
+
     load();
-  </script>
+</script>
 
   <script>
     if ("serviceWorker" in navigator) {
