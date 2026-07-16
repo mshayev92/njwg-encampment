@@ -507,7 +507,12 @@
     <main class="app-main">
       <div id="periods-section"></div>
 
-      <div class="inspection-tabs tabs">
+      <!-- Hidden until everything has actually loaded (see load()'s
+           allCachedNow gate below) — this tab bar is static markup, so it
+           used to appear and be clickable instantly while the periods box
+           and flight grid below it were still loading, instead of
+           everything on the page appearing together. -->
+      <div class="inspection-tabs tabs" id="inspection-tabs-bar" style="display:none;">
         <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
         <button class="tabs__tab" data-tab="room">Room</button>
         <button class="tabs__tab" data-tab="trends">Trends</button>
@@ -530,6 +535,7 @@
     Shell.init({ activePage: "inspections" });
 
     const contentEl = document.getElementById("inspection-content");
+    const tabsBarEl = document.getElementById("inspection-tabs-bar");
     const tabButtons = document.querySelectorAll(".tabs__tab");
     const esc = Shell.escapeHtml;
 
@@ -1491,6 +1497,18 @@
      * before this session, while a background refetch checks for
      * anything newer. First-ever load shows the spinner as before.
      */
+
+    /**
+     * The tabs bar is hidden (display:none) until now — enhanceTabs()'s
+     * sliding indicator was positioned while it was still hidden
+     * (offsetWidth/Left both read 0 on a display:none element), so it
+     * needs to re-measure once the bar is actually visible.
+     */
+    function revealTabsBar() {
+      tabsBarEl.style.display = "";
+      if (inspectionTabsIndicator) inspectionTabsIndicator.move();
+    }
+
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = fresh.rows || [];
@@ -1526,6 +1544,7 @@
         reindexInspections("uniform", uniformHandle.data.rows || []);
         reindexInspections("room", roomHandle.data.rows || []);
         inspectionPeriods = periodsHandle.data.rows || [];
+        revealTabsBar();
         renderPeriodsSection();
         renderFlightGrid();
       } else {
@@ -1548,6 +1567,7 @@
             selectedFlight = null;
             selectedStudent = null;
             selectedInspectionDate = null;
+            revealTabsBar();
             renderPeriodsSection();
             renderFlightGrid();
           }
