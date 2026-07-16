@@ -131,11 +131,43 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       background: var(--surface-sunken);
+      font-size: var(--fs-sm);
+    }
+    .page-check__main {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex: 1;
+      min-width: 0;
+      cursor: pointer;
+    }
+    .page-check__main input { width: 18px; height: 18px; flex-shrink: 0; }
+    .page-check__label { overflow-wrap: break-word; min-width: 0; }
+
+    /* Small pencil toggle for a page's edit-gate (e.g. edit-roster),
+       sitting INSIDE that page's own box instead of as a separate
+       checkbox row further down the grid — grants view + edit access
+       for a page in one place instead of two disconnected entries. */
+    .page-check__edit {
+      flex-shrink: 0;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      color: var(--ink-600);
       cursor: pointer;
       font-size: var(--fs-sm);
     }
-    .page-check input { width: 18px; height: 18px; flex-shrink: 0; }
-    .page-check__label { overflow-wrap: break-word; min-width: 0; }
+    .page-check__edit:hover { border-color: var(--gold-500); }
+    .page-check__edit.is-active {
+      background: var(--gold-100);
+      border-color: var(--gold-500);
+      color: var(--gold-600);
+    }
 
     .clear-pw {
       display: flex;
@@ -235,10 +267,14 @@
       const currentPages = current ? current.Pages.map(p => p.toLowerCase()) : [];
       const currentFlights = current ? current.Flights : [];
 
-      // Offer the known pages plus any custom tokens already on this row.
-      const knownIds = new Set(KNOWN_PAGES.map(p => p.id));
+      // One box per BASE page (not a separate row for its edit-* gate —
+      // see the pencil toggle rendered inside each box below). Any custom
+      // token already on this row that isn't a known base page or edit
+      // gate still gets its own plain checkbox, same as before.
+      const editGateByBase = new Map(EDIT_GATES.map(g => [g.id.replace(/^edit-/, ""), g]));
+      const basePages = window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label }));
+      const knownIds = new Set([...basePages.map(p => p.id), ...EDIT_GATES.map(g => g.id)]);
       const customPages = currentPages.filter(p => !knownIds.has(p)).map(id => ({ id, label: id }));
-      const allChecks = [...KNOWN_PAGES, ...customPages];
 
       return `
         <div class="card admin-form">
@@ -249,12 +285,32 @@
           ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
 
           <label class="field-label">Pages this position can access</label>
+          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page.</div>
           <div class="page-checks">
-            ${allChecks.map(p => `
-              <label class="page-check">
-                <input type="checkbox" value="${esc(p.id)}" ${currentPages.includes(p.id.toLowerCase()) ? "checked" : ""}>
-                <span class="page-check__label">${esc(p.label)}</span>
-              </label>
+            ${basePages.map(p => {
+              const editGate = editGateByBase.get(p.id);
+              const viewChecked = currentPages.includes(p.id.toLowerCase());
+              const editChecked = !!editGate && currentPages.includes(editGate.id.toLowerCase());
+              return `
+                <div class="page-check">
+                  <label class="page-check__main">
+                    <input type="checkbox" value="${esc(p.id)}" ${viewChecked ? "checked" : ""}>
+                    <span class="page-check__label">${esc(p.label)}</span>
+                  </label>
+                  ${editGate ? `
+                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}">✎</button>
+                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked ? "checked" : ""} hidden>
+                  ` : ""}
+                </div>
+              `;
+            }).join("")}
+            ${customPages.map(p => `
+              <div class="page-check">
+                <label class="page-check__main">
+                  <input type="checkbox" value="${esc(p.id)}" checked>
+                  <span class="page-check__label">${esc(p.label)}</span>
+                </label>
+              </div>
             `).join("")}
           </div>
 
@@ -299,7 +355,20 @@
                   </div>
                   <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
                   <div class="staff-row__chips">
-                    ${s.Pages.map(p => `<span class="chip">${esc(p)}</span>`).join("") || `<span class="chip">no pages</span>`}
+                    ${(() => {
+                      // Show at most CHIP_LIMIT page chips and fold the
+                      // rest into a single "+N" chip, rather than letting
+                      // a position with many pages wrap the whole card
+                      // onto extra rows of chips (see .staff-row__chips'
+                      // flex-wrap — a card with 10 pages used to grow
+                      // tall with 2-3 rows of little tags).
+                      const CHIP_LIMIT = 5;
+                      const shown = s.Pages.slice(0, CHIP_LIMIT);
+                      const hidden = s.Pages.length - shown.length;
+                      const chips = shown.map(p => `<span class="chip">${esc(p)}</span>`).join("");
+                      const overflow = hidden > 0 ? `<span class="chip" data-tooltip="${esc(s.Pages.slice(CHIP_LIMIT).join(", "))}">+${hidden}</span>` : "";
+                      return chips + overflow || `<span class="chip">no pages</span>`;
+                    })()}
                   </div>
                 </div>
                 <div class="staff-row__actions">
@@ -327,6 +396,19 @@
         b.addEventListener("click", () => { editing = b.dataset.edit; renderStaffTab(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
       contentEl.querySelectorAll("[data-delete]").forEach(b =>
         b.addEventListener("click", () => deletePosition(b.dataset.delete)));
+
+      // Pencil toggle for a page's edit-gate — flips its own hidden
+      // checkbox (read by savePosition() the same as every other
+      // .page-check input) rather than the page's view-access checkbox
+      // right next to it.
+      contentEl.querySelectorAll(".page-check__edit").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const input = btn.nextElementSibling;
+          input.checked = !input.checked;
+          btn.classList.toggle("is-active", input.checked);
+          btn.setAttribute("aria-pressed", String(input.checked));
+        });
+      });
 
       Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);

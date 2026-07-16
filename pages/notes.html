@@ -170,12 +170,66 @@
       white-space: nowrap;
     }
 
+    /* Author/flight/date + edit/delete actions used to be one plain text
+       span forced onto a single line — on a narrow card (see .note-feed's
+       240px min column) the text wrapped mid-sentence, and when the
+       signed-in author's OWN position matched the note's derived Flight
+       (e.g. a flight leader posting about their own flight), the same
+       word appeared twice, with the wrap making the repeat look like a
+       rendering glitch. Now the meta pieces are separate tagged elements
+       that can wrap individually without looking broken, the actions are
+       pinned to their own flex-shrink:0 group, and the Flight tag is
+       omitted entirely when it wouldn't add information (see
+       renderNoteCard's showFlightTag). */
+    .note-card__header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-2);
+      margin-bottom: var(--space-2);
+    }
+
     .note-card__meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-1) var(--space-2);
+      min-width: 0;
+    }
+
+    .note-card__author {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--indigo-900);
+    }
+
+    .note-card__flight-tag {
       font-size: var(--fs-2xs);
       text-transform: uppercase;
       letter-spacing: var(--tracking-wide);
       color: var(--ink-600);
-      margin-bottom: var(--space-3);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-sm);
+      padding: 1px var(--space-2);
+    }
+
+    .note-card__date {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      white-space: nowrap;
+    }
+
+    .note-card__actions {
+      display: flex;
+      gap: var(--space-1);
+      flex-shrink: 0;
+    }
+
+    .note-card__actions .btn {
+      padding: var(--space-1) var(--space-2);
     }
 
     .note-card__body {
@@ -293,14 +347,26 @@
     }
 
     function renderNoteCard(n) {
+      // The signed-in author's OWN position is very often literally the
+      // flight name itself (a flight leader signs in as "Alpha", say),
+      // which is the same value flightForSubject() just derived from the
+      // roster — showing both made the meta line read "Alpha · date ·
+      // Alpha", with the repeat easy to mistake for a wrapping glitch.
+      // Only show the flight tag when it adds information the position
+      // name doesn't already give.
+      const showFlightTag = n.Flight && n.Flight.trim().toLowerCase() !== String(n.AuthorPosition || "").trim().toLowerCase();
       return `
         <div class="note-card">
-          <div class="note-card__meta" style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3);">
-            <span>${esc(n.AuthorPosition || "—")} · ${esc(Shell.formatDateTime(n.Timestamp))}${n.Flight ? ` · ${esc(n.Flight)}` : ""}</span>
-            <span style="display:flex; gap: var(--space-1);">
-              <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" style="padding: var(--space-1) var(--space-2);" aria-label="Edit note">✎</button>
-              <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" style="padding: var(--space-1) var(--space-2);" aria-label="Delete note">✕</button>
-            </span>
+          <div class="note-card__header">
+            <div class="note-card__meta">
+              <span class="note-card__author">${esc(n.AuthorPosition || "—")}</span>
+              ${showFlightTag ? `<span class="note-card__flight-tag">${esc(n.Flight)}</span>` : ""}
+              <span class="note-card__date">${esc(Shell.formatDateTime(n.Timestamp))}</span>
+            </div>
+            <div class="note-card__actions">
+              <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" aria-label="Edit note">✎</button>
+              <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" aria-label="Delete note">✕</button>
+            </div>
           </div>
           <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
           <div class="note-card__body">${RichText.sanitize(n.Body || "")}</div>
@@ -379,6 +445,10 @@
       Api.deleteRow("Notes", { Id: id }, { matchColumns: ["Id"] });
       notes = notes.filter(n => String(n.Id) !== String(id));
       if (editingNoteId === id) editingNoteId = null;
+      // Reconcile Api's cache with this optimistic result now, not after
+      // the next background revalidation — see the note on this same
+      // call in postNote() below.
+      Api.setCachedRows("Notes", notes);
       render();
       Shell.showToast("Note deleted.", { type: "success" });
     }
@@ -478,6 +548,15 @@
           notes = [noteRow, ...notes];
           showForm = false;
         }
+        // writeRow() only marks the Notes cache stale — it doesn't know
+        // what the optimistic result looks like. Without pushing it in
+        // here, the next background revalidation (the periodic
+        // Api.warmCache poll, or just reopening this page) fetches the
+        // server's now-actually-updated rows, finds them different from
+        // the stale pre-write cache, and fires this page's onFresh
+        // subscriber again — a second render()/animateIn() replaying the
+        // entrance animation moments after this save's own.
+        Api.setCachedRows("Notes", notes);
         render();
         Shell.showToast(editing ? "Note updated." : "Note saved.", { type: "success" });
       } catch (err) {

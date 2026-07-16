@@ -481,6 +481,13 @@
         Api.writeRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
         scheduleRows.push(row);
       });
+      // Reconcile Api's cache with the optimistic result now — writeRow()
+      // only marks the sheet's cache stale, so without this the next
+      // background revalidation finds the (now actually updated) server
+      // rows differ from the stale pre-write cache and re-fires this
+      // page's onFresh subscriber, replaying the entrance animation a
+      // second time right after this save's own.
+      Api.setCachedRows("Schedule", scheduleRows);
       const count = pendingRows.length;
       pendingRows = [];
       closeForm();
@@ -527,6 +534,7 @@
       }
       const idx = scheduleRows.indexOf(editingRow);
       if (idx >= 0) scheduleRows[idx] = newRow;
+      Api.setCachedRows("Schedule", scheduleRows);
 
       closeForm();
       Shell.showToast("Schedule updated.", { type: "success" });
@@ -543,6 +551,7 @@
 
       Api.deleteRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
       scheduleRows = scheduleRows.filter(r => r !== row);
+      Api.setCachedRows("Schedule", scheduleRows);
       Shell.showToast("Item removed.", { type: "success" });
       render(scheduleRows);
     }
