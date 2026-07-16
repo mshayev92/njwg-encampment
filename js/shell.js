@@ -969,67 +969,22 @@ const Shell = (() => {
 
   // ---- Black flag banner + announcements bell (global, every page) ----
 
-  function ensureGlobalBannerSlot_() {
-    let el = document.getElementById("black-flag-banner");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "black-flag-banner";
-      el.style.cssText = "display:none; align-items:center; gap: var(--space-3); background:#000; color:#fff; border-radius: var(--radius-lg); padding: var(--space-4) var(--space-5); margin-bottom: var(--space-4); font-family: var(--font-display); letter-spacing: var(--tracking-wide); text-transform: uppercase; font-size: var(--fs-sm);";
-      const main = document.querySelector(".app-main");
-      if (main) main.insertBefore(el, main.firstChild);
-      else document.body.insertBefore(el, document.body.firstChild);
-    }
-    return el;
-  }
-
-  // Overview's own content (roster/schedule/weather) loads via a
-  // completely separate pipeline from this banner (BlackFlagStatus,
-  // fetched by loadGlobalAlerts_ as part of Shell.init — see below).
-  // Without a gate, whichever one happens to resolve first (often the
-  // banner, off a warm cache, while the page's own three sources are
-  // still cold) pops in on its own, then the rest of the page assembles
-  // moments later — the "some content loads first, then others"
-  // fragmented feel. contentReady_ holds the banner back until
-  // Shell.markContentReady() (called by overview.html once its own
-  // load() has everything it needs) says the rest of the page is about
-  // to appear too, so both settle in the same visual beat. Every OTHER
-  // page's compact header pill is unaffected — it's small enough that a
-  // moment's delay after the header itself (already instant, static
-  // markup) isn't the same jarring "half a page" pop-in.
-  let contentReady_ = false;
-
   /**
-   * Overview keeps the full-width banner exactly as designed; every
-   * other page shows a compact pill in the header instead (see
-   * #black-flag-pill in renderHeader) so the alert is still visible
-   * without repeating the big banner on every screen.
+   * Every page except Overview shows a compact pill in the header (see
+   * #black-flag-pill in renderHeader). Overview used to get its own
+   * full-width banner instead, rendered here independently of the
+   * page's own content — but that ran on a totally separate pipeline
+   * from Overview's own Roster/Schedule/weather loads, so it could pop
+   * in before or after the rest of the page finished assembling.
+   * Overview now renders the black flag status itself, inline in its
+   * weather card, gated behind the SAME "everything's ready" check as
+   * the rest of that page (see pages/overview.html) — so it no longer
+   * needs a banner (or pill) from here at all.
    */
   function renderBlackFlagBanner_(status) {
     const active = !!(status && (status.Active === true || status.Active === "TRUE" || status.Active === "true"));
-
-    if (activePage_ === "overview") {
-      if (!contentReady_) return; // deferred until markContentReady() — see above
-      const el = ensureGlobalBannerSlot_();
-      el.style.display = active ? "flex" : "none";
-      el.textContent = "⚑ BLACK FLAG IN EFFECT — outdoor activity restricted";
-    }
-
     const pill = document.getElementById("black-flag-pill");
     if (pill) pill.style.display = (active && activePage_ !== "overview") ? "inline-flex" : "none";
-  }
-
-  /**
-   * Called by a page (currently just overview.html) once ITS OWN content
-   * is ready to appear, so the black-flag banner — which loads via an
-   * entirely separate pipeline (see contentReady_ above) — reveals at
-   * the same moment instead of popping in independently, earlier or
-   * later. A no-op on pages that never call it (they just get the
-   * always-on-time header pill instead, unaffected by this gate).
-   */
-  function markContentReady() {
-    if (contentReady_) return;
-    contentReady_ = true;
-    renderBlackFlagBanner_(lastBlackFlagStatus_);
   }
 
   function getAnnouncementsLastSeen_() {
@@ -2177,7 +2132,7 @@ const Shell = (() => {
   return {
     init, renderNav, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
-    markNotesSeen: markNotesSeen_, markContentReady,
+    markNotesSeen: markNotesSeen_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, enhanceDateInput, enhanceTimeInput, openContextMenu,
