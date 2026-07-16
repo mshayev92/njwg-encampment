@@ -271,6 +271,123 @@
       `;
     }
 
+    /**
+     * "Encampment" progress bar — Shell.encampmentDayInfo() has existed
+     * since the duty-strip/schedule-matching helpers were built, but
+     * nothing actually DISPLAYS it anywhere in the app; it's only ever
+     * been used internally to match a Schedule row's Day text against
+     * "today." A simple day-of-encampment progress bar is exactly the
+     * kind of glance item Overview was missing — not a dedicated-page
+     * duplicate of anything, just a fact nowhere else shows visually.
+     */
+    function renderEncampmentProgressCard() {
+      const info = Shell.encampmentDayInfo();
+      if (!info.isActive) {
+        return `
+          <div class="card">
+            <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Encampment</h2>
+            <p style="color: var(--ink-600); margin:0;">${esc(info.label)}</p>
+          </div>`;
+      }
+      const pct = Math.min(100, Math.round((info.dayNumber / info.totalDays) * 100));
+      return `
+        <div class="card">
+          <div class="progress__label-row">
+            <span>${esc(info.label)}</span>
+            <span>${pct}%</span>
+          </div>
+          <div class="progress"><div class="progress__fill" style="width:${pct}%;"></div></div>
+        </div>`;
+    }
+
+    /**
+     * "Today's Inspections" — how many of this position's own cadets
+     * (same Flight scoping as Your Flights) have been inspected TODAY,
+     * for whatever's actually scheduled today. Deliberately just a
+     * single day's completion snapshot ("are we on track today?"), not
+     * the historical breakdowns/progression charts already on the
+     * Inspections page's own Trends tab ("how have we been doing over
+     * time?") — different question, so not shown at all when nothing is
+     * scheduled today rather than repeating that page's own content.
+     */
+    function renderInspectionProgressCard(rosterRows, uniformRows, roomRows, periods) {
+      const todayStr = Shell.todayIso();
+      const todaysPeriods = periods.filter(p => p.Date === todayStr);
+      if (!todaysPeriods.length) return "";
+
+      const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && (String(r.CapId || "").trim() || String(r.Name || "").trim()));
+      if (!cadets.length) return "";
+
+      const rowsByCategory = { uniform: uniformRows, room: roomRows };
+
+      const sections = todaysPeriods.map(period => {
+        const rows = rowsByCategory[period.Category] || [];
+        const inspectedCapIds = new Set(rows.filter(r => r.Date === todayStr).map(r => String(r.StudentCapId)));
+        const inspectedCount = cadets.filter(c => inspectedCapIds.has(String(c.CapId))).length;
+        const pct = Math.round((inspectedCount / cadets.length) * 100);
+        const label = period.Category === "room" ? "Room Inspection" : `Uniform — ${period.UniformType || "—"}`;
+        return `
+          <div style="margin-bottom: var(--space-3);">
+            <div class="progress__label-row">
+              <span>${esc(label)}</span>
+              <span>${inspectedCount}/${cadets.length}</span>
+            </div>
+            <div class="progress"><div class="progress__fill" style="width:${pct}%;"></div></div>
+          </div>`;
+      }).join("");
+
+      return `
+        <div class="card">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Today's Inspections</h2>
+          ${sections}
+        </div>`;
+    }
+
+    /**
+     * "Observations This Week" — a chronological glance at what's
+     * actually been logged lately (scoped to allowed flights), plus a
+     * quick positive/concern count. The Observations page's own Trends
+     * tab already breaks this down per-student/per-flight — nowhere else
+     * shows a plain recent-activity feed across the whole scope, which
+     * is what makes this worth having here rather than a duplicate.
+     */
+    function renderObservationsPulseCard(observationRows) {
+      const scoped = observationRows.filter(o => isFlightAllowed(o.Flight));
+      if (!scoped.length) {
+        return `
+          <div class="card">
+            <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Observations This Week</h2>
+            <p style="color: var(--ink-600); margin:0;">No observations logged yet.</p>
+          </div>`;
+      }
+
+      const weekAgo = Date.now() - 7 * 86400000;
+      const thisWeek = scoped.filter(o => new Date(o.Timestamp).getTime() >= weekAgo);
+      const positiveCount = thisWeek.filter(o => String(o.Sentiment).toLowerCase() === "positive").length;
+      const concernCount = thisWeek.length - positiveCount;
+
+      const recent = [...scoped].sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)).slice(0, 4);
+
+      return `
+        <div class="card">
+          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Observations This Week</h2>
+          <div style="display:flex; gap: var(--space-2); flex-wrap:wrap; margin-bottom: var(--space-4);">
+            <span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">${thisWeek.length} logged</span>
+            <span class="badge" style="background: var(--green-100); color: var(--green-600);">${positiveCount} positive</span>
+            <span class="badge" style="background: var(--amber-100); color: var(--amber-600);">${concernCount} concern</span>
+          </div>
+          ${recent.map(o => `
+            <div class="activity-row">
+              <div class="activity-row__label">${esc(Shell.formatTime(o.Timestamp))}</div>
+              <div>
+                <div class="activity-row__title">${esc(o.StudentName) || "—"}${o.Tag ? ` — ${esc(o.Tag)}` : ""}</div>
+                <div class="activity-row__meta">${esc(o.Flight) || "—"} · ${String(o.Sentiment).toLowerCase() === "positive" ? "Positive" : "Concern"}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>`;
+    }
+
     function renderFlightStats(rosterRows) {
       const grouped = rosterRows
         .filter(r => isFlightAllowed(r.Flight))
@@ -308,20 +425,28 @@
     let lastWeather = null;
     let lastRosterRows = null;
     let lastScheduleRows = null;
-    // Roster/Schedule/Weather come from three independent sources
-    // (Api's sheet cache x2, a direct Open-Meteo fetch) that used to
-    // each trigger their OWN renderAll() the moment they landed — so a
-    // cold load visibly built itself piece by piece (weather popping in
-    // after the rest, in particular), and a warm-cache load could still
-    // replay the entrance animation once per piece. These three flags
-    // gate the FIRST render behind everything being ready, so the page
-    // appears once, fully formed, instead of assembling in front of you.
+    let lastUniformRows = null;
+    let lastRoomRows = null;
+    let lastInspectionPeriods = null;
+    let lastObservationRows = null;
+    // These come from independent sources (Api's sheet cache x6, a
+    // direct Open-Meteo fetch) that used to each trigger their OWN
+    // renderAll() the moment they landed — so a cold load visibly built
+    // itself piece by piece (weather popping in after the rest, in
+    // particular), and a warm-cache load could still replay the
+    // entrance animation once per piece. These flags gate the FIRST
+    // render behind everything being ready, so the page appears once,
+    // fully formed, instead of assembling in front of you.
     let rosterLoaded = false;
     let scheduleLoaded = false;
     let weatherLoaded = false;
+    let uniformLoaded = false;
+    let roomLoaded = false;
+    let periodsLoaded = false;
+    let observationsLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !periodsLoaded || !observationsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -333,10 +458,13 @@
       Shell.markContentReady();
       contentEl.innerHTML = `
         <div class="overview-stack">
+          ${renderEncampmentProgressCard()}
           <div class="overview-grid">
             ${renderWeatherCard(lastWeather)}
           </div>
           ${renderActivityCard(lastScheduleRows)}
+          ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastInspectionPeriods || [])}
+          ${renderObservationsPulseCard(lastObservationRows || [])}
           ${renderFlightStats(lastRosterRows || [])}
         </div>
       `;
@@ -388,9 +516,54 @@
         renderAll();
       });
 
+      // Uniform/Room inspections + inspection periods (for Today's
+      // Inspections) and Observations (for Observations This Week) — all
+      // four are already in PREFETCH_SHEETS, so this is normally an
+      // instant cache hit rather than a fresh network round trip; same
+      // instant-cache-then-background-refresh pattern as Roster/Schedule.
+      const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => {
+        lastUniformRows = fresh.rows || [];
+        renderAll();
+      });
+      if (uniformHandle.data) { lastUniformRows = uniformHandle.data.rows || []; uniformLoaded = true; }
+      uniformHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
+        uniformLoaded = true;
+        renderAll();
+      });
+
+      const roomHandle = Api.getSheetCached("RoomInspections", (fresh) => {
+        lastRoomRows = fresh.rows || [];
+        renderAll();
+      });
+      if (roomHandle.data) { lastRoomRows = roomHandle.data.rows || []; roomLoaded = true; }
+      roomHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
+        roomLoaded = true;
+        renderAll();
+      });
+
+      const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
+        lastInspectionPeriods = fresh.rows || [];
+        renderAll();
+      });
+      if (periodsHandle.data) { lastInspectionPeriods = periodsHandle.data.rows || []; periodsLoaded = true; }
+      periodsHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
+        periodsLoaded = true;
+        renderAll();
+      });
+
+      const observationsHandle = Api.getSheetCached("Observations", (fresh) => {
+        lastObservationRows = fresh.rows || [];
+        renderAll();
+      });
+      if (observationsHandle.data) { lastObservationRows = observationsHandle.data.rows || []; observationsLoaded = true; }
+      observationsHandle.ready.catch(() => { /* surfaced by the Observations page itself if it matters */ }).finally(() => {
+        observationsLoaded = true;
+        renderAll();
+      });
+
       // One synchronous call for whatever's ALREADY warm in cache right
       // now (shows the spinner if nothing is yet, or renders instantly
-      // if all three already were) — the async branches above each also
+      // if everything already was) — the async branches above each also
       // call renderAll() as their own piece lands, but renderAll() itself
       // is a no-op repaint (same content) once every flag is already
       // true, so this doesn't risk a second visible animation.
