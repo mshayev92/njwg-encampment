@@ -16,13 +16,13 @@
    always comes straight from the network.
    ============================================================ */
 
-// Bumped to v8 to move every device off the v7 fetch handler, which
-// intercepted cross-origin/non-GET requests it shouldn't have and
-// could surface a broken "page might be down" error (see the fetch
-// handler below) — changing this name forces every device to drop its
-// old cached shell on activate instead of continuing to run the buggy
+// Bumped to v9 to move every device off the v8 fetch handler, which
+// didn't yet guard against the "only-if-cached" + non-same-origin-mode
+// speculative request browsers sometimes issue (see the fetch handler
+// below) — changing this name forces every device to drop its old
+// cached shell on activate instead of continuing to run the buggy
 // handler against a stale cache.
-const CACHE_NAME = "njwg-encampment-v8";
+const CACHE_NAME = "njwg-encampment-v9";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -121,6 +121,20 @@ self.addEventListener("notificationclick", (event) => {
 
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
+
+  // Chrome (and some other browsers) occasionally issue a speculative
+  // request — e.g. right after a window.location.href redirect, like
+  // the post-login one in index.html — with request.cache set to
+  // "only-if-cached" but request.mode NOT "same-origin". That specific
+  // combination is invalid to pass straight to fetch(): it throws a
+  // synchronous TypeError instead of returning a rejected promise, which
+  // bypasses every .catch() below and leaves respondWith() with nothing
+  // — the exact "this page might be temporarily down" browser error.
+  // Bail out early (no respondWith at all) so the browser handles these
+  // itself, same as it would with no service worker present.
+  if (event.request.cache === "only-if-cached" && event.request.mode !== "same-origin") {
+    return;
+  }
 
   // Only intern the app's OWN same-origin GET requests (the app shell).
   // Everything else — the Apps Script backend, the weather API a page
