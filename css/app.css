@@ -340,8 +340,20 @@ html.nav-rail-collapsed .nav-rail__crest {
    briefly appears over the first then disappears. With it, the rail
    stays visually anchored; only the content area fades. */
 .nav-rail { view-transition-name: nav-sidebar; }
+/* The actual cross-fade (old snapshot fading out, new one fading in) is
+   driven by the UA stylesheet's default animations on
+   ::view-transition-old/-new — NOT by -group or -image-pair, which only
+   handle size/position morphing. Zeroing only group/image-pair (as a
+   previous attempt here did) left the old/new opacity cross-fade
+   running at its default ~0.25s, so the outgoing page's nav (previous
+   active link highlighted) was still visibly fading out on top of the
+   incoming page's nav for that whole duration — exactly the "a second
+   nav bar briefly appears" symptom. All four pseudo-elements need
+   animation-duration: 0 for the rail to swap with zero visible overlap. */
 ::view-transition-group(nav-sidebar),
-::view-transition-image-pair(nav-sidebar) { animation-duration: 0s; }
+::view-transition-image-pair(nav-sidebar),
+::view-transition-old(nav-sidebar),
+::view-transition-new(nav-sidebar) { animation-duration: 0s !important; }
 
 .nav-rail {
   grid-area: nav;
