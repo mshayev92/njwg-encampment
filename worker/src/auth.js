@@ -13,7 +13,7 @@
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations"
 ];
 
 export const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14;
@@ -27,7 +27,15 @@ export const SHEET_PERMISSIONS = {
   InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
-  Notes:              { read: "any", write: "any" }
+  Notes:              { read: "any", write: "any" },
+  // Same shape as UniformInspections/Notes: any signed-in position that
+  // can reach the Observations page can log an entry for a student —
+  // no separate edit-observations grant. The friction that matters here
+  // is keeping logging itself as cheap as possible (see the page for
+  // the "one tap" logging flow this is designed around); page-level
+  // visibility (whether "observations" is in a position's Pages at
+  // all) is the only real gate, same as every other page.
+  Observations:       { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
@@ -74,6 +82,24 @@ export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // same as a note with no cadet tied to it).
 export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition"];
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
+// One row per logged observation — deliberately append-only (no
+// matchColumns on write from pages/observations.html), so tapping the
+// same tag on the same student twice in a week records two separate
+// timestamped events rather than overwriting a single "current status"
+// per student. That's the point: Trends counts EVENTS, not a snapshot,
+// which is what makes low-volume flights visible as low-volume rather
+// than indistinguishable from a flight that simply has calmer cadets.
+// Category is one of a small fixed set (leadership, followership,
+// teamwork, bearing, initiative, effort, general); Tag is either a
+// preset short phrase from that category or blank for a free-text-only
+// "general" entry. Sentiment is "positive" | "concern" — deliberately
+// binary, not a 1-5 scale, so two different raters logging the same
+// moment are far less likely to disagree.
+export const OBSERVATION_COLUMNS = [
+  "Id", "StudentCapId", "StudentName", "Flight",
+  "LoggerPosition", "Timestamp",
+  "Category", "Tag", "Sentiment", "Note"
+];
 
 // ---- Hashing / signing ------------------------------------------------------
 

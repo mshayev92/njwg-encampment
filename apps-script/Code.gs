@@ -125,7 +125,7 @@
 // StaffAccess is deliberately NOT in this list — see security tradeoff
 // note above. Only handleLogin/handleListPositions may touch it.
 const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations"
 ];
 
 // Device token lifetime after a correct passphrase entry.
@@ -147,7 +147,8 @@ const SHEET_PERMISSIONS = {
   InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
-  Notes:              { read: "any", write: "any" }
+  Notes:              { read: "any", write: "any" },
+  Observations:       { read: "any", write: "any" }
 };
 
 // Which Pages-column id(s) gate writes to each "page"-permission sheet.
@@ -228,6 +229,20 @@ const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body"];
 
 const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
+
+// One row per logged observation — deliberately append-only (no
+// matchColumns on write), so tapping the same tag on the same student
+// twice in a week records two separate timestamped events instead of
+// overwriting a single per-student status. Category is a small fixed
+// set (leadership, followership, teamwork, bearing, initiative, effort,
+// general); Tag is a preset short phrase from that category, or blank
+// for a free-text-only "general" entry. Sentiment is "positive" |
+// "concern" — deliberately binary rather than a 1-5 scale.
+const OBSERVATION_COLUMNS = [
+  "Id", "StudentCapId", "StudentName", "Flight",
+  "LoggerPosition", "Timestamp",
+  "Category", "Tag", "Sentiment", "Note"
+];
 
 // ---- ONE-TIME SETUP ----------------------------------------------------
 
@@ -562,6 +577,7 @@ function handleRead(params, session) {
   if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
+  if (sheetName === "Observations") ensureSheetWithHeaders_("Observations", OBSERVATION_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const values = getCachedSheetValues_(sheetName);
@@ -639,6 +655,7 @@ function handleWrite(body, session) {
   if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
+  if (sheetName === "Observations") ensureSheetWithHeaders_("Observations", OBSERVATION_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);
