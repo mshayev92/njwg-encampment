@@ -856,6 +856,17 @@
         return;
       }
 
+      // Only one flight to ever choose from (the common case for a
+      // Flight Sergeant/Commander position scoped to just their own
+      // flight) — a tile grid with exactly one tile is a click that can
+      // only ever go one place, so skip straight to that flight's
+      // student list instead of making it required.
+      if (flightNames.length === 1) {
+        selectedFlight = flightNames[0];
+        renderStudentList();
+        return;
+      }
+
       contentEl.innerHTML = `
         ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
         <div class="flight-grid">
@@ -880,10 +891,14 @@
       currentView = "students";
       const grouped = groupByFlight(rosterRows);
       const members = grouped[selectedFlight] || [];
+      // No Back button when this is the only flight available — there's
+      // no flight grid to go back TO (see the auto-open in
+      // renderFlightGrid above).
+      const hasOtherFlights = Object.keys(grouped).length > 1;
 
       contentEl.innerHTML = `
         <div class="detail-header">
-          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          ${hasOtherFlights ? `<button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>` : ""}
           <h2>${esc(selectedFlight)}</h2>
         </div>
         ${members.length ? `
@@ -909,10 +924,13 @@
         `}
       `;
 
-      document.getElementById("back-to-flights-btn").addEventListener("click", () => {
-        selectedFlight = null;
-        renderFlightGrid();
-      });
+      const backBtn = document.getElementById("back-to-flights-btn");
+      if (backBtn) {
+        backBtn.addEventListener("click", () => {
+          selectedFlight = null;
+          renderFlightGrid();
+        });
+      }
 
       contentEl.querySelectorAll(".student-row").forEach(row => {
         row.addEventListener("click", () => {

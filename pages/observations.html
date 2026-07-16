@@ -428,6 +428,15 @@
         return;
       }
 
+      // Only one flight to ever choose from — a tile grid with exactly
+      // one tile is a click that can only ever go one place, so skip
+      // straight to that flight's student list instead of requiring it.
+      if (flightNames.length === 1) {
+        selectedFlight = flightNames[0];
+        renderStudentList();
+        return;
+      }
+
       contentEl.innerHTML = `
         <div class="flight-grid">
           ${flightNames.map(flight => `
@@ -452,10 +461,14 @@
       const grouped = groupByFlight(rosterRows);
       const members = grouped[selectedFlight] || [];
       const byStudent = observationsByStudent();
+      // No Back button when this is the only flight available — there's
+      // no flight grid to go back TO (see the auto-open in
+      // renderFlightGrid above).
+      const hasOtherFlights = Object.keys(grouped).length > 1;
 
       contentEl.innerHTML = `
         <div class="detail-header">
-          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          ${hasOtherFlights ? `<button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>` : ""}
           <h2>${esc(selectedFlight)}</h2>
         </div>
         ${members.length ? `
@@ -480,10 +493,13 @@
         `}
       `;
 
-      document.getElementById("back-to-flights-btn").addEventListener("click", () => {
-        selectedFlight = null;
-        renderFlightGrid();
-      });
+      const backBtn = document.getElementById("back-to-flights-btn");
+      if (backBtn) {
+        backBtn.addEventListener("click", () => {
+          selectedFlight = null;
+          renderFlightGrid();
+        });
+      }
 
       contentEl.querySelectorAll(".student-row").forEach(row => {
         row.addEventListener("click", () => {
