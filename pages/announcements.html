@@ -475,6 +475,15 @@
 
     Shell.registerRefresh(load);
     load();
+
+    // Connectivity can drop (or come back) while this page is already open
+    // — load() above only catches the "arrived while offline" case.
+    // Re-running it on both events means the "you're offline" lockout
+    // appears the instant connectivity drops, and the real feed loads the
+    // instant it returns, instead of either only happening on the next
+    // full page load/navigation.
+    window.addEventListener("offline", load);
+    window.addEventListener("online", load);
   </script>
 
   <script>

@@ -466,10 +466,26 @@ html.nav-rail-collapsed .nav-rail__crest {
 /* Remove the label from layout flow when collapsed so icons are truly
    centered (opacity:0 keeps it invisible but still takes up flex space,
    shifting the icon off-center and causing it to "pop" rightward during
-   the width collapse animation). */
+   the width collapse animation). Must cover BOTH the crest text and the
+   nav-link labels — a previous fix only zeroed .nav-rail__link-label,
+   leaving .nav-rail__crest-text at its full (invisible) width, which
+   left the crest icon and the link icons centered at two different
+   horizontal offsets from each other.
+   Also zero the flex `gap` on both containers: `gap` reserves space
+   between flex children even when one of them is width:0, so without
+   this the icon+gap+zero-width-label cluster still gets centered as a
+   whole, nudging the icon left of true center by half the gap — and by
+   a DIFFERENT amount on the crest vs the links, since they use
+   different gap values, which is exactly what produced the visible
+   misalignment between the crest icon and the nav icons below it. */
+.app-shell--collapsed .nav-rail__crest-text,
 .app-shell--collapsed .nav-rail__link-label {
   width: 0;
   overflow: hidden;
+}
+.app-shell--collapsed .nav-rail__crest,
+.app-shell--collapsed .nav-rail__link {
+  gap: 0;
 }
 
 .app-shell:not(.app-shell--collapsed) .nav-rail__crest-text,
