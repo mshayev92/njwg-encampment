@@ -1492,8 +1492,6 @@
      * anything newer. First-ever load shows the spinner as before.
      */
     function load() {
-      let rosterCached, uniformCached, roomCached;
-
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = fresh.rows || [];
         renderActiveView();
@@ -1512,16 +1510,23 @@
         renderActiveView();
       });
 
-      rosterCached = rosterHandle.data;
-      uniformCached = uniformHandle.data;
-      roomCached = roomHandle.data;
-      if (periodsHandle.data) inspectionPeriods = periodsHandle.data.rows || [];
-      renderPeriodsSection();
+      // The periods box (its own container, #periods-section) and the
+      // main flight grid used to load independently — periods rendered
+      // the instant ITS sheet was cached (or an empty "no periods
+      // scheduled" placeholder if it wasn't, even while the main grid
+      // was still spinning), so the two boxes visibly populated at
+      // different times instead of the page appearing all at once.
+      // allCachedNow gates BOTH behind every one of the four sheets
+      // being ready together — either synchronously right now (warm
+      // cache) or once the cold load's Promise.all resolves below.
+      const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && periodsHandle.data);
 
-      if (rosterCached && uniformCached && roomCached) {
-        rosterRows = rosterCached.rows || [];
-        reindexInspections("uniform", uniformCached.rows || []);
-        reindexInspections("room", roomCached.rows || []);
+      if (allCachedNow) {
+        rosterRows = rosterHandle.data.rows || [];
+        reindexInspections("uniform", uniformHandle.data.rows || []);
+        reindexInspections("room", roomHandle.data.rows || []);
+        inspectionPeriods = periodsHandle.data.rows || [];
+        renderPeriodsSection();
         renderFlightGrid();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
@@ -1533,24 +1538,22 @@
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
           inspectionPeriods = periodsData.rows || [];
-          // Only re-render here on a COLD load (nothing was cached yet at
-          // line ~1518, so the sync renderPeriodsSection() call above ran
-          // on an empty/stale list). When periods WERE already cached and
-          // rendered, this same "ready" resolving again on a warm load
-          // used to call renderPeriodsSection() unconditionally — a
-          // second render/animateIn moments after the first, even when
-          // the revalidated data was identical (the periodsHandle
+          // Only re-render here on a COLD load — when everything was
+          // already cached and rendered together above, this same
+          // "ready" resolving again on a warm load would otherwise
+          // re-render both a second time moments after the first, even
+          // when the revalidated data is identical (each handle's own
           // subscriber above already re-renders on any ACTUAL change).
-          if (!periodsHandle.data) renderPeriodsSection();
-          if (!rosterCached || !uniformCached || !roomCached) {
+          if (!allCachedNow) {
             selectedFlight = null;
             selectedStudent = null;
             selectedInspectionDate = null;
+            renderPeriodsSection();
             renderFlightGrid();
           }
         })
         .catch((err) => {
-          if (!rosterCached || !uniformCached || !roomCached) {
+          if (!allCachedNow) {
             contentEl.innerHTML = `
               <div class="state-message">
                 <div class="state-message__icon">⚠️</div>
