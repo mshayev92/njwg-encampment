@@ -16,13 +16,14 @@
    always comes straight from the network.
    ============================================================ */
 
-// Bumped to v9 to move every device off the v8 fetch handler, which
-// didn't yet guard against the "only-if-cached" + non-same-origin-mode
-// speculative request browsers sometimes issue (see the fetch handler
-// below) — changing this name forces every device to drop its old
-// cached shell on activate instead of continuing to run the buggy
-// handler against a stale cache.
-const CACHE_NAME = "njwg-encampment-v9";
+// Bumped to v10 alongside two robustness fixes: a resilient install
+// (see below) so a single missing shell asset can no longer abort the
+// whole install and leave a device stuck on an OLD worker version, and
+// a navigation-safe fetch handler that never serves or caches a
+// redirected/opaque response (which would fail the navigation with the
+// browser's "page might be temporarily down" error). Changing this name
+// forces every device to drop its old cached shell on activate.
+const CACHE_NAME = "njwg-encampment-v10";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -56,8 +57,19 @@ const APP_SHELL = [
 ].map((path) => new URL(path, self.location.href).href);
 
 self.addEventListener("install", (event) => {
+  // Precache each shell asset INDEPENDENTLY, tolerating individual
+  // failures. cache.addAll() is atomic — if even one URL in APP_SHELL
+  // isn't served (a missing icon, a dev server that doesn't have
+  // gate.html, a transient hiccup), the WHOLE install rejects, the new
+  // worker never activates, and the browser silently keeps running the
+  // PREVIOUS worker version forever. That's how a device could stay
+  // stuck on an old, buggy handler no matter how many new versions ship.
+  // allSettled + individual cache.add() means a missing asset is skipped,
+  // not fatal, so the new worker always installs and takes over.
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL))
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(APP_SHELL.map((url) => cache.add(url)))
+    )
   );
   self.skipWaiting();
 });
@@ -161,26 +173,48 @@ self.addEventListener("fetch", (event) => {
   // next page painting), while a background fetch refreshes the cache
   // for next time. First-ever load (nothing cached yet) still waits on
   // the network, same as before.
-  event.respondWith(
-    caches.open(CACHE_NAME).then(async (cache) => {
-      const cached = await cache.match(event.request);
-
-      // Kicked off either way: to serve when nothing's cached yet, or
-      // just to refresh the cache quietly when something already is.
-      const network = fetch(event.request)
-        .then((response) => {
-          if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
-          return response;
-        })
-        .catch(() => null);
-
-      if (cached) return cached;
-
-      // Never resolve to undefined here — that's what turns a normal
-      // "network unreachable and nothing cached yet" failure into the
-      // broken-page error described above. A synthesized response
-      // keeps the browser's own offline/error handling in charge.
-      return (await network) || new Response("Offline and not yet cached.", { status: 503, statusText: "Offline" });
-    })
-  );
+  event.respondWith(serveShell(event.request));
 });
+
+// A response is only safe to hand back for a NAVIGATION if it isn't a
+// redirect result and isn't opaque. Returning a redirected response for
+// a navigation throws ("a redirected response was used for a request
+// whose redirect mode is not 'follow'") and surfaces as the browser's
+// generic "this page might be temporarily down" error — precisely the
+// failure seen on the post-login redirect into overview.html. We treat
+// such responses as unusable both for serving AND for caching, so a
+// dirty entry can never get stored and re-served later either.
+function isUsableResponse_(response) {
+  return response && response.ok && !response.redirected && response.type !== "opaque";
+}
+
+async function serveShell(request) {
+  const cache = await caches.open(CACHE_NAME);
+
+  // Background revalidation — refreshes the cache for next time, but
+  // only stores a clean, non-redirected response.
+  const network = fetch(request)
+    .then((response) => {
+      if (isUsableResponse_(response)) cache.put(request, response.clone()).catch(() => {});
+      return response;
+    })
+    .catch(() => null);
+
+  const cached = await cache.match(request);
+  // Only serve a cached copy that's actually safe for this request. A
+  // redirected/opaque cached entry falls through to the network instead
+  // of being handed back (which would fail the navigation outright).
+  if (cached && isUsableResponse_(cached)) return cached;
+
+  const fresh = await network;
+  if (fresh) return fresh;
+
+  // Offline with nothing safe to serve — return a real Response (never
+  // undefined/reject, which is what produces the broken-page error) and
+  // let the browser show its own offline handling.
+  return new Response("Offline and not yet cached.", {
+    status: 503,
+    statusText: "Offline",
+    headers: { "Content-Type": "text/plain" }
+  });
+}
