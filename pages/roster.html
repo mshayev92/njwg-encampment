@@ -182,13 +182,34 @@
     // This is a client-side convenience to hide controls the backend
     // would reject anyway; assertPageWriteAccess_ in Code.gs is the
     // real check on every write.
-    const sessionPages = (Auth.getSession()?.Pages || []).map(p => String(p).toLowerCase());
+    const session = Auth.getSession();
+    const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditRoster = sessionPages.includes("edit-roster");
+
+    // Roster intentionally is NOT flight-scoped like Inspections/
+    // Observations/Overview (see worker/src/auth.js) — any position with
+    // "roster" in Pages can browse every flight's cadets, e.g. a
+    // squadron position cross-referencing another flight. But a
+    // position scoped to exactly ONE real flight (a typical Flight
+    // Sergeant/Commander) almost always just wants THEIR flight's list,
+    // not a tile they have to click through to reach every single time —
+    // primaryFlight captures that one flight so the default view can
+    // open straight into it, while still surfacing every other flight
+    // below for the (rarer) cross-reference case. Blank/"all" Flights
+    // (squadron/CCT/Admin positions) has no single primary flight, so
+    // those keep the plain tile-grid default unchanged.
+    const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : []).filter(Boolean);
+    const primaryFlight = (sessionFlightList.length === 1 && sessionFlightList[0].toLowerCase() !== "all")
+      ? sessionFlightList[0]
+      : null;
 
     let allRows = [];
     let editingCapId = null; // CapId string being edited, or null for "adding new"
-    // Null = showing the flight tile grid. A string = showing that
-    // flight's member list ("Unassigned" for rows with no Flight value).
+    // Null = showing the default view (primaryFlight's own list up top
+    // plus every other flight to browse below it, or — for a position
+    // with no single primary flight — the plain flight tile grid). A
+    // string = showing that flight's member list ("Unassigned" for rows
+    // with no Flight value).
     let selectedFlight = null;
 
     function groupByFlight(rows) {
@@ -236,12 +257,22 @@
       Shell.animateIn(contentEl);
     }
 
-    function renderFlightDetail(rows, flight) {
+    /**
+     * Renders a single flight's cadet table into `container` (defaults
+     * to the whole page content). `showBack` controls whether the
+     * "← Back" button appears at all — hidden when this is rendered as
+     * the top ("your own flight") section of the composite default view
+     * (see renderDefaultView), since there's no flight grid to go back
+     * TO from there; shown as normal when drilling into any flight
+     * (including someone else's) from that grid.
+     */
+    function renderFlightDetail(rows, flight, { showBack = true, container = null } = {}) {
+      const target = container || contentEl;
       const members = rows.filter(m => (m.Flight || "Unassigned") === flight);
 
-      contentEl.innerHTML = `
+      target.innerHTML = `
         <div class="flight-detail-header">
-          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          ${showBack ? `<button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>` : ""}
           <h2>${esc(flight)}</h2>
           ${canEditRoster ? `<button class="btn btn--ghost" id="add-cadet-btn" style="margin-left:auto;">+ Add Cadet</button>` : ""}
         </div>
@@ -278,7 +309,7 @@
       const addBtn = document.getElementById("add-cadet-btn");
       if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
 
-      contentEl.querySelectorAll("[data-action='row-menu']").forEach(btn => {
+      target.querySelectorAll("[data-action='row-menu']").forEach(btn => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
           const m = allRows.find(r => String(r.CapId) === btn.dataset.capid);
@@ -299,7 +330,7 @@
           ]);
         });
       });
-      Shell.wireTooltips(contentEl);
+      Shell.wireTooltips(target);
 
       const backBtn = document.getElementById("back-to-flights-btn");
       if (backBtn) {
@@ -309,13 +340,66 @@
           render(allRows);
         });
       }
+      // When rendered into its own sub-container (the composite default
+      // view's primary-flight section), the caller animates the WHOLE
+      // composite together instead — animating here too would fade in
+      // the primary section on its own timing, out of step with the
+      // "Other Flights" grid below it.
+      if (!container) Shell.animateIn(target);
+    }
+
+    /**
+     * The default (nothing drilled into, no active search) view. A
+     * position scoped to exactly one real flight (primaryFlight) sees
+     * THEIR flight's cadet list immediately — no tile to click through
+     * first — with every other flight still reachable via a tile grid
+     * underneath, for the rarer cross-flight lookup. Everyone else (no
+     * single primary flight — blank/"all"/squadron/CCT/Admin) keeps the
+     * plain flight tile grid unchanged.
+     */
+    function renderDefaultView(rows) {
+      if (!primaryFlight) { renderFlightGrid(rows); return; }
+
+      const grouped = groupByFlight(rows);
+      // Case-insensitive match against the Roster sheet's own Flight
+      // spelling — StaffAccess's Flights column and Roster's Flight
+      // column are two independently-typed sources, so "Alpha" vs
+      // "alpha" shouldn't silently split into two different "flights."
+      const actualPrimaryFlight = Object.keys(grouped).find(f => f.toLowerCase() === primaryFlight.toLowerCase()) || primaryFlight;
+      const otherFlightNames = Object.keys(grouped).filter(f => f.toLowerCase() !== primaryFlight.toLowerCase()).sort();
+
+      contentEl.innerHTML = `
+        <div id="primary-flight-section"></div>
+        ${otherFlightNames.length ? `
+          <h3 style="margin-top: var(--space-6); margin-bottom: var(--space-3); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600);">Other Flights</h3>
+          <div class="flight-grid">
+            ${otherFlightNames.map(flight => `
+              <button class="flight-tile" data-flight="${esc(flight)}">
+                <span class="flight-tile__name">${esc(flight)}</span>
+                <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+              </button>
+            `).join("")}
+          </div>
+        ` : ""}
+      `;
+
+      renderFlightDetail(rows, actualPrimaryFlight, { showBack: false, container: document.getElementById("primary-flight-section") });
+
+      contentEl.querySelectorAll(".flight-tile").forEach(tile => {
+        tile.addEventListener("click", () => {
+          selectedFlight = tile.dataset.flight;
+          render(allRows);
+        });
+      });
       Shell.animateIn(contentEl);
     }
 
     /**
-     * Names are never shown until a specific flight tile is clicked —
-     * the initial view (and the view after searching) only ever shows
-     * flight-level tiles with counts, never a flat list of cadets.
+     * Names are never shown until a specific flight tile is clicked (or,
+     * for a single-flight position, that flight IS the default view —
+     * see renderDefaultView/primaryFlight above) — search results still
+     * only ever surface flight-level tiles with counts, never a flat
+     * list of cadets.
      */
     function render(rows) {
       // Reveal the search toolbar (hidden by default in the static HTML —
@@ -325,7 +409,7 @@
       if (selectedFlight) {
         renderFlightDetail(rows, selectedFlight);
       } else {
-        renderFlightGrid(rows);
+        renderDefaultView(rows);
       }
     }
 

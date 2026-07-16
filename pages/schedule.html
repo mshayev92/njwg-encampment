@@ -215,9 +215,30 @@
       }
     }
 
+    /**
+     * Chronological order within a day — first activity to last, not
+     * whatever order rows happen to sit in the sheet (usually entry
+     * order, which is often the reverse of what's wanted once anyone's
+     * edited/reordered activities after initially typing them in).
+     * Unparseable times (blank, free text) sort after every parseable
+     * one, keeping their original relative order rather than jumping
+     * around unpredictably.
+     */
+    function sortByTime(items) {
+      return items
+        .map((item, i) => ({ item, i, minutes: Shell.parseScheduleTime(item.Time) }))
+        .sort((a, b) => {
+          if (a.minutes === null && b.minutes === null) return a.i - b.i;
+          if (a.minutes === null) return 1;
+          if (b.minutes === null) return -1;
+          return a.minutes - b.minutes || a.i - b.i;
+        })
+        .map(x => x.item);
+    }
+
     /** Renders one schedule's table (a single group's items) into a card. */
     function renderScheduleCard(group) {
-      const items = group ? group.items : [];
+      const items = group ? sortByTime(group.items) : [];
       if (!items.length) {
         return `
           <div class="state-message">
@@ -296,6 +317,15 @@
         btn.addEventListener("click", () => { activeGroupKey = btn.dataset.groupKey; render(scheduleRows); });
       });
       wireRowActions();
+      // The day tabs above are torn down and rebuilt from scratch on
+      // every render() (unlike Admin/Inspections/Observations, whose tabs
+      // bar is static markup enhanced once) — so the sliding active-tab
+      // indicator has to be (re-)wired here every time too, or these
+      // tabs just snap between states like a plain unenhanced list
+      // instead of matching the smooth slide every other tabbed page in
+      // the app uses. enhanceTabs is safe to call repeatedly on a fresh
+      // container (see its own doc comment).
+      Shell.enhanceTabs(contentEl.querySelector(".schedule-tabs"));
       Shell.animateIn(contentEl);
     }
 

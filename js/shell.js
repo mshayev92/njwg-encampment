@@ -2182,7 +2182,7 @@ const Shell = (() => {
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, enhanceDateInput, enhanceTimeInput, openContextMenu,
     registerExport, exportCsv, openSearch: openSearch_,
-    currentAndNextScheduleItems,
+    currentAndNextScheduleItems, parseScheduleTime: parseScheduleTime_,
     flightMatchesAudience: flightMatchesAudience_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
     formatDateTime: formatDateTime_, formatTime: formatTime_,
