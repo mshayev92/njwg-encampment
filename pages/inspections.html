@@ -671,7 +671,7 @@
 
       const todayStr = Shell.todayIso();
       const upcoming = inspectionPeriods
-        .filter(p => p.Date >= todayStr)
+        .filter(p => canEditInspections ? p.Date >= todayStr : p.Date === todayStr)
         .sort((a, b) => (a.Date < b.Date ? -1 : 1));
 
       container.innerHTML = `

@@ -453,6 +453,7 @@
       try {
         await Api.adminSaveStaffAccess(row);
         editing = null;
+        renderStaffTab(); // close form immediately; loadStaff() refreshes data
         await loadStaff();
         Shell.showToast("Saved.", { type: "success" });
       } catch (err) {

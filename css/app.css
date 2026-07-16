@@ -332,6 +332,17 @@ html.nav-rail-collapsed .nav-rail__crest {
    rail never scrolls away with the page. Only .nav-rail__links (the
    link list) scrolls internally if it doesn't fit; the crest and the
    footer card stay put. */
+/* Give the nav rail its own view-transition-name so the cross-document
+   View Transition treats it as a matched persistent element rather than
+   part of the whole-page fade. Without this, every page navigation
+   captures both the old nav (selected link A) and new nav (selected
+   link B) in the root fade, producing a flash where a second nav bar
+   briefly appears over the first then disappears. With it, the rail
+   stays visually anchored; only the content area fades. */
+.nav-rail { view-transition-name: nav-sidebar; }
+::view-transition-group(nav-sidebar),
+::view-transition-image-pair(nav-sidebar) { animation-duration: 0s; }
+
 .nav-rail {
   grid-area: nav;
   position: sticky;
@@ -452,6 +463,15 @@ html.nav-rail-collapsed .nav-rail__crest {
   transition: none;
 }
 
+/* Remove the label from layout flow when collapsed so icons are truly
+   centered (opacity:0 keeps it invisible but still takes up flex space,
+   shifting the icon off-center and causing it to "pop" rightward during
+   the width collapse animation). */
+.app-shell--collapsed .nav-rail__link-label {
+  width: 0;
+  overflow: hidden;
+}
+
 .app-shell:not(.app-shell--collapsed) .nav-rail__crest-text,
 .app-shell:not(.app-shell--collapsed) .nav-rail__link-label,
 .app-shell:not(.app-shell--collapsed) .nav-rail__footer {
@@ -544,7 +564,7 @@ html.nav-rail-collapsed .nav-rail__crest {
 .nav-rail__link[aria-current="page"] {
   background: var(--indigo-700);
   color: var(--surface);
-  box-shadow: inset 3px 0 0 var(--gold-500);
+  box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.65);
 }
 
 .nav-rail__link-icon {
