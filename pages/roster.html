@@ -280,7 +280,7 @@
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
-                <tr><th>CAP ID</th><th>Name</th><th>Rank</th>${canEditRoster ? "<th></th>" : ""}</tr>
+                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
                 ${members.map(m => `
@@ -288,6 +288,8 @@
                     <td data-label="CAP ID" class="mono">${esc(m.CapId) || "—"}</td>
                     <td data-label="Name">${esc(m.Name) || "—"}</td>
                     <td data-label="Rank">${esc(m.Rank) || "—"}</td>
+                    <td data-label="Age">${esc(m.Age) || "—"}</td>
+                    <td data-label="Sex">${esc(m.Sex) || "—"}</td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
                         <button class="btn btn--ghost" data-action="row-menu" data-capid="${esc(m.CapId)}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
@@ -450,6 +452,15 @@
             <div class="field"><label for="f-name">Name</label><input id="f-name" value="${esc(student?.Name || "")}"></div>
             <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${esc(student?.Rank || "")}"></div>
             <div class="field"><label for="f-flight">Flight</label><input id="f-flight" value="${esc(student?.Flight || flightContext || "")}"></div>
+            <div class="field"><label for="f-age">Age</label><input id="f-age" type="number" min="10" max="18" value="${esc(student?.Age || "")}"></div>
+            <div class="field">
+              <label for="f-sex">Sex</label>
+              <select id="f-sex">
+                <option value="" ${!student?.Sex ? "selected" : ""}>—</option>
+                <option value="M" ${student?.Sex === "M" ? "selected" : ""}>Male</option>
+                <option value="F" ${student?.Sex === "F" ? "selected" : ""}>Female</option>
+              </select>
+            </div>
             <div class="roster-form-actions">
               <button class="btn btn--primary" id="save-cadet-btn">Save</button>
               <button class="btn btn--ghost" id="cancel-cadet-btn">Cancel</button>
@@ -479,7 +490,9 @@
         CapId: document.getElementById("f-capid").value.trim(),
         Name: document.getElementById("f-name").value.trim(),
         Rank: document.getElementById("f-rank").value.trim(),
-        Flight: document.getElementById("f-flight").value.trim()
+        Flight: document.getElementById("f-flight").value.trim(),
+        Age: document.getElementById("f-age").value.trim(),
+        Sex: document.getElementById("f-sex").value.trim()
       };
 
       if (!row.CapId || !row.Name) {
@@ -575,7 +588,7 @@
     // Export the full roster. Lead with the common identity columns, then
     // any additional columns present in the data.
     Shell.registerExport(() => {
-      const lead = ["Name", "CapId", "Rank", "Flight"];
+      const lead = ["Name", "CapId", "Rank", "Flight", "Age", "Sex"];
       const extra = Array.from(allRows.reduce((set, r) => {
         Object.keys(r || {}).forEach(k => { if (!lead.includes(k)) set.add(k); });
         return set;

@@ -125,7 +125,8 @@
 // StaffAccess is deliberately NOT in this list — see security tradeoff
 // note above. Only handleLogin/handleListPositions may touch it.
 const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations",
+  "HonorCadetRecommendations", "HonorFlightRecommendations"
 ];
 
 // Device token lifetime after a correct passphrase entry.
@@ -144,11 +145,14 @@ const SHEET_PERMISSIONS = {
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
+  PTInspections:      { read: "any", write: "any" },
   InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
   Notes:              { read: "any", write: "any" },
-  Observations:       { read: "any", write: "any" }
+  Observations:       { read: "any", write: "any" },
+  HonorCadetRecommendations:  { read: "any", write: "any" },
+  HonorFlightRecommendations: { read: "any", write: "any" }
 };
 
 // Which Pages-column id(s) gate writes to each "page"-permission sheet.
@@ -210,6 +214,20 @@ const ROOM_INSPECTION_COLUMNS = [
   "TotalPoints", "Notes"
 ];
 
+// Physical Fitness Test — see the matching comment in worker/src/auth.js.
+// Each of the 5 line items is optional; a Pass column per item is
+// computed client-side against the AFI 36-2905-style age/sex chart.
+const PT_INSPECTION_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp", "Age", "Sex",
+  "PacerLaps", "PacerLapsPass",
+  "MileRunTime", "MileRunTimePass",
+  "CurlUps", "CurlUpsPass",
+  "PushUps", "PushUpsPass",
+  "SitReach", "SitReachPass",
+  "TotalPoints", "ItemsAttempted", "Notes"
+];
+
 // A scheduled inspection period: a Date plus what's being inspected that
 // day. Category is "uniform" or "room"; UniformType ("OCP/ABU" or
 // "Blues") is only meaningful when Category is "uniform" — blank for a
@@ -242,6 +260,19 @@ const OBSERVATION_COLUMNS = [
   "Id", "StudentCapId", "StudentName", "Flight",
   "LoggerPosition", "Timestamp",
   "Category", "Tag", "Sentiment", "Note"
+];
+
+// BE Form 60-13 "Recommendation for Daily Awards", digitized — see the
+// matching comment in worker/src/auth.js for what's dropped/changed from
+// the paper form.
+const HONOR_CADET_RECOMMENDATION_COLUMNS = [
+  "Id", "Date", "Timestamp", "SubmittedByPosition", "Flight",
+  "StudentCapId", "StudentName",
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
+];
+const HONOR_FLIGHT_RECOMMENDATION_COLUMNS = [
+  "Id", "Date", "Timestamp", "SubmittedByPosition", "Squadron", "Flight",
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
 ];
 
 // ---- ONE-TIME SETUP ----------------------------------------------------
@@ -574,10 +605,13 @@ function handleRead(params, session) {
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
+  if (sheetName === "PTInspections") ensureSheetWithHeaders_("PTInspections", PT_INSPECTION_COLUMNS);
   if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "Observations") ensureSheetWithHeaders_("Observations", OBSERVATION_COLUMNS);
+  if (sheetName === "HonorCadetRecommendations") ensureSheetWithHeaders_("HonorCadetRecommendations", HONOR_CADET_RECOMMENDATION_COLUMNS);
+  if (sheetName === "HonorFlightRecommendations") ensureSheetWithHeaders_("HonorFlightRecommendations", HONOR_FLIGHT_RECOMMENDATION_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const values = getCachedSheetValues_(sheetName);
@@ -652,10 +686,13 @@ function handleWrite(body, session) {
 
   if (sheetName === "UniformInspections") ensureSheetWithHeaders_("UniformInspections", UNIFORM_INSPECTION_COLUMNS);
   if (sheetName === "RoomInspections") ensureSheetWithHeaders_("RoomInspections", ROOM_INSPECTION_COLUMNS);
+  if (sheetName === "PTInspections") ensureSheetWithHeaders_("PTInspections", PT_INSPECTION_COLUMNS);
   if (sheetName === "InspectionPeriods") ensureSheetWithHeaders_("InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   if (sheetName === "Announcements") ensureSheetWithHeaders_("Announcements", ANNOUNCEMENT_COLUMNS);
   if (sheetName === "Notes") ensureSheetWithHeaders_("Notes", NOTES_COLUMNS);
   if (sheetName === "Observations") ensureSheetWithHeaders_("Observations", OBSERVATION_COLUMNS);
+  if (sheetName === "HonorCadetRecommendations") ensureSheetWithHeaders_("HonorCadetRecommendations", HONOR_CADET_RECOMMENDATION_COLUMNS);
+  if (sheetName === "HonorFlightRecommendations") ensureSheetWithHeaders_("HonorFlightRecommendations", HONOR_FLIGHT_RECOMMENDATION_COLUMNS);
   if (sheetName === "BlackFlagStatus") ensureBlackFlagSheet_();
 
   const sheet = getSheetOrThrow(sheetName);

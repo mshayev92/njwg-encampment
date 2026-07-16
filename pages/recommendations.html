@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint, so a collapsed sidebar
+    // renders at its collapsed width immediately instead of flashing
+    // open at the default width for a frame and visibly animating shut
+    // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    try {
+      if (localStorage.getItem("njwg_nav_collapsed") === "true") {
+        document.documentElement.classList.add("nav-rail-collapsed");
+      }
+    } catch (e) { /* storage unavailable — falls back to expanded */ }
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Awards — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .rec-tabs { margin-bottom: var(--space-5); }
+
+    .rec-form-field { margin-bottom: var(--space-4); }
+    .rec-form-field label {
+      display: block;
+      font-size: var(--fs-xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-2);
+    }
+    .rec-form-field select,
+    .rec-form-field textarea {
+      width: 100%;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+    }
+    .rec-form-field textarea { min-height: 90px; resize: vertical; }
+
+    .rec-attest {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-2);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      margin-bottom: var(--space-4);
+      font-size: var(--fs-sm);
+    }
+    .rec-attest input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; }
+
+    .rec-history-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+    .rec-history-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+    .rec-history-row__body { flex: 1; }
+    .rec-history-row__title { font-weight: 600; color: var(--indigo-900); }
+    .rec-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
+    .rec-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); margin-top: var(--space-2); white-space: pre-wrap; }
+    .rec-history-row__delete {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--ink-400);
+      cursor: pointer;
+      font-size: var(--fs-md);
+      line-height: 1;
+      padding: 0 0 0 var(--space-2);
+    }
+    .rec-history-row__delete:hover { color: var(--red-600); }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail">
+      <button type="button" class="nav-rail__crest" id="nav-rail-crest" aria-label="Toggle navigation width">
+        <span class="nav-rail__crest-mark"><img src="../icons/icon-192.png" alt="NJWG"></span>
+        <span class="nav-rail__crest-text">NJWG<span>Encampment</span></span>
+      </button>
+      <div id="nav-rail-links"></div>
+    </nav>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/shell.js"></script>
+    <script>
+      // See overview.html for why this runs here instead of only inside
+      // Shell.init() at the bottom — keeps the sidebar links from ever
+      // being visibly empty for a moment on navigation between pages.
+      Shell.renderNav("recommendations");
+    </script>
+
+    <header class="app-header" id="app-header"></header>
+
+    <main class="app-main">
+      <div id="rec-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    Shell.init({ activePage: "recommendations" });
+
+    const contentEl = document.getElementById("rec-content");
+    const esc = Shell.escapeHtml;
+
+    const session = Auth.getSession();
+    const submitterPosition = (session && (session.Position || session.position)) || "Staff";
+
+    // Positions ARE flights in this app (see js/config.js SQUADRON_FLIGHTS
+    // and roster.html's primaryFlight) — a Flight/CC's StaffAccess row is
+    // scoped to exactly ONE flight, a Squadron/CC's to several (the ones
+    // under that squadron). That distinction is what BE Form 60-13 asks
+    // for: Part I (Honor Cadet) is completed by Flight Commanders, Part II
+    // (Honor Flight) by Squadron Commanders — so it's used here directly,
+    // rather than inventing a separate "role" field this app has no other
+    // use for. Blank/"all" Flights (CCT/Administrator) sees both forms
+    // with a full picker, plus a review list of every submission.
+    const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : [])
+      .filter(f => f && String(f).toLowerCase() !== "all");
+    const isUnscoped = sessionFlightList.length === 0;
+    const showHonorCadetForm = isUnscoped || sessionFlightList.length === 1;
+    const showHonorFlightForm = isUnscoped || sessionFlightList.length > 1;
+
+    let rosterRows = [];
+    let honorCadetRows = [];
+    let honorFlightRows = [];
+    let hcAttested = false;
+    let hfAttested = false;
+
+    function groupByFlight(rows) {
+      return rows
+        .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        .reduce((groups, row) => {
+          const flight = row.Flight || "Unassigned";
+          (groups[flight] = groups[flight] || []).push(row);
+          return groups;
+        }, {});
+    }
+
+    function allFlightNames() {
+      return Object.keys(groupByFlight(rosterRows)).sort();
+    }
+
+    // ---- Honor Cadet Recommendation (Part I — Flight Commanders) ----------
+
+    function honorCadetFlightOptions() {
+      return isUnscoped ? allFlightNames() : sessionFlightList;
+    }
+
+    function studentsForFlight(flight) {
+      return (groupByFlight(rosterRows)[flight] || []).slice().sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
+    }
+
+    function renderHonorCadetSection() {
+      const flights = honorCadetFlightOptions();
+      const defaultFlight = flights[0] || "";
+
+      return `
+        <div class="card" style="margin-bottom: var(--space-6);">
+          <h3 class="section-label">Honor Cadet Recommendation</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+            BE Form 60-13, Part I — completed by Flight Commanders, one cadet per flight.
+          </p>
+
+          <label class="rec-attest">
+            <input type="checkbox" id="hc-attest-checkbox">
+            <span>I affirm that I am the Flight Commander submitting this recommendation.</span>
+          </label>
+
+          ${isUnscoped ? `
+            <div class="rec-form-field">
+              <label for="hc-flight-select">Flight</label>
+              <select id="hc-flight-select">
+                ${flights.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("")}
+              </select>
+            </div>
+          ` : `<input type="hidden" id="hc-flight-select" value="${esc(defaultFlight)}">`}
+
+          <div class="rec-form-field">
+            <label for="hc-student-select">Student</label>
+            <select id="hc-student-select"></select>
+          </div>
+
+          <div class="rec-form-field">
+            <label for="hc-drill">Drill, Barracks, &amp; Uniforms</label>
+            <textarea id="hc-drill" placeholder="How has this cadet distinguished themselves here?"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hc-academics">Academics &amp; Knowledge</label>
+            <textarea id="hc-academics"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hc-teamwork">Teamwork, Leadership, &amp; Conduct</label>
+            <textarea id="hc-teamwork"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hc-notes">Additional Notes</label>
+            <textarea id="hc-notes"></textarea>
+          </div>
+
+          <button class="btn btn--primary" id="hc-submit-btn" disabled>Submit Recommendation</button>
+
+          <div class="rec-history-list" id="hc-history-list" style="margin-top: var(--space-5);"></div>
+        </div>
+      `;
+    }
+
+    function wireHonorCadetSection() {
+      const flightSelect = document.getElementById("hc-flight-select");
+      const studentSelect = document.getElementById("hc-student-select");
+      const attestCheckbox = document.getElementById("hc-attest-checkbox");
+      const submitBtn = document.getElementById("hc-submit-btn");
+      if (!studentSelect || !submitBtn) return;
+
+      function refreshStudents() {
+        const flight = document.getElementById("hc-flight-select").value;
+        const students = studentsForFlight(flight);
+        studentSelect.innerHTML = students.length
+          ? students.map(s => `<option value="${esc(s.CapId)}">${esc(s.Name)} (${esc(s.CapId)})</option>`).join("")
+          : `<option value="">No cadets in this flight</option>`;
+        Shell.enhanceSelect(studentSelect);
+      }
+      refreshStudents();
+
+      if (flightSelect && flightSelect.tagName === "SELECT") {
+        Shell.enhanceSelect(flightSelect);
+        flightSelect.addEventListener("change", refreshStudents);
+      }
+
+      attestCheckbox.addEventListener("change", () => {
+        hcAttested = attestCheckbox.checked;
+        submitBtn.disabled = !hcAttested;
+      });
+
+      submitBtn.addEventListener("click", () => {
+        const flight = document.getElementById("hc-flight-select").value;
+        const student = studentsForFlight(flight).find(s => String(s.CapId) === studentSelect.value);
+        if (!student) { Shell.showToast("Pick a student first.", { type: "error" }); return; }
+
+        const row = {
+          Id: `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: Shell.todayIso(),
+          Timestamp: new Date().toISOString(),
+          SubmittedByPosition: submitterPosition,
+          Flight: flight,
+          StudentCapId: student.CapId,
+          StudentName: student.Name,
+          DrillBarracksUniforms: document.getElementById("hc-drill").value.trim(),
+          AcademicsKnowledge: document.getElementById("hc-academics").value.trim(),
+          TeamworkLeadershipConduct: document.getElementById("hc-teamwork").value.trim(),
+          AdditionalNotes: document.getElementById("hc-notes").value.trim()
+        };
+
+        Api.writeRow("HonorCadetRecommendations", row);
+        honorCadetRows.push(row);
+        Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
+
+        ["hc-drill", "hc-academics", "hc-teamwork", "hc-notes"].forEach(id => { document.getElementById(id).value = ""; });
+        attestCheckbox.checked = false;
+        hcAttested = false;
+        submitBtn.disabled = true;
+
+        renderHonorCadetHistory();
+        Shell.showToast(`Recommendation submitted for ${student.Name}.`, { type: "success" });
+      });
+
+      renderHonorCadetHistory();
+    }
+
+    function honorCadetHistoryRowHtml(r) {
+      return `
+        <div class="rec-history-row" data-id="${esc(r.Id)}">
+          <div class="rec-history-row__body">
+            <div class="rec-history-row__title">${esc(r.StudentName) || "—"} · ${esc(r.Flight) || "—"}</div>
+            <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
+            ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
+            ${r.AcademicsKnowledge ? `<div class="rec-history-row__note"><strong>Academics:</strong> ${esc(r.AcademicsKnowledge)}</div>` : ""}
+            ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
+            ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
+          </div>
+          <button type="button" class="rec-history-row__delete" data-delete-hc="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>
+        </div>`;
+    }
+
+    function renderHonorCadetHistory() {
+      const listEl = document.getElementById("hc-history-list");
+      if (!listEl) return;
+      const visible = isUnscoped ? honorCadetRows : honorCadetRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      listEl.innerHTML = sorted.length
+        ? sorted.map(honorCadetHistoryRowHtml).join("")
+        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No Honor Cadet recommendations submitted yet.</p>`;
+
+      listEl.querySelectorAll("[data-delete-hc]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.deleteHc;
+          const confirmed = await Shell.confirm({ title: "Remove this recommendation?", message: "This can't be undone.", confirmLabel: "Remove" });
+          if (!confirmed) return;
+          Api.deleteRow("HonorCadetRecommendations", { Id: id }, { matchColumns: ["Id"] });
+          honorCadetRows = honorCadetRows.filter(r => String(r.Id) !== String(id));
+          Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
+          renderHonorCadetHistory();
+          Shell.showToast("Removed.", { type: "success" });
+        });
+      });
+    }
+
+    // ---- Honor Flight Recommendation (Part II — Squadron Commanders) ------
+
+    function honorFlightFlightOptions() {
+      return isUnscoped ? allFlightNames() : sessionFlightList;
+    }
+
+    function renderHonorFlightSection() {
+      const flights = honorFlightFlightOptions();
+      return `
+        <div class="card">
+          <h3 class="section-label">Honor Flight Recommendation</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+            BE Form 60-13, Part II — completed by Squadron Commanders, submitted independently of any Honor Cadet recommendation.
+          </p>
+
+          <label class="rec-attest">
+            <input type="checkbox" id="hf-attest-checkbox">
+            <span>I affirm that I am the Squadron Commander submitting this recommendation.</span>
+          </label>
+
+          <div class="rec-form-field">
+            <label for="hf-flight-select">Flight</label>
+            <select id="hf-flight-select">
+              ${flights.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("")}
+            </select>
+          </div>
+
+          <div class="rec-form-field">
+            <label for="hf-drill">Drill, Barracks, &amp; Uniforms</label>
+            <textarea id="hf-drill" placeholder="How has this flight distinguished itself here?"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hf-academics">Academics &amp; Knowledge</label>
+            <textarea id="hf-academics"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hf-teamwork">Teamwork, Leadership, &amp; Conduct</label>
+            <textarea id="hf-teamwork"></textarea>
+          </div>
+          <div class="rec-form-field">
+            <label for="hf-notes">Additional Notes</label>
+            <textarea id="hf-notes"></textarea>
+          </div>
+
+          <button class="btn btn--primary" id="hf-submit-btn" disabled>Submit Recommendation</button>
+
+          <div class="rec-history-list" id="hf-history-list" style="margin-top: var(--space-5);"></div>
+        </div>
+      `;
+    }
+
+    function wireHonorFlightSection() {
+      const flightSelect = document.getElementById("hf-flight-select");
+      const attestCheckbox = document.getElementById("hf-attest-checkbox");
+      const submitBtn = document.getElementById("hf-submit-btn");
+      if (!flightSelect || !submitBtn) return;
+
+      Shell.enhanceSelect(flightSelect);
+
+      attestCheckbox.addEventListener("change", () => {
+        hfAttested = attestCheckbox.checked;
+        submitBtn.disabled = !hfAttested;
+      });
+
+      submitBtn.addEventListener("click", () => {
+        const flight = flightSelect.value;
+        if (!flight) { Shell.showToast("Pick a flight first.", { type: "error" }); return; }
+
+        const row = {
+          Id: `hf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: Shell.todayIso(),
+          Timestamp: new Date().toISOString(),
+          SubmittedByPosition: submitterPosition,
+          Squadron: submitterPosition,
+          Flight: flight,
+          DrillBarracksUniforms: document.getElementById("hf-drill").value.trim(),
+          AcademicsKnowledge: document.getElementById("hf-academics").value.trim(),
+          TeamworkLeadershipConduct: document.getElementById("hf-teamwork").value.trim(),
+          AdditionalNotes: document.getElementById("hf-notes").value.trim()
+        };
+
+        Api.writeRow("HonorFlightRecommendations", row);
+        honorFlightRows.push(row);
+        Api.setCachedRows("HonorFlightRecommendations", honorFlightRows);
+
+        ["hf-drill", "hf-academics", "hf-teamwork", "hf-notes"].forEach(id => { document.getElementById(id).value = ""; });
+        attestCheckbox.checked = false;
+        hfAttested = false;
+        submitBtn.disabled = true;
+
+        renderHonorFlightHistory();
+        Shell.showToast(`Honor Flight recommendation submitted for ${flight}.`, { type: "success" });
+      });
+
+      renderHonorFlightHistory();
+    }
+
+    function honorFlightHistoryRowHtml(r) {
+      return `
+        <div class="rec-history-row" data-id="${esc(r.Id)}">
+          <div class="rec-history-row__body">
+            <div class="rec-history-row__title">${esc(r.Flight) || "—"}</div>
+            <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
+            ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
+            ${r.AcademicsKnowledge ? `<div class="rec-history-row__note"><strong>Academics:</strong> ${esc(r.AcademicsKnowledge)}</div>` : ""}
+            ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
+            ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
+          </div>
+          <button type="button" class="rec-history-row__delete" data-delete-hf="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>
+        </div>`;
+    }
+
+    function renderHonorFlightHistory() {
+      const listEl = document.getElementById("hf-history-list");
+      if (!listEl) return;
+      const visible = isUnscoped ? honorFlightRows : honorFlightRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+      listEl.innerHTML = sorted.length
+        ? sorted.map(honorFlightHistoryRowHtml).join("")
+        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No Honor Flight recommendations submitted yet.</p>`;
+
+      listEl.querySelectorAll("[data-delete-hf]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.deleteHf;
+          const confirmed = await Shell.confirm({ title: "Remove this recommendation?", message: "This can't be undone.", confirmLabel: "Remove" });
+          if (!confirmed) return;
+          Api.deleteRow("HonorFlightRecommendations", { Id: id }, { matchColumns: ["Id"] });
+          honorFlightRows = honorFlightRows.filter(r => String(r.Id) !== String(id));
+          Api.setCachedRows("HonorFlightRecommendations", honorFlightRows);
+          renderHonorFlightHistory();
+          Shell.showToast("Removed.", { type: "success" });
+        });
+      });
+    }
+
+    // ---- Page assembly -----------------------------------------------------
+
+    function render() {
+      if (!showHonorCadetForm && !showHonorFlightForm) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">🎖️</div>
+            <p>No award recommendation form applies to your position.</p>
+          </div>`;
+        return;
+      }
+
+      contentEl.innerHTML = `
+        ${showHonorCadetForm ? renderHonorCadetSection() : ""}
+        ${showHonorFlightForm ? renderHonorFlightSection() : ""}
+      `;
+
+      if (showHonorCadetForm) wireHonorCadetSection();
+      if (showHonorFlightForm) wireHonorFlightSection();
+      Shell.animateIn(contentEl);
+    }
+
+    function load() {
+      const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
+        rosterRows = fresh.rows || [];
+        render();
+      });
+      const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
+        honorCadetRows = fresh.rows || [];
+        if (document.getElementById("hc-history-list")) renderHonorCadetHistory();
+      });
+      const hfHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
+        honorFlightRows = fresh.rows || [];
+        if (document.getElementById("hf-history-list")) renderHonorFlightHistory();
+      });
+
+      const allCachedNow = !!(rosterHandle.data && hcHandle.data && hfHandle.data);
+
+      if (allCachedNow) {
+        rosterRows = rosterHandle.data.rows || [];
+        honorCadetRows = hcHandle.data.rows || [];
+        honorFlightRows = hfHandle.data.rows || [];
+        render();
+      } else {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
+      }
+
+      return Promise.all([rosterHandle.ready, hcHandle.ready, hfHandle.ready])
+        .then(([rosterData, hcData, hfData]) => {
+          rosterRows = rosterData.rows || [];
+          honorCadetRows = hcData.rows || [];
+          honorFlightRows = hfData.rows || [];
+          if (!allCachedNow) render();
+        })
+        .catch((err) => {
+          if (!allCachedNow) {
+            contentEl.innerHTML = `
+              <div class="state-message">
+                <div class="state-message__icon">⚠️</div>
+                <p>${esc(err.message)}</p>
+              </div>`;
+          }
+          Shell.showToast(err.message, { type: "error" });
+        });
+    }
+
+    Shell.registerRefresh(load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

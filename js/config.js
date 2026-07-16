@@ -97,6 +97,7 @@ window.APP_CONFIG = {
     { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
     { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },
     { id: "observations", label: "Observations", href: "pages/observations.html", icon: "star" },
+    { id: "recommendations", label: "Awards", href: "pages/recommendations.html", icon: "award" },
     { id: "notes",        label: "Notes",        href: "pages/notes.html",        icon: "edit" },
     { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" },
     // Administrator-only: gated by the "admin" page token (server-enforced
@@ -111,7 +112,7 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations"],
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations"],
 
   // Squadrons have no cadets of their own — they're a grouping of
   // flights. There's no sheet/column anywhere that records this

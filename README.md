@@ -58,7 +58,7 @@ What this means in practice:
 - This is **not** multi-factor or identity-verified authentication, and it is **not per-person** — anyone who knows the device passphrase can act as any non-privileged position (a flight or squadron), and anyone who additionally knows the CCT or Administrator password can act as those. There is no way to tell *which individual* picked a given position; `LoginLog` only records which position was used and when, not who used it.
 - A signed token, once issued, is trusted for its full lifetime even if copied elsewhere — there's no per-device cryptographic binding beyond the device gate itself.
 - Being a PWA / installed app doesn't change any of this — an installed app makes the same calls to the same public endpoint as a browser tab.
-- Keep sensitive columns (phone, address, DOB, emergency contacts) out of the sheets this app reads. The current `Roster`/`Schedule` columns intentionally avoid them.
+- Keep sensitive columns (phone, address, DOB, emergency contacts) out of the sheets this app reads. The current `Roster`/`Schedule` columns intentionally avoid them, with one deliberate exception: `Roster.Age` and `Roster.Sex` (not date of birth) are stored so the Physical Training inspection can look up the correct age/sex standard from the PT chart — a conscious call given the same access controls (Worker + signed tokens) protect the rest of the sheet.
 - Page-level access control (who sees Schedule vs. other pages) is a UX/organizational feature, not a data-security feature — see **Per-page access control** below.
 
 ## How the pieces fit together
@@ -100,7 +100,7 @@ Create tabs named exactly:
   - `Position` — the exact dropdown label, e.g. `Alpha Flight`, `Bravo Flight`, `Squadron 1`, `Squadron 2`, `CCT`, `Administrator`. Each row is one dropdown option — add or remove a row to add or remove an option, no code changes needed.
   - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, or Announcements, additionally include `edit-roster`, `edit-schedule`, or `edit-announcements` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
   - `Password` — **plaintext**. Leave blank for ordinary flights/squadrons. Fill in a real password for the `CCT` and `Administrator` rows specifically (matched case-insensitively) — those two positions cannot sign in without it. This entire sheet is never exposed through the app's generic read API — see the security tradeoff section above — but is visible to anyone with Sheet access, so restrict Sheet sharing accordingly.
-- **Roster** — columns: `CapId, Name, Rank, Flight`. Purely a display list of students for staff to browse — **never used for login**.
+- **Roster** — columns: `CapId, Name, Rank, Flight, Age, Sex`. Purely a display list of students for staff to browse — **never used for login**. `Age`/`Sex` feed the Physical Training inspection's chart lookup (see below); both are optional per cadet.
 - **Schedule** — columns: `Day, Time, Activity, Location, Flight`
 
 ### Step 2 — Add the Apps Script

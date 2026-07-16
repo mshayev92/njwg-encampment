@@ -13,7 +13,8 @@
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
-  "Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations"
+  "Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations",
+  "HonorCadetRecommendations", "HonorFlightRecommendations"
 ];
 
 export const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14;
@@ -24,6 +25,7 @@ export const SHEET_PERMISSIONS = {
   Schedule:           { read: "any", write: "page" },
   UniformInspections: { read: "any", write: "any" },
   RoomInspections:    { read: "any", write: "any" },
+  PTInspections:      { read: "any", write: "any" },
   InspectionPeriods:  { read: "any", write: "page" },
   Announcements:      { read: "any", write: "page" },
   BlackFlagStatus:    { read: "any", write: "page" },
@@ -35,7 +37,11 @@ export const SHEET_PERMISSIONS = {
   // the "one tap" logging flow this is designed around); page-level
   // visibility (whether "observations" is in a position's Pages at
   // all) is the only real gate, same as every other page.
-  Observations:       { read: "any", write: "any" }
+  Observations:       { read: "any", write: "any" },
+  // Same shape as Observations: gated purely by whether "recommendations"
+  // is in a position's Pages, not a separate edit-recommendations grant.
+  HonorCadetRecommendations:  { read: "any", write: "any" },
+  HonorFlightRecommendations: { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
@@ -63,6 +69,25 @@ export const ROOM_INSPECTION_COLUMNS = [
   "HospitalCorners", "Pillow", "Collar", "SheetsBlanket", "Shoes",
   "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
+];
+// Physical Fitness Test — the 5 line items are each OPTIONAL (unlike
+// Uniform/Room, where every item must be scored before saving), since a
+// cadet may not attempt every event on a given test day. Raw performance
+// is recorded alongside a computed Pass ("1"/"0"/"") column per item —
+// pass/fail is looked up against the AFI 36-2905-style age/sex chart in
+// pages/inspections.html (PT_CHART), using Age/Sex read from the Roster
+// at the time of the test. TotalPoints is how many attempted events
+// passed; ItemsAttempted is how many of the 5 had a value entered at all
+// — the denominator, since it varies test to test.
+export const PT_INSPECTION_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp", "Age", "Sex",
+  "PacerLaps", "PacerLapsPass",
+  "MileRunTime", "MileRunTimePass",
+  "CurlUps", "CurlUpsPass",
+  "PushUps", "PushUpsPass",
+  "SitReach", "SitReachPass",
+  "TotalPoints", "ItemsAttempted", "Notes"
 ];
 // A scheduled inspection period: a Date plus what's being inspected that
 // day. Category is "uniform" or "room"; UniformType ("OCP/ABU" or "Blues")
@@ -99,6 +124,25 @@ export const OBSERVATION_COLUMNS = [
   "Id", "StudentCapId", "StudentName", "Flight",
   "LoggerPosition", "Timestamp",
   "Category", "Tag", "Sentiment", "Note"
+];
+// BE Form 60-13 "Recommendation for Daily Awards", Part I (Honor Cadet),
+// digitized. DATE SUBMITTED / TD SUBMITTED are dropped — the app already
+// knows Date/Timestamp — and the paper form's typed Flight/CC + Student
+// identity fields become SubmittedByPosition (from the session) and a
+// Roster pick (StudentCapId/StudentName/Flight), rather than free text.
+// No endorse/signature step: that's the Squadron/CC review workflow on
+// paper, which this app doesn't reproduce — see HonorFlightRecommendations,
+// submitted independently by squadron-scoped positions.
+export const HONOR_CADET_RECOMMENDATION_COLUMNS = [
+  "Id", "Date", "Timestamp", "SubmittedByPosition", "Flight",
+  "StudentCapId", "StudentName",
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
+];
+// BE Form 60-13, Part II (Honor Flight), digitized — submitted by
+// squadron-scoped positions, independently of Honor Cadet recommendations.
+export const HONOR_FLIGHT_RECOMMENDATION_COLUMNS = [
+  "Id", "Date", "Timestamp", "SubmittedByPosition", "Squadron", "Flight",
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
 ];
 
 // ---- Hashing / signing ------------------------------------------------------
