@@ -306,11 +306,22 @@ const Api = (() => {
 
     const promise = request("read", { params: { sheet: sheetName, ...extraParams } })
       .then((data) => {
+        // Skip notifying subscribers if this revalidation came back
+        // identical to what's already cached (the common case, since a
+        // page usually renders from cache and kicks off this refetch in
+        // the same breath). Without this check, every background
+        // revalidation — even a no-op one — fires onFresh again a moment
+        // after the initial cached render, causing pages that call
+        // Shell.animateIn() in their render function to replay the
+        // entrance animation for content that didn't actually change.
+        const previous = cache.get(key);
+        const changed = !previous || JSON.stringify(previous.data) !== JSON.stringify(data);
+
         const entry = { data, fetchedAt: Date.now() };
         cache.set(key, entry);
         persistToStorage_(key, entry);
         inFlight.delete(key);
-        notifySubscribers_(key, data);
+        if (changed) notifySubscribers_(key, data);
         return data;
       })
       .catch((err) => {
