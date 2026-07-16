@@ -436,6 +436,14 @@
      * write landed.
      */
     async function load() {
+      if (!navigator.onLine) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">📵</div>
+            <p>You're offline. Connect to the internet to view announcements.</p>
+          </div>`;
+        return;
+      }
       const a = Api.getSheetCached("Announcements", (fresh) => {
         announcements = fresh.rows || [];
         announcementsLoaded = true;
