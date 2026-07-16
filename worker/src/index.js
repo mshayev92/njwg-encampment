@@ -140,9 +140,9 @@ async function handlePost(request, env, ctx) {
 
   if (body.action === "savePushSubscription") {
     await requireDeviceToken(env, body.deviceToken);
-    await requireSession(env, body.token);
+    const pushSession = await requireSession(env, body.token);
     await checkRateLimit(env, body.token);
-    return respond(await handleSavePushSubscription(env, body));
+    return respond(await handleSavePushSubscription(env, body, pushSession));
   }
 
   if (body.action === "adminSaveStaffAccess") {
@@ -503,13 +503,23 @@ function handlePushConfig(env) {
   return { ok: true, enabled, vapidPublicKey: enabled ? env.VAPID_PUBLIC_KEY : null };
 }
 
-async function handleSavePushSubscription(env, body) {
+async function handleSavePushSubscription(env, body, session) {
   const sub = body.subscription;
   if (!sub || !sub.endpoint || !sub.keys || !sub.keys.p256dh || !sub.keys.auth) {
     throw new Error("Invalid push subscription.");
   }
   const key = PUSH_KEY_PREFIX + (await hashString(sub.endpoint));
-  const stored = { endpoint: sub.endpoint, keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth } };
+  // Recording WHICH position enabled alerts on this device lets a push
+  // be targeted at one position (see maybeDispatchPush's Notes case)
+  // instead of only ever broadcasting to everyone. A device re-enabling
+  // alerts under a different position simply overwrites this — a
+  // subscription always reflects whichever position most recently
+  // clicked "Enable alerts" on it, not a historical record.
+  const stored = {
+    endpoint: sub.endpoint,
+    keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth },
+    position: session && session.Position ? String(session.Position) : null
+  };
   await env.NJWG_KV.put(key, JSON.stringify(stored), { expirationTtl: PUSH_SUB_TTL_SECONDS });
   return { ok: true };
 }
@@ -550,6 +560,23 @@ function maybeDispatchPush(env, ctx, sheetName, rowData, action) {
       tag: "blackflag",
       url: "pages/overview.html"
     };
+  } else if (sheetName === "Notes" && action === "appended" && rowData.ToPosition) {
+    // Directed note — target the push at devices currently subscribed
+    // under the RECIPIENT position specifically, not every device (see
+    // dispatchPush's targetPosition filter). A device that never
+    // enabled alerts, or enabled them under a different position, just
+    // won't get this one; the in-app "sent to you" badge (see
+    // js/shell.js loadGlobalAlerts_) is the reliable fallback.
+    const text = stripHtml(rowData.Body) || rowData.Subject || "New note";
+    payload = {
+      title: `📝 Note from ${rowData.AuthorPosition || "Staff"}`,
+      body: `${rowData.Subject ? rowData.Subject + ": " : ""}${text}`.slice(0, 200),
+      tag: "note",
+      url: "pages/notes.html"
+    };
+    const work = dispatchPush(env, payload, { targetPosition: rowData.ToPosition });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
+    return;
   }
 
   if (!payload) return;
@@ -557,7 +584,8 @@ function maybeDispatchPush(env, ctx, sheetName, rowData, action) {
   if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(work);
 }
 
-async function dispatchPush(env, payload) {
+async function dispatchPush(env, payload, { targetPosition } = {}) {
+  const targetLower = targetPosition ? String(targetPosition).trim().toLowerCase() : null;
   let cursor;
   do {
     const list = await env.NJWG_KV.list({ prefix: PUSH_KEY_PREFIX, cursor });
@@ -566,6 +594,7 @@ async function dispatchPush(env, payload) {
       if (!raw) continue;
       let sub;
       try { sub = JSON.parse(raw); } catch { continue; }
+      if (targetLower && String(sub.position || "").trim().toLowerCase() !== targetLower) continue;
       try {
         const res = await sendPush(env, sub, payload);
         // 404/410 mean the subscription is permanently gone — prune it so

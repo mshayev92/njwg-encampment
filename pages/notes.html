@@ -232,6 +232,30 @@
       padding: var(--space-1) var(--space-2);
     }
 
+    .note-card--to-me {
+      border-color: var(--gold-500);
+      box-shadow: 0 0 0 1px var(--gold-500);
+    }
+
+    .note-card__to-badge {
+      align-self: flex-start;
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--gold-600);
+      background: var(--gold-100);
+      border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+      margin-bottom: var(--space-2);
+    }
+
+    .note-card__to-badge--muted {
+      color: var(--ink-600);
+      background: var(--surface-sunken);
+    }
+
     .note-card__body {
       font-size: var(--fs-sm);
       color: var(--ink-900);
@@ -285,15 +309,14 @@
 
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
 
-    /** Empty/absent Flights on the session means "all flights" per Code.gs. */
+    /** Empty/absent Flights on the session means "all flights" per Code.gs. Also expands squadron audiences (see Shell.flightMatchesAudience). */
     function isFlightAllowed(flight) {
-      if (!allowedFlights.length) return true;
-      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
-      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+      return Shell.flightMatchesAudience(allowedFlights, flight);
     }
 
     let rosterRows = [];
     let notes = [];
+    let allPositions = []; // for the "send to a specific position" selector
     let editingNoteId = null; // Id of the note being edited, or null when adding a new one
     let showForm = false; // Whether the add-note form is open (editing always forces it open)
 
@@ -306,16 +329,25 @@
     }
 
     /**
-     * A note is visible to a position if it isn't tied to any specific
-     * flight (blank Flight — a general note anyone can see, same as an
-     * Announcement) OR that position is allowed to see the tied flight.
+     * A note is visible to a position if:
+     *   - it's addressed directly to THIS position (ToPosition) —
+     *     always visible regardless of flight scoping, same as a DM
+     *     bypasses a channel's membership rules elsewhere, or
+     *   - it isn't tied to any specific flight (blank Flight — a
+     *     general note anyone can see, same as an Announcement), or
+     *   - this position is allowed to see the tied flight.
      * This is the actual visibility gate for the feed below — matched
      * against the FULL roster (not allowedRoster()) when a note is
      * created, so the Flight tag is correct even in the rare case
      * someone types a name manually rather than picking a suggestion.
      */
+    function isNoteToMe(note) {
+      const me = String(session?.Position || "").trim().toLowerCase();
+      return !!me && String(note.ToPosition || "").trim().toLowerCase() === me;
+    }
+
     function isNoteVisible(note) {
-      return !note.Flight || isFlightAllowed(note.Flight);
+      return isNoteToMe(note) || !note.Flight || isFlightAllowed(note.Flight);
     }
 
     /** Exact (case-insensitive) name match against the full roster, so a written Subject gets tagged with that cadet's real Flight. */
@@ -330,6 +362,8 @@
       if (!editing && !showForm) {
         return `<button class="btn btn--primary" id="show-note-form-btn">+ Add a Note</button>`;
       }
+      const existing = editing ? notes.find(n => String(n.Id) === String(editingNoteId)) : null;
+      const currentToPosition = existing ? String(existing.ToPosition || "") : "";
       return `
         <div class="card note-form">
           <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${editing ? "Edit Note" : "Add a Note"}</h2>
@@ -338,6 +372,16 @@
           </div>
           ${RichText.TOOLBAR_HTML}
           <div class="richtext-editor" id="body-editor" contenteditable="true" data-placeholder="Write your note…"></div>
+          <div class="field">
+            <label for="to-position-select">Send to a specific position (optional)</label>
+            <select id="to-position-select">
+              <option value="">— General note, no specific recipient —</option>
+              ${allPositions.filter(p => p.toLowerCase() !== String(session?.Position || "").toLowerCase()).map(p => `
+                <option value="${esc(p)}" ${currentToPosition.toLowerCase() === p.toLowerCase() ? "selected" : ""}>${esc(p)}</option>
+              `).join("")}
+            </select>
+            <span class="hint" style="display:block; font-size: var(--fs-2xs); color: var(--ink-600);">They'll see it flagged in their Notes tab (and get a push alert if they have one enabled), regardless of flight.</span>
+          </div>
           <div style="display:flex; gap: var(--space-3);">
             <button class="btn btn--primary" id="post-note-btn">${editing ? "Save Changes" : "Add Note"}</button>
             <button class="btn btn--ghost" id="cancel-edit-note-btn">Cancel</button>
@@ -355,8 +399,10 @@
       // Only show the flight tag when it adds information the position
       // name doesn't already give.
       const showFlightTag = n.Flight && n.Flight.trim().toLowerCase() !== String(n.AuthorPosition || "").trim().toLowerCase();
+      const toMe = isNoteToMe(n);
       return `
-        <div class="note-card">
+        <div class="note-card${toMe ? " note-card--to-me" : ""}">
+          ${toMe ? `<div class="note-card__to-badge">→ Sent to you</div>` : (n.ToPosition ? `<div class="note-card__to-badge note-card__to-badge--muted">→ ${esc(n.ToPosition)}</div>` : "")}
           <div class="note-card__header">
             <div class="note-card__meta">
               <span class="note-card__author">${esc(n.AuthorPosition || "—")}</span>
@@ -377,7 +423,10 @@
     function renderFeed() {
       const sorted = notes
         .filter(isNoteVisible)
-        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+        // Notes sent directly to me float to the top regardless of
+        // date, so they're not easy to miss lower down a busy feed —
+        // then newest-first within each group.
+        .sort((a, b) => (Number(isNoteToMe(b)) - Number(isNoteToMe(a))) || (new Date(b.Timestamp) - new Date(a.Timestamp)));
       if (!sorted.length) {
         return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
       }
@@ -400,6 +449,9 @@
 
       const showFormBtn = document.getElementById("show-note-form-btn");
       if (showFormBtn) showFormBtn.addEventListener("click", () => { showForm = true; render(); });
+
+      const toPositionSelect = document.getElementById("to-position-select");
+      if (toPositionSelect) Shell.enhanceSelect(toPositionSelect);
 
       const postNoteBtn = document.getElementById("post-note-btn");
       if (postNoteBtn) postNoteBtn.addEventListener("click", postNote);
@@ -526,16 +578,18 @@
 
       const editing = editingNoteId !== null;
       const existing = editing ? notes.find(n => String(n.Id) === String(editingNoteId)) : null;
+      const toPosition = (document.getElementById("to-position-select")?.value || "").trim();
 
       const noteRow = editing && existing
-        ? { ...existing, Subject: subject, Flight: flightForSubject(subject), Body: bodyHtml }
+        ? { ...existing, Subject: subject, Flight: flightForSubject(subject), Body: bodyHtml, ToPosition: toPosition }
         : {
             Id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             Timestamp: new Date().toISOString(),
             AuthorPosition: session.Position,
             Subject: subject,
             Flight: flightForSubject(subject),
-            Body: bodyHtml
+            Body: bodyHtml,
+            ToPosition: toPosition
           };
 
       try {
@@ -593,6 +647,15 @@
       if (n.data) { notes = n.data.rows || []; notesLoaded = true; }
       renderIfReady();
 
+      // Positions for the "send to" selector — fetched once, doesn't
+      // need Api's sheet-cache/re-render machinery like Roster/Notes
+      // above (it barely ever changes and isn't shown until the form
+      // opens), so a plain re-render-on-arrival is enough.
+      Auth.listPositions().then(({ positions }) => {
+        allPositions = positions.slice().sort((a, b) => a.localeCompare(b));
+        if (showForm || editingNoteId !== null) render();
+      }).catch(() => { /* the "send to" selector just stays empty; not worth toasting over */ });
+
       try {
         await Promise.all([r.ready, n.ready]);
       } catch (err) {
@@ -605,6 +668,11 @@
         }
         Shell.showToast(err.message, { type: "error" });
       }
+
+      // Now that this page has actually been viewed, clear the nav
+      // badge for notes sent to me — see Shell.markNotesSeen and the
+      // updateNotesBadge_ pattern this mirrors for Announcements.
+      Shell.markNotesSeen();
     }
 
     Shell.registerRefresh(load);

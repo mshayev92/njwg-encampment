@@ -170,9 +170,7 @@
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
 
     function isFlightAllowed(flight) {
-      if (!allowedFlights.length) return true;
-      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
-      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+      return Shell.flightMatchesAudience(allowedFlights, flight);
     }
 
     // Weather codes from Open-Meteo's WMO code table, condensed to

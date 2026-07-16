@@ -179,11 +179,16 @@
     let selectedFlight = null;
 
     function groupByFlight(rows) {
-      return rows.reduce((groups, row) => {
-        const flight = row.Flight || "Unassigned";
-        (groups[flight] = groups[flight] || []).push(row);
-        return groups;
-      }, {});
+      return rows
+        // Drop blank/placeholder roster rows (no CapId AND no Name) — a
+        // stray empty row in the sheet that still has a Flight value
+        // would otherwise show up as a phantom cadet card with no name.
+        .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        .reduce((groups, row) => {
+          const flight = row.Flight || "Unassigned";
+          (groups[flight] = groups[flight] || []).push(row);
+          return groups;
+        }, {});
     }
 
     function renderFlightGrid(rows) {

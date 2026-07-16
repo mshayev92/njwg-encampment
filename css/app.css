@@ -403,13 +403,38 @@ html.nav-rail-collapsed .nav-rail__crest {
 }
 
 .app-shell--collapsed .nav-rail__crest-text,
-.app-shell--collapsed .nav-rail__link-label,
-.app-shell--collapsed .nav-rail__footer {
+.app-shell--collapsed .nav-rail__link-label {
   display: none;
 }
 
 .app-shell--collapsed .nav-rail__link {
   justify-content: center;
+}
+
+/* The footer card (signed-in-as / log out) used to share the plain
+   display:none toggle above — instant on both directions. Collapsing is
+   fine instant (nothing to reveal), but EXPANDING showed the card at
+   full content width/opacity the instant the class was removed, while
+   .app-shell's grid-template-columns transition (see above) was still
+   animating the rail from its narrow collapsed width to full width —
+   so the card briefly rendered squeezed into a too-narrow rail before
+   the width caught up, reading as a faint horizontal flicker. Fading
+   opacity in/out instead of an instant display snap, and delaying the
+   fade-IN until the width transition has had time to run, keeps the
+   card invisible until the rail is actually wide enough for it. */
+.nav-rail__footer {
+  opacity: 1;
+  transition: opacity var(--duration-base) var(--ease-standard);
+}
+
+.app-shell--collapsed .nav-rail__footer {
+  opacity: 0;
+  pointer-events: none;
+  transition-delay: 0s;
+}
+
+.app-shell:not(.app-shell--collapsed) .nav-rail__footer {
+  transition-delay: var(--duration-base);
 }
 
 /* ---- Nav rail footer card (signed-in-as / log out) ----
@@ -756,8 +781,8 @@ html.nav-rail-collapsed .nav-rail__crest {
   border-right-color: var(--gold-500);
 }
 .spinner::after {
-  border-bottom-color: var(--indigo-500);
-  opacity: 0.5;
+  border-bottom-color: var(--gold-500);
+  opacity: 0.35;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 

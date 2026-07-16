@@ -110,5 +110,21 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"]
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes"],
+
+  // Squadrons have no cadets of their own — they're a grouping of
+  // flights. There's no sheet/column anywhere that records this
+  // membership, so it lives here: a Schedule item (or anything else)
+  // audienced to "Squadron 1" is visible to every flight listed under
+  // it (see Shell.flightMatchesAudience, used by the Schedule/Overview
+  // "happening now" banner and the Notes/Inspections/Overview visibility
+  // checks). Keys are lowercased squadron names; only Squadron 1 is
+  // filled in below from a confirmed example — ADD THE REST to match
+  // your actual squadron structure.
+  SQUADRON_FLIGHTS: {
+    "squadron 1": ["Alpha", "Bravo"]
+    // "squadron 2": ["Charlie", "Delta"],
+    // "squadron 3": ["Echo", "Foxtrot"],
+    // "squadron 4": ["Golf", "Hotel"],
+  }
 };
