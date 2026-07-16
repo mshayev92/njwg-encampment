@@ -1,31 +1,30 @@
 /* ============================================================
    NJWG ENCAMPMENT — SERVICE WORKER
-   Caches the app shell (HTML/CSS/JS) and serves it STALE-WHILE-
-   REVALIDATE (see the fetch handler): an instant response from cache
-   when one exists, with a network fetch kicked off in parallel to
-   refresh the cache for the NEXT navigation. This app is a static
-   multi-page site — every nav-rail click is a full browser navigation
-   to a new HTML document — so a network-first shell meant every single
-   page-to-page click paused on a round trip before anything painted,
-   even though the sheet data itself was already rendering instantly
-   from js/api.js's own cache. Cache-first removes that pause; a fresh
-   deploy still shows up (one navigation later than before, instead of
-   immediately), which is a fair trade for every click no longer
-   blocking on the network.
+   Caches the app shell (HTML/CSS/JS) for OFFLINE use, but serves it
+   NETWORK-FIRST when online (see the fetch handler) so a freshly
+   deployed change shows up on the very next load instead of only after
+   a second visit — the trap a cache-first shell falls into. The cached
+   copy is the offline fallback, refreshed on every successful fetch.
    Does NOT cache Apps Script API responses — schedule/roster data
    always comes straight from the network.
+
+   A cache-first/stale-while-revalidate version of this file was tried
+   (to make page-to-page navigation feel instant) and reverted — across
+   several rounds of fixes it kept surfacing new browser-specific
+   navigation failures (redirected-response errors, only-if-cached
+   speculative requests, atomic-install failures leaving devices stuck
+   on old workers) that were hard to reproduce and verify outside the
+   field. Network-first is the version known to work reliably; revisit
+   the smoother-navigation idea separately if it's worth another attempt
+   (e.g. an in-page prefetch-on-hover instead of changing the SW's
+   navigation strategy).
    ============================================================ */
 
-// Bumped to v11: on top of the v10 robustness fixes (resilient install,
-// never serving/caching a redirected/opaque response), navigation
-// fetches now go out via an explicit redirect:"follow" Request (see
-// toFollowingRequest_ below) — navigation FetchEvents carry
-// request.redirect === "manual", and handing back a followed redirect's
-// response for a "manual"-mode request is exactly what threw "a
-// redirected response was used for a request whose redirect mode is not
-// 'follow'" in DevTools. Changing this name forces every device to drop
-// its old cached shell on activate.
-const CACHE_NAME = "njwg-encampment-v11";
+// Bumped to v12 to revert every device from the v7-v11 cache-first
+// experiment back to network-first — changing this name forces every
+// device to drop its old cached shell on activate instead of
+// continuing to run any of the previous strategies.
+const CACHE_NAME = "njwg-encampment-v12";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -60,14 +59,11 @@ const APP_SHELL = [
 
 self.addEventListener("install", (event) => {
   // Precache each shell asset INDEPENDENTLY, tolerating individual
-  // failures. cache.addAll() is atomic — if even one URL in APP_SHELL
-  // isn't served (a missing icon, a dev server that doesn't have
-  // gate.html, a transient hiccup), the WHOLE install rejects, the new
-  // worker never activates, and the browser silently keeps running the
-  // PREVIOUS worker version forever. That's how a device could stay
-  // stuck on an old, buggy handler no matter how many new versions ship.
-  // allSettled + individual cache.add() means a missing asset is skipped,
-  // not fatal, so the new worker always installs and takes over.
+  // failures — cache.addAll() is atomic, so a single missing/unreachable
+  // URL would abort the WHOLE install, leaving the new worker never
+  // activated and the device stuck running whatever the PREVIOUS
+  // worker was. allSettled + individual cache.add() means one bad
+  // asset is skipped, not fatal, so a new version always takes over.
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) =>
       Promise.allSettled(APP_SHELL.map((url) => cache.add(url)))
@@ -136,100 +132,26 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Chrome (and some other browsers) occasionally issue a speculative
-  // request — e.g. right after a window.location.href redirect, like
-  // the post-login one in index.html — with request.cache set to
-  // "only-if-cached" but request.mode NOT "same-origin". That specific
-  // combination is invalid to pass straight to fetch(): it throws a
-  // synchronous TypeError instead of returning a rejected promise, which
-  // bypasses every .catch() below and leaves respondWith() with nothing
-  // — the exact "this page might be temporarily down" browser error.
-  // Bail out early (no respondWith at all) so the browser handles these
-  // itself, same as it would with no service worker present.
-  if (event.request.cache === "only-if-cached" && event.request.mode !== "same-origin") {
+  // Never cache calls to the Apps Script backend — always go to network.
+  if (url.hostname.includes("script.google.com")) {
+    event.respondWith(fetch(event.request));
     return;
   }
 
-  // Only intern the app's OWN same-origin GET requests (the app shell).
-  // Everything else — the Apps Script backend, the weather API a page
-  // calls directly (see pages/overview.html), Google Fonts, any POST —
-  // is left completely untouched by returning without calling
-  // respondWith(), which tells the browser to handle it exactly as if
-  // there were no service worker at all.
-  //
-  // This used to be a single hostname exclusion (script.google.com
-  // only), so every OTHER cross-origin fetch on the page — notably the
-  // direct-to-api.open-meteo.com weather call — was still being routed
-  // through the cache logic below. cache.match()/cache.put() throw for
-  // non-GET requests, and a failed cross-origin fetch with nothing yet
-  // cached had no valid fallback, so the promise passed to
-  // respondWith() could resolve to `undefined` — which Chrome shows as
-  // a broken "this page might be temporarily down" error for the WHOLE
-  // navigation, not just the one failed subrequest.
-  if (event.request.method !== "GET" || url.origin !== self.location.origin) {
-    return;
-  }
-
-  // App shell: stale-while-revalidate. Serve the cached copy instantly
-  // if we have one (no network wait between clicking a nav link and the
-  // next page painting), while a background fetch refreshes the cache
-  // for next time. First-ever load (nothing cached yet) still waits on
-  // the network, same as before.
-  event.respondWith(serveShell(event.request));
+  // App shell: network-first, falling back to the cached copy offline.
+  // Keeping this network-first (rather than cache-first) means a deploy
+  // is picked up immediately when online — HTML and its matching JS/CSS
+  // are always fetched together fresh — while the cache, refreshed on
+  // every successful response, still serves the whole app offline.
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
 });
-
-// A response is only safe to hand back for a NAVIGATION if it isn't a
-// redirect result and isn't opaque. Returning a redirected response for
-// a navigation throws ("a redirected response was used for a request
-// whose redirect mode is not 'follow'") and surfaces as the browser's
-// generic "this page might be temporarily down" error — precisely the
-// failure seen on the post-login redirect into overview.html. We treat
-// such responses as unusable both for serving AND for caching, so a
-// dirty entry can never get stored and re-served later either.
-function isUsableResponse_(response) {
-  return response && response.ok && !response.redirected && response.type !== "opaque";
-}
-
-// Navigation FetchEvents carry request.redirect === "manual" (a Chrome
-// quirk, not a bug in this code) — but fetch() still follows any
-// redirect the server sends and returns the final response with
-// redirected=true. Handing THAT back via respondWith() for a request
-// whose own redirect mode isn't "follow" throws exactly: 'a redirected
-// response was used for a request whose redirect mode is not "follow"'.
-// The fix is to fetch with an explicit redirect:"follow" Request
-// instead of the original — same URL/headers/etc, just an actual
-// "follow" mode so a followed redirect is a normal, usable response.
-function toFollowingRequest_(request) {
-  return request.redirect === "follow" ? request : new Request(request, { redirect: "follow" });
-}
-
-async function serveShell(request) {
-  const cache = await caches.open(CACHE_NAME);
-
-  // Background revalidation — refreshes the cache for next time, but
-  // only stores a clean, non-redirected response.
-  const network = fetch(toFollowingRequest_(request))
-    .then((response) => {
-      if (isUsableResponse_(response)) cache.put(request, response.clone()).catch(() => {});
-      return response;
-    })
-    .catch(() => null);
-
-  const cached = await cache.match(request);
-  // Only serve a cached copy that's actually safe for this request. A
-  // redirected/opaque cached entry falls through to the network instead
-  // of being handed back (which would fail the navigation outright).
-  if (cached && isUsableResponse_(cached)) return cached;
-
-  const fresh = await network;
-  if (fresh) return fresh;
-
-  // Offline with nothing safe to serve — return a real Response (never
-  // undefined/reject, which is what produces the broken-page error) and
-  // let the browser show its own offline handling.
-  return new Response("Offline and not yet cached.", {
-    status: 503,
-    statusText: "Offline",
-    headers: { "Content-Type": "text/plain" }
-  });
-}
