@@ -131,8 +131,11 @@
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditSchedule = sessionPages.includes("edit-schedule");
     const sessionFlights = Array.isArray(session?.Flights) ? session.Flights : [];
-    addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
-    addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+    // Left hidden (see markup) until render() below reveals them once the
+    // schedule has actually loaded — showing them here, synchronously at
+    // script start, made them appear as static content well before
+    // #schedule-content finished loading, instead of the whole page
+    // appearing together like every other page.
 
     let scheduleRows = [];
     let editingRow = null; // the original row object being edited, or null for "adding new"
@@ -250,6 +253,9 @@
     }
 
     function render(rows) {
+      addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+      addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+
       if (!rows.length) {
         contentEl.innerHTML = `
           <div class="state-message">
