@@ -123,24 +123,25 @@ body { overflow-x: hidden; }
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--gold-500);
 }
-/* Dark surface (nav rail) gets a lighter track so the thumb doesn't
-   disappear against indigo. Scoped to .nav-rail__links, NOT .nav-rail
-   itself — .nav-rail has overflow:hidden and never actually scrolls,
-   so a rule targeting .nav-rail here was dead code; the element that
-   really scrolls (.nav-rail__links, overflow-y:auto) fell through to
-   the generic light-surface scrollbar-track color a few rules up,
-   rendering a pale bar down the middle of the dark rail — the
-   "still misaligned" sidebar visual reported after previous fixes,
-   which was actually this mismatched scrollbar the whole time, not an
-   icon-centering issue. */
+/* The nav rail's link list (.nav-rail__links, overflow-y:auto) hides
+   its scrollbar entirely rather than theming it. An earlier fix only
+   re-colored the track to indigo, but the THUMB stays the global bright
+   --gold-600, so on any platform with classic (space-taking) scrollbars
+   a loud gold bar still runs the full height of the dark rail whenever
+   the 7 nav items overflow their available height by even a few pixels
+   on a short viewport — which reads as an ugly stripe down the sidebar.
+   The list stays fully scrollable (wheel/trackpad/touch/keyboard); only
+   the visible scrollbar is suppressed, the standard treatment for a
+   compact icon nav where a prominent scrollbar is pure noise.
+   scrollbar-width:none (Firefox/standard) beats the global
+   `* { scrollbar-width: thin }`, and the ::-webkit-scrollbar display:none
+   beats the generic WebKit scrollbar rule above. */
 .nav-rail__links {
-  scrollbar-color: var(--gold-500) var(--indigo-700);
+  scrollbar-width: none;          /* Firefox + standard */
+  -ms-overflow-style: none;       /* legacy Edge/IE */
 }
-.nav-rail__links::-webkit-scrollbar-track {
-  background: var(--indigo-700);
-}
-.nav-rail__links::-webkit-scrollbar-thumb {
-  border-color: var(--indigo-700);
+.nav-rail__links::-webkit-scrollbar {
+  display: none;                  /* Chrome/Safari/WebKit */
 }
 
 img, svg { display: block; max-width: 100%; }
