@@ -327,7 +327,6 @@
       if (cached) {
         lastRosterRows = cached.rows || [];
       }
-      renderAll();
 
       ready.catch((err) => {
         if (lastRosterRows === null) {
@@ -348,8 +347,13 @@
         renderAll();
       });
       if (scheduleHandle.data) lastScheduleRows = scheduleHandle.data.rows || [];
+
+      // Single render for whatever's already warm in cache (both, one, or
+      // neither) rather than one renderAll() per sheet — back-to-back
+      // synchronous calls each replaced contentEl's innerHTML and replayed
+      // the entrance animation, so a warm-cache load visibly flickered/
+      // re-animated once per cached sheet instead of rendering once.
       renderAll();
-      scheduleHandle.ready.catch(() => { /* surfaced by the Schedule page itself if it matters */ });
 
       // Weather has no backend cache of its own (it's a direct call to
       // Open-Meteo, not the Apps Script) — just fetch it every load and
