@@ -206,7 +206,12 @@
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
-      <div class="admin-tabs tabs">
+      <!-- Hidden until the active tab's data has actually loaded (see
+           renderStaffTab()/renderLogTab() below) — this tab bar is static
+           markup, so it used to appear and be clickable instantly while
+           #admin-content was still spinning, instead of everything on the
+           page appearing together. -->
+      <div class="admin-tabs tabs" id="admin-tabs-bar" style="display:none;">
         <button class="tabs__tab is-active" data-tab="staff">Staff Access</button>
         <button class="tabs__tab" data-tab="log">Login Activity</button>
       </div>
@@ -225,6 +230,7 @@
     Shell.init({ activePage: "admin" });
 
     const contentEl = document.getElementById("admin-content");
+    const tabsBarEl = document.getElementById("admin-tabs-bar");
     const tabButtons = document.querySelectorAll(".tabs__tab");
     const esc = Shell.escapeHtml;
     const session = Auth.getSession();
@@ -382,6 +388,12 @@
     }
 
     function renderStaffTab() {
+      // The tabs bar is hidden (display:none) until now — enhanceTabs()'s
+      // sliding indicator was positioned while it was still hidden
+      // (offsetWidth/Left both read 0 on a display:none element), so it
+      // needs to re-measure now that the bar is actually visible.
+      tabsBarEl.style.display = "";
+      if (adminTabsIndicator) adminTabsIndicator.move();
       contentEl.innerHTML = renderStaffForm() + renderStaffList();
 
       const addBtn = document.getElementById("add-position-btn");
@@ -464,6 +476,8 @@
     }
 
     function renderLogTab() {
+      tabsBarEl.style.display = "";
+      if (adminTabsIndicator) adminTabsIndicator.move();
       const shown = failuresOnly ? loginEntries.filter(e => !isSuccess(e)) : loginEntries;
       const failures = loginEntries.filter(e => !isSuccess(e)).length;
 

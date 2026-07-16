@@ -136,7 +136,11 @@
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
-      <div class="roster-toolbar">
+      <!-- Hidden until the roster has actually loaded (see render() below)
+           — this search box is static markup, so it used to appear and be
+           interactive instantly while #roster-content was still spinning,
+           instead of everything on the page appearing together. -->
+      <div class="roster-toolbar" id="roster-toolbar" style="display:none;">
         <input type="search" id="roster-search" placeholder="Search by name, CAP ID, or flight…">
       </div>
 
@@ -160,6 +164,7 @@
 
     const contentEl = document.getElementById("roster-content");
     const searchInput = document.getElementById("roster-search");
+    const toolbarEl = document.getElementById("roster-toolbar");
     const formContainer = document.getElementById("roster-form-container");
     const esc = Shell.escapeHtml;
 
@@ -305,6 +310,10 @@
      * flight-level tiles with counts, never a flat list of cadets.
      */
     function render(rows) {
+      // Reveal the search toolbar (hidden by default in the static HTML —
+      // see its style="display:none") now that there's actually a roster
+      // to search. Idempotent — harmless to set on every render.
+      toolbarEl.style.display = "";
       if (selectedFlight) {
         renderFlightDetail(rows, selectedFlight);
       } else {
