@@ -876,9 +876,9 @@ const Shell = (() => {
     const totalDays = Math.round((end - start) / 86400000) + 1;
     const dayNumber = Math.round((today - start) / 86400000) + 1;
 
-    if (dayNumber < 1) return { label: "ENCAMPMENT NOT STARTED", isActive: false, totalDays };
-    if (dayNumber > totalDays) return { label: "ENCAMPMENT COMPLETE", isActive: false, totalDays };
-    return { label: `DAY ${dayNumber} OF ${totalDays}`, isActive: true, dayNumber, totalDays };
+    if (dayNumber < 1) return { label: "ENCAMPMENT NOT STARTED", isActive: false };
+    if (dayNumber > totalDays) return { label: "ENCAMPMENT COMPLETE", isActive: false };
+    return { label: `DAY ${dayNumber} OF ${totalDays}`, isActive: true, dayNumber };
   }
 
   // ---- "Current"/"next" schedule item (Overview card + Schedule row highlight) ----

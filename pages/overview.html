@@ -75,32 +75,6 @@
       margin-bottom: var(--space-1);
     }
 
-    .flight-stat-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-      gap: var(--space-3);
-    }
-
-    .flight-stat {
-      background: var(--surface-sunken);
-      border-radius: var(--radius-md);
-      padding: var(--space-4);
-      text-align: center;
-    }
-
-    .flight-stat__name {
-      font-family: var(--font-display);
-      font-size: var(--fs-sm);
-      color: var(--navy-900);
-      margin-bottom: var(--space-1);
-    }
-
-    .flight-stat__count {
-      font-family: var(--font-display);
-      font-size: var(--fs-xl);
-      color: var(--gold-600);
-    }
-
     .activity-row {
       display: flex;
       align-items: baseline;
@@ -272,35 +246,6 @@
     }
 
     /**
-     * "Encampment" progress bar — Shell.encampmentDayInfo() has existed
-     * since the duty-strip/schedule-matching helpers were built, but
-     * nothing actually DISPLAYS it anywhere in the app; it's only ever
-     * been used internally to match a Schedule row's Day text against
-     * "today." A simple day-of-encampment progress bar is exactly the
-     * kind of glance item Overview was missing — not a dedicated-page
-     * duplicate of anything, just a fact nowhere else shows visually.
-     */
-    function renderEncampmentProgressCard() {
-      const info = Shell.encampmentDayInfo();
-      if (!info.isActive) {
-        return `
-          <div class="card">
-            <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Encampment</h2>
-            <p style="color: var(--ink-600); margin:0;">${esc(info.label)}</p>
-          </div>`;
-      }
-      const pct = Math.min(100, Math.round((info.dayNumber / info.totalDays) * 100));
-      return `
-        <div class="card">
-          <div class="progress__label-row">
-            <span>${esc(info.label)}</span>
-            <span>${pct}%</span>
-          </div>
-          <div class="progress"><div class="progress__fill" style="width:${pct}%;"></div></div>
-        </div>`;
-    }
-
-    /**
      * "Today's Inspections" — how many of this position's own cadets
      * (same Flight scoping as Your Flights) have been inspected TODAY,
      * for whatever's actually scheduled today. Deliberately just a
@@ -388,36 +333,6 @@
         </div>`;
     }
 
-    function renderFlightStats(rosterRows) {
-      const grouped = rosterRows
-        .filter(r => isFlightAllowed(r.Flight))
-        .reduce((groups, row) => {
-          const flight = row.Flight || "Unassigned";
-          (groups[flight] = groups[flight] || []).push(row);
-          return groups;
-        }, {});
-
-      const flightNames = Object.keys(grouped).sort();
-
-      if (!flightNames.length) {
-        return `<div class="card"><p style="color: var(--ink-600); margin:0;">No flight data available for your position.</p></div>`;
-      }
-
-      return `
-        <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Your Flights</h2>
-          <div class="flight-stat-grid">
-            ${flightNames.map(flight => `
-              <div class="flight-stat">
-                <div class="flight-stat__name">${esc(flight)}</div>
-                <div class="flight-stat__count">${grouped[flight].length}</div>
-              </div>
-            `).join("")}
-          </div>
-        </div>
-      `;
-    }
-
     // Weather and roster come from two independent sources (a live
     // fetch vs. the persisted Api cache) that can resolve at different
     // times — track the latest of each and re-render the combined view
@@ -458,14 +373,12 @@
       Shell.markContentReady();
       contentEl.innerHTML = `
         <div class="overview-stack">
-          ${renderEncampmentProgressCard()}
           <div class="overview-grid">
             ${renderWeatherCard(lastWeather)}
           </div>
           ${renderActivityCard(lastScheduleRows)}
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastInspectionPeriods || [])}
           ${renderObservationsPulseCard(lastObservationRows || [])}
-          ${renderFlightStats(lastRosterRows || [])}
         </div>
       `;
       Shell.animateIn(contentEl);
