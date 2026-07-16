@@ -124,14 +124,22 @@ body { overflow-x: hidden; }
   background-color: var(--gold-500);
 }
 /* Dark surface (nav rail) gets a lighter track so the thumb doesn't
-   disappear against indigo. */
-.nav-rail {
+   disappear against indigo. Scoped to .nav-rail__links, NOT .nav-rail
+   itself — .nav-rail has overflow:hidden and never actually scrolls,
+   so a rule targeting .nav-rail here was dead code; the element that
+   really scrolls (.nav-rail__links, overflow-y:auto) fell through to
+   the generic light-surface scrollbar-track color a few rules up,
+   rendering a pale bar down the middle of the dark rail — the
+   "still misaligned" sidebar visual reported after previous fixes,
+   which was actually this mismatched scrollbar the whole time, not an
+   icon-centering issue. */
+.nav-rail__links {
   scrollbar-color: var(--gold-500) var(--indigo-700);
 }
-.nav-rail::-webkit-scrollbar-track {
+.nav-rail__links::-webkit-scrollbar-track {
   background: var(--indigo-700);
 }
-.nav-rail::-webkit-scrollbar-thumb {
+.nav-rail__links::-webkit-scrollbar-thumb {
   border-color: var(--indigo-700);
 }
 
