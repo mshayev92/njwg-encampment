@@ -461,6 +461,35 @@
       .scorecard-toggle button { min-height: 44px; min-width: 56px; }
       .tabs__tab { min-height: 40px; }
     }
+
+    /* Trends: average-score-over-time line chart (renderProgressionChart) */
+    .progression-chart__svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .progression-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-3);
+      margin-top: var(--space-3);
+    }
+
+    .progression-legend__item {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+    }
+
+    .progression-legend__swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -764,6 +793,12 @@
 
       const idx = inspectionPeriods.findIndex(p => String(p.Id) === String(row.Id));
       if (idx >= 0) inspectionPeriods[idx] = row; else inspectionPeriods.push(row);
+      // See the matching comment in submitScorecard() above — reconciles
+      // Api's cache with this optimistic result so the next background
+      // revalidation doesn't find a "changed" sheet and re-fire this
+      // page's onFresh subscriber, which would replay the entrance
+      // animation a second time right after this save's own.
+      Api.setCachedRows("InspectionPeriods", inspectionPeriods);
 
       showPeriodForm = false;
       editingPeriodId = null;
@@ -783,6 +818,7 @@
       Api.deleteRow("InspectionPeriods", { Id: id }, { matchColumns: ["Id"] });
       inspectionPeriods = inspectionPeriods.filter(p => String(p.Id) !== String(id));
       if (String(editingPeriodId) === String(id)) editingPeriodId = null;
+      Api.setCachedRows("InspectionPeriods", inspectionPeriods);
       Shell.showToast("Period deleted.", { type: "success" });
       renderPeriodsSection();
       if (currentView === "flights" || currentView === "history") renderActiveView();
@@ -884,6 +920,40 @@
       const hasToday = history.some(h => h.Date === todayStr);
       const todaysPeriod = periodForActiveType(todayStr);
 
+      // What's actually scheduled TODAY, across BOTH categories — not
+      // just whichever tab happens to be active. A generic "New
+      // Inspection" button used to give no clue which of possibly
+      // several scheduled periods it would file under; now each
+      // scheduled period gets its own explicit button (e.g. "Room
+      // Inspection", "Uniform — OCP/ABU"), and clicking one switches to
+      // that period's tab/category automatically so the entry can only
+      // land in the period it names. Falls back to a single generic
+      // button (today's ad-hoc entry in the currently active tab) when
+      // nothing at all is scheduled for today.
+      const scheduledToday = inspectionPeriods.filter(p => p.Date === todayStr);
+
+      function inspectionButtonsHtml() {
+        if (!scheduledToday.length) {
+          return `
+            <button class="btn btn--primary" id="new-inspection-btn" style="margin-bottom: var(--space-5);">
+              ${hasToday ? "Update Today's Inspection" : "New Inspection"}
+            </button>
+          `;
+        }
+        return `
+          <div style="display:flex; flex-wrap:wrap; gap: var(--space-2); margin-bottom: var(--space-5);">
+            ${scheduledToday.map(p => {
+              const doneForThisPeriod = (inspectionsByType[p.Category].byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
+              return `
+                <button class="btn btn--primary" data-period-btn="${esc(p.Id)}" data-period-category="${esc(p.Category)}">
+                  ${doneForThisPeriod ? "Update: " : ""}${esc(periodLabel(p))}
+                </button>
+              `;
+            }).join("")}
+          </div>
+        `;
+      }
+
       contentEl.innerHTML = `
         <div class="detail-header">
           <button class="btn btn--ghost" id="back-to-students-btn">← Back</button>
@@ -898,9 +968,7 @@
 
         ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
 
-        <button class="btn btn--primary" id="new-inspection-btn" style="margin-bottom: var(--space-5);">
-          ${hasToday ? "Update Today's Inspection" : "New Inspection"}
-        </button>
+        ${inspectionButtonsHtml()}
 
         ${history.length ? `
           <div class="history-list">
@@ -927,9 +995,24 @@
         renderStudentList();
       });
 
-      document.getElementById("new-inspection-btn").addEventListener("click", () => {
-        selectedInspectionDate = hasToday ? todayStr : null;
-        renderScorecard();
+      const newInspectionBtn = document.getElementById("new-inspection-btn");
+      if (newInspectionBtn) {
+        newInspectionBtn.addEventListener("click", () => {
+          selectedInspectionDate = hasToday ? todayStr : null;
+          renderScorecard();
+        });
+      }
+
+      contentEl.querySelectorAll("[data-period-btn]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          // Land the entry in the exact period it was scheduled under —
+          // switch to that period's category/tab first (so activeType,
+          // and everything derived from it, matches the period BEFORE
+          // the scorecard opens), then open today's entry for it.
+          activateTab(btn.dataset.periodCategory);
+          selectedInspectionDate = todayStr;
+          renderScorecard();
+        });
       });
 
       contentEl.querySelectorAll(".history-row").forEach(row => {
@@ -1081,11 +1164,27 @@
       Api.writeRow(activeSheet(), row, { matchColumns: ["StudentCapId", "Date"] });
 
       const capId = String(selectedStudent.CapId);
-      const byStudent = activeInspectionsByStudent();
-      const list = byStudent[capId] || (byStudent[capId] = []);
+      const bucket = inspectionsByType[activeType];
+      const list = bucket.byStudent[capId] || (bucket.byStudent[capId] = []);
       const idx = list.findIndex(h => h.Date === dateStr);
       if (idx >= 0) list[idx] = row; else list.unshift(row);
       list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
+
+      // Keep the FLAT "all" array (what Api's cache actually stores) in
+      // sync with the byStudent index we just patched above, then push
+      // it into Api's cache immediately. Api.writeRow() only marks the
+      // sheet's cache STALE — it doesn't know what the optimistic result
+      // looks like — so without this, the next background revalidation
+      // (the periodic Api.warmCache poll, or just re-opening this view)
+      // fetches the server's now-actually-updated rows, finds them
+      // different from the stale pre-write cache, and fires this page's
+      // onFresh subscriber again: a second render()/animateIn() replaying
+      // the entrance animation moments after the one from this save.
+      // Reconciling the cache here means that revalidation finds nothing
+      // changed, so it stays silent.
+      const allIdx = bucket.all.findIndex(h => String(h.StudentCapId) === capId && h.Date === dateStr);
+      if (allIdx >= 0) bucket.all[allIdx] = row; else bucket.all.push(row);
+      Api.setCachedRows(activeSheet(), bucket.all);
 
       Shell.showToast("Inspection saved.", { type: "success" });
       selectedInspectionDate = null;
@@ -1132,6 +1231,107 @@
 
         return { flight, count: relevantRows.length, studentsInspected: new Set(relevantRows.map(r => r.StudentCapId)).size, totalAvg, itemAverages };
       });
+    }
+
+    /**
+     * Per-flight average score % on each date that flight has at least
+     * one recorded inspection — the input to the "progression over time"
+     * line chart. Uses EVERY inspection on record (not just each
+     * cadet's latest, unlike the flight-average cards above) since a
+     * trend over time is inherently about the historical sequence, not
+     * a current snapshot.
+     */
+    function computeProgressionSeries(type) {
+      const items = INSPECTION_TYPES[type].items;
+      const grouped = groupByFlight(rosterRows); // already scoped to allowed flights
+      const byStudent = inspectionsByType[type].byStudent;
+
+      const flightOfCapId = new Map();
+      Object.entries(grouped).forEach(([flight, members]) => {
+        members.forEach(m => flightOfCapId.set(String(m.CapId), flight));
+      });
+
+      // date -> flight -> { sum, count }
+      const buckets = new Map();
+      Object.entries(byStudent).forEach(([capId, history]) => {
+        const flight = flightOfCapId.get(capId);
+        if (!flight || !items.length) return;
+        history.forEach(row => {
+          const pct = (Number(row.TotalPoints) || 0) / items.length * 100;
+          if (!buckets.has(row.Date)) buckets.set(row.Date, {});
+          const dayBucket = buckets.get(row.Date);
+          dayBucket[flight] = dayBucket[flight] || { sum: 0, count: 0 };
+          dayBucket[flight].sum += pct;
+          dayBucket[flight].count += 1;
+        });
+      });
+
+      const dates = Array.from(buckets.keys()).sort();
+      const series = Object.keys(grouped).sort().map(flight => ({
+        flight,
+        points: dates.map(date => {
+          const b = buckets.get(date)[flight];
+          return b ? Math.round((b.sum / b.count) * 10) / 10 : null;
+        })
+      })).filter(s => s.points.some(p => p !== null));
+
+      return { dates, series };
+    }
+
+    const PROGRESSION_CHART_COLORS = [
+      "var(--indigo-700)", "var(--gold-600)", "var(--garnet-600)",
+      "var(--green-600)", "var(--amber-600)", "var(--steel-300)"
+    ];
+
+    /** Inline-SVG line chart — no charting library in this codebase, and one flight-average-over-time chart doesn't warrant adding one. */
+    function renderProgressionChart(type) {
+      const { dates, series } = computeProgressionSeries(type);
+      if (dates.length < 2 || !series.length) {
+        return `<div class="state-message" style="padding: var(--space-5) 0;"><p>Not enough inspection history yet to chart a trend — need at least two different inspection dates.</p></div>`;
+      }
+
+      const W = 640, H = 220, padL = 34, padR = 12, padT = 12, padB = 26;
+      const plotW = W - padL - padR, plotH = H - padT - padB;
+      const xStep = dates.length > 1 ? plotW / (dates.length - 1) : 0;
+      const xAt = (i) => padL + i * xStep;
+      const yAt = (pct) => padT + plotH - (pct / 100) * plotH;
+
+      const gridLines = [0, 25, 50, 75, 100].map(pct => `
+        <line x1="${padL}" y1="${yAt(pct)}" x2="${W - padR}" y2="${yAt(pct)}" stroke="var(--line)" stroke-width="1"/>
+        <text x="${padL - 6}" y="${yAt(pct) + 3}" text-anchor="end" font-size="9" fill="var(--ink-600)">${pct}%</text>
+      `).join("");
+
+      // Only label every Nth date so a long history doesn't overlap its own labels.
+      const labelEvery = Math.max(1, Math.ceil(dates.length / 6));
+      const xLabels = dates.map((d, i) => (i % labelEvery === 0 || i === dates.length - 1)
+        ? `<text x="${xAt(i)}" y="${H - 6}" text-anchor="middle" font-size="9" fill="var(--ink-600)">${esc(d.slice(5))}</text>`
+        : ""
+      ).join("");
+
+      const lines = series.map((s, i) => {
+        const color = PROGRESSION_CHART_COLORS[i % PROGRESSION_CHART_COLORS.length];
+        const pts = s.points.map((p, idx) => p === null ? null : `${xAt(idx)},${yAt(p)}`).filter(Boolean).join(" ");
+        const dots = s.points.map((p, idx) => p === null ? "" : `<circle cx="${xAt(idx)}" cy="${yAt(p)}" r="2.5" fill="${color}"/>`).join("");
+        return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}`;
+      }).join("");
+
+      const legend = series.map((s, i) => `
+        <span class="progression-legend__item">
+          <span class="progression-legend__swatch" style="background:${PROGRESSION_CHART_COLORS[i % PROGRESSION_CHART_COLORS.length]};"></span>
+          ${esc(s.flight)}
+        </span>
+      `).join("");
+
+      return `
+        <div class="progression-chart">
+          <svg viewBox="0 0 ${W} ${H}" class="progression-chart__svg" role="img" aria-label="Average score percentage by flight over time">
+            ${gridLines}
+            ${lines}
+            ${xLabels}
+          </svg>
+          <div class="progression-legend">${legend}</div>
+        </div>
+      `;
     }
 
     function renderTrends() {
@@ -1216,6 +1416,11 @@
                 `;
               }).join("")}
             </div>
+          </div>
+
+          <div class="card" style="margin-top: var(--space-4);">
+            <h3 class="section-label">Average score over time, by flight</h3>
+            ${renderProgressionChart(trendsType)}
           </div>
         ` : `
           <div class="state-message">
@@ -1346,16 +1551,28 @@
     }
 
     const inspectionTabsIndicator = Shell.enhanceTabs(document.querySelector(".inspection-tabs"));
+
+    /**
+     * Switches the top uniform/room/trends tab, both from a direct tab
+     * click and programmatically (a period button in renderHistory needs
+     * to land on the right tab BEFORE opening that period's scorecard —
+     * see the period-button handling there).
+     */
+    function activateTab(tab) {
+      tabButtons.forEach(b => b.classList.toggle("is-active", b.dataset.tab === tab));
+      inspectionTabsIndicator.move();
+      if (tab === "trends") {
+        renderTrends();
+      } else {
+        activeType = tab === "room" ? "room" : "uniform";
+      }
+    }
+
     tabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         if (btn.disabled) return;
-        tabButtons.forEach(b => b.classList.remove("is-active"));
-        btn.classList.add("is-active");
-        inspectionTabsIndicator.move();
-        if (btn.dataset.tab === "trends") {
-          renderTrends();
-        } else {
-          activeType = btn.dataset.tab === "room" ? "room" : "uniform";
+        activateTab(btn.dataset.tab);
+        if (btn.dataset.tab !== "trends") {
           selectedFlight = null;
           selectedStudent = null;
           renderFlightGrid();

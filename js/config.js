@@ -92,7 +92,7 @@ window.APP_CONFIG = {
   // NAV_ITEMS hrefs are relative to APP_BASE_PATH, not the domain root —
   // Shell.js resolves them at render time via Shell's nav renderer.
   NAV_ITEMS: [
-    { id: "overview",     label: "Overview",     href: "pages/overview.html",     icon: "calendar" },
+    { id: "overview",     label: "Overview",     href: "pages/overview.html",     icon: "grid" },
     { id: "schedule",     label: "Schedule",     href: "pages/schedule.html",     icon: "calendar" },
     { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
     { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },

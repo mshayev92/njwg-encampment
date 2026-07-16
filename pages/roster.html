@@ -397,6 +397,14 @@
       } else {
         allRows.push(row);
       }
+      // Reconcile Api's cache with this optimistic result immediately —
+      // writeRow() only marks the sheet's cache stale, it doesn't know
+      // what the new rows look like. Without this, the next background
+      // revalidation fetches the server's (now actually updated) rows,
+      // sees them differ from the stale pre-write cache, and re-fires
+      // this page's onFresh subscriber — a second render()/animateIn()
+      // replaying the entrance animation right after this save's own.
+      Api.setCachedRows("Roster", allRows);
 
       closeForm();
       Shell.showToast(editingCapId ? "Cadet updated." : "Cadet added.", { type: "success" });
@@ -414,6 +422,7 @@
 
       Api.deleteRow("Roster", student, { matchColumn: "CapId" });
       allRows = allRows.filter(r => r !== student);
+      Api.setCachedRows("Roster", allRows);
       Shell.showToast("Cadet removed.", { type: "success" });
       render(allRows);
     }
