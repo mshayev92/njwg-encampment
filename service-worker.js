@@ -16,12 +16,13 @@
    always comes straight from the network.
    ============================================================ */
 
-// Bumped to v7 alongside the switch from network-first to
-// stale-while-revalidate for the app shell (see the fetch handler
-// below) — changing this name forces every device to drop its old
-// cached shell on activate instead of continuing to serve whatever the
-// previous strategy left behind.
-const CACHE_NAME = "njwg-encampment-v7";
+// Bumped to v8 to move every device off the v7 fetch handler, which
+// intercepted cross-origin/non-GET requests it shouldn't have and
+// could surface a broken "page might be down" error (see the fetch
+// handler below) — changing this name forces every device to drop its
+// old cached shell on activate instead of continuing to run the buggy
+// handler against a stale cache.
+const CACHE_NAME = "njwg-encampment-v8";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -121,9 +122,23 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Never cache calls to the Apps Script backend — always go to network.
-  if (url.hostname.includes("script.google.com")) {
-    event.respondWith(fetch(event.request));
+  // Only intern the app's OWN same-origin GET requests (the app shell).
+  // Everything else — the Apps Script backend, the weather API a page
+  // calls directly (see pages/overview.html), Google Fonts, any POST —
+  // is left completely untouched by returning without calling
+  // respondWith(), which tells the browser to handle it exactly as if
+  // there were no service worker at all.
+  //
+  // This used to be a single hostname exclusion (script.google.com
+  // only), so every OTHER cross-origin fetch on the page — notably the
+  // direct-to-api.open-meteo.com weather call — was still being routed
+  // through the cache logic below. cache.match()/cache.put() throw for
+  // non-GET requests, and a failed cross-origin fetch with nothing yet
+  // cached had no valid fallback, so the promise passed to
+  // respondWith() could resolve to `undefined` — which Chrome shows as
+  // a broken "this page might be temporarily down" error for the WHOLE
+  // navigation, not just the one failed subrequest.
+  if (event.request.method !== "GET" || url.origin !== self.location.origin) {
     return;
   }
 
@@ -136,12 +151,22 @@ self.addEventListener("fetch", (event) => {
     caches.open(CACHE_NAME).then(async (cache) => {
       const cached = await cache.match(event.request);
 
-      const network = fetch(event.request).then((response) => {
-        if (response.ok) cache.put(event.request, response.clone());
-        return response;
-      }).catch(() => cached);
+      // Kicked off either way: to serve when nothing's cached yet, or
+      // just to refresh the cache quietly when something already is.
+      const network = fetch(event.request)
+        .then((response) => {
+          if (response.ok) cache.put(event.request, response.clone()).catch(() => {});
+          return response;
+        })
+        .catch(() => null);
 
-      return cached || network;
+      if (cached) return cached;
+
+      // Never resolve to undefined here — that's what turns a normal
+      // "network unreachable and nothing cached yet" failure into the
+      // broken-page error described above. A synthesized response
+      // keeps the browser's own offline/error handling in charge.
+      return (await network) || new Response("Offline and not yet cached.", { status: 503, statusText: "Offline" });
     })
   );
 });
