@@ -286,6 +286,10 @@ html.nav-rail-collapsed .nav-rail__crest {
   background: var(--red-100);
   color: var(--red-600);
 }
+.sync-indicator--offline {
+  background: var(--surface-sunken);
+  color: var(--ink-600);
+}
 
 .sync-indicator__dot {
   width: 6px; height: 6px;

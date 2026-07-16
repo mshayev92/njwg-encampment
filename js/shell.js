@@ -318,8 +318,23 @@ const Shell = (() => {
     const label = document.getElementById("sync-indicator__label");
     if (!el || !label) return;
 
-    Api.onSyncStatusChange((status, pending) => {
-      el.classList.remove("sync-indicator--syncing", "sync-indicator--synced", "sync-indicator--error");
+    function render(status, pending) {
+      el.classList.remove("sync-indicator--syncing", "sync-indicator--synced", "sync-indicator--error", "sync-indicator--offline");
+
+      // Offline takes priority over whatever syncStatus happens to say —
+      // syncStatus only changes in response to an actual write attempt,
+      // so with nothing queued yet it can still read "Synced" (green)
+      // for a device that's been offline for an hour, which is exactly
+      // backwards. navigator.onLine is checked directly here so the pill
+      // flips the moment connectivity actually changes, independent of
+      // any write ever being attempted.
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline) {
+        el.classList.add("sync-indicator--offline");
+        label.textContent = pending > 0 ? (pending > 1 ? `Offline — ${pending} queued` : "Offline — 1 queued") : "Offline";
+        return;
+      }
+
       // "idle" (nothing queued/in flight) reads as the resting "Synced"
       // state per the design's always-visible sync pill, rather than
       // being hidden — there's no meaningful difference to the user
@@ -331,19 +346,32 @@ const Shell = (() => {
       }
       if (status === "syncing") {
         el.classList.add("sync-indicator--syncing");
-        // Distinguish "actively syncing" from "queued while offline" —
-        // the latter is normal and self-heals on reconnect, so say so
-        // rather than implying a live upload is in progress.
-        const offline = typeof navigator !== "undefined" && navigator.onLine === false;
-        if (offline && pending > 0) {
-          label.textContent = pending > 1 ? `Offline — ${pending} queued` : "Offline — 1 queued";
-        } else {
-          label.textContent = pending > 1 ? `Pending (${pending})` : "Pending…";
-        }
-      } else if (status === "error") {
+        label.textContent = pending > 1 ? `Pending (${pending})` : "Pending…";
+        return;
+      }
+      if (status === "error") {
         el.classList.add("sync-indicator--error");
         label.textContent = "Sync failed — tap Refresh";
       }
+    }
+
+    Api.onSyncStatusChange(render);
+
+    // The browser's connectivity can change independent of any sync
+    // activity at all (WiFi just dropped with nothing queued yet) — listen
+    // directly so the pill flips to "Offline" the instant that happens,
+    // rather than only the next time a write is attempted and fails.
+    const rerenderFromCurrentStatus = () => {
+      const s = Api.getSyncStatus();
+      render(s.status, s.pending);
+    };
+    window.addEventListener("online", rerenderFromCurrentStatus);
+    window.addEventListener("offline", rerenderFromCurrentStatus);
+
+    // One-time toast right when something ACTUALLY gets queued (not on
+    // every subsequent "still syncing" tick) — see Api's outboxListeners.
+    Api.onOutboxEnqueue(() => {
+      showToast("You're offline — this will be saved and sent automatically once you're back online.", { type: "" });
     });
   }
 

@@ -339,6 +339,12 @@ const Api = (() => {
   let syncStatus = "idle";
   let pendingWrites = 0;
   const syncListeners = new Set();
+  // Fired once per write/delete that lands in the outbox — separate from
+  // syncListeners because "status is now syncing" doesn't distinguish a
+  // brand-new item being queued from the outbox simply still draining;
+  // Shell uses this to show a one-time "you're offline, this will sync
+  // later" toast right when it actually happens (see onOutboxEnqueue).
+  const outboxListeners = new Set();
 
   // Durable outbox for writes that couldn't reach the server (offline /
   // network error). Persisted to localStorage so a queued write survives
@@ -400,6 +406,7 @@ const Api = (() => {
     // than leaving the indicator stuck on the transient "error" that the
     // failed immediate attempt just set.
     setSyncStatus_("syncing");
+    outboxListeners.forEach((cb) => { try { cb(action, body); } catch (e) { /* one bad listener shouldn't break others */ } });
   }
 
   let flushingOutbox_ = false;
@@ -635,6 +642,13 @@ const Api = (() => {
       markSheetStale_(sheetName);
       const body = { sheet: sheetName, row: rowData, matchColumn, matchColumns };
       if (!optimistic) return performWrite_("write", body);
+      // Already known offline — go straight to the outbox instead of
+      // wasting up to ~30s (a full request timeout plus performWrite_'s
+      // own retry) attempting a request that has no chance of landing.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        enqueueOutbox_("write", body);
+        return Promise.resolve({ ok: true, action: "queued", row: rowData });
+      }
       // Fire the real request in the background (errors surface via
       // onSyncStatusChange -> "error", not a rejected promise here) and
       // resolve immediately so the caller can update its own UI without
@@ -655,6 +669,10 @@ const Api = (() => {
       markSheetStale_(sheetName);
       const body = { sheet: sheetName, matchValues, matchColumn, matchColumns };
       if (!optimistic) return performWrite_("delete", body);
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        enqueueOutbox_("delete", body);
+        return Promise.resolve({ ok: true, action: "queued" });
+      }
       performWrite_("delete", body).catch((err) => {
         if (isNetworkError_(err)) enqueueOutbox_("delete", body);
       });
@@ -666,6 +684,12 @@ const Api = (() => {
       syncListeners.add(cb);
       cb(syncStatus, totalPending_());
       return () => syncListeners.delete(cb);
+    },
+
+    /** Fires cb(action, body) each time a write/delete lands in the offline outbox — see the comment on outboxListeners above. */
+    onOutboxEnqueue(cb) {
+      outboxListeners.add(cb);
+      return () => outboxListeners.delete(cb);
     },
 
     getSyncStatus() {
