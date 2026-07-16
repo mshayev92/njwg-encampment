@@ -12,7 +12,8 @@
  */
 
 import {
-  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
+  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
+  HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS,
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
@@ -750,6 +751,15 @@ async function ensureAutoCreatedTab(env, sheetName) {
   }
   if (sheetName === "RoomInspections") {
     await ensureSheetExists(env, "RoomInspections", ROOM_INSPECTION_COLUMNS);
+  }
+  if (sheetName === "PTInspections") {
+    await ensureSheetExists(env, "PTInspections", PT_INSPECTION_COLUMNS);
+  }
+  if (sheetName === "HonorCadetRecommendations") {
+    await ensureSheetExists(env, "HonorCadetRecommendations", HONOR_CADET_RECOMMENDATION_COLUMNS);
+  }
+  if (sheetName === "HonorFlightRecommendations") {
+    await ensureSheetExists(env, "HonorFlightRecommendations", HONOR_FLIGHT_RECOMMENDATION_COLUMNS);
   }
   if (sheetName === "InspectionPeriods") {
     await ensureSheetExists(env, "InspectionPeriods", INSPECTION_PERIOD_COLUMNS);

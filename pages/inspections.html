@@ -527,6 +527,7 @@
       <div class="inspection-tabs tabs" id="inspection-tabs-bar" style="display:none;">
         <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
         <button class="tabs__tab" data-tab="room">Room</button>
+        <button class="tabs__tab" data-tab="pt">Physical Training</button>
         <button class="tabs__tab" data-tab="trends">Trends</button>
       </div>
 
@@ -577,6 +578,90 @@
       { key: "TopOfDrawerCabinet", label: "Top of Drawer/Cabinet: Items in correct position", section: "Locker" }
     ];
 
+    // The 5 Physical Fitness Test line items (BE Form 6013-style PT
+    // scorecard). Unlike uniform/room's 0/1 toggles, every item here is
+    // OPTIONAL (a cadet may not attempt every event) and is scored by
+    // comparing a raw entered value against the age/sex chart below,
+    // rather than a manual pass/fail tap. `key` is the raw-value column;
+    // its companion Pass column is `${key}Pass` (see PT_INSPECTION_COLUMNS
+    // in worker/src/auth.js). `type` drives the input widget: "count" is a
+    // plain number, "time" parses "mm:ss". `better` says which direction
+    // beats the standard (higher for reps/laps/reach, lower for a run time).
+    const PT_SCORE_ITEMS = [
+      { key: "PacerLaps", label: "PACER (20m Shuttle Run)", unit: "laps completed", type: "count", better: "higher" },
+      { key: "MileRunTime", label: "Mile Run", unit: "mm:ss", type: "time", better: "lower" },
+      { key: "CurlUps", label: "Curl-Ups", unit: "reps", type: "count", better: "higher" },
+      { key: "PushUps", label: "Push-Ups", unit: "reps", type: "count", better: "higher" },
+      { key: "SitReach", label: "Sit & Reach", unit: "inches", type: "decimal", better: "higher" }
+    ];
+
+    // AFI 36-2905-style age/sex PT standards chart. Ages 10-17 map
+    // directly; 18 covers "18+" (the chart's oldest bracket). MileRunTime
+    // is stored in whole seconds here (parsed from "mm:ss") so it can be
+    // compared directly against a raw entry parsed the same way.
+    const PT_CHART = {
+      male: {
+        10: { PacerLaps: 17, MileRunTime: 690, CurlUps: 12, PushUps: 7, SitReach: 8 },
+        11: { PacerLaps: 20, MileRunTime: 670, CurlUps: 15, PushUps: 8, SitReach: 8 },
+        12: { PacerLaps: 23, MileRunTime: 640, CurlUps: 18, PushUps: 10, SitReach: 8 },
+        13: { PacerLaps: 29, MileRunTime: 586, CurlUps: 21, PushUps: 12, SitReach: 8 },
+        14: { PacerLaps: 36, MileRunTime: 562, CurlUps: 24, PushUps: 14, SitReach: 8 },
+        15: { PacerLaps: 42, MileRunTime: 544, CurlUps: 24, PushUps: 16, SitReach: 8 },
+        16: { PacerLaps: 47, MileRunTime: 522, CurlUps: 24, PushUps: 18, SitReach: 8 },
+        17: { PacerLaps: 50, MileRunTime: 502, CurlUps: 24, PushUps: 18, SitReach: 8 },
+        18: { PacerLaps: 54, MileRunTime: 484, CurlUps: 24, PushUps: 18, SitReach: 8 }
+      },
+      female: {
+        10: { PacerLaps: 17, MileRunTime: 690, CurlUps: 12, PushUps: 7, SitReach: 9 },
+        11: { PacerLaps: 20, MileRunTime: 670, CurlUps: 15, PushUps: 7, SitReach: 10 },
+        12: { PacerLaps: 23, MileRunTime: 640, CurlUps: 18, PushUps: 7, SitReach: 10 },
+        13: { PacerLaps: 25, MileRunTime: 620, CurlUps: 18, PushUps: 7, SitReach: 10 },
+        14: { PacerLaps: 27, MileRunTime: 609, CurlUps: 18, PushUps: 7, SitReach: 10 },
+        15: { PacerLaps: 30, MileRunTime: 598, CurlUps: 18, PushUps: 7, SitReach: 12 },
+        16: { PacerLaps: 32, MileRunTime: 586, CurlUps: 18, PushUps: 7, SitReach: 12 },
+        17: { PacerLaps: 35, MileRunTime: 574, CurlUps: 18, PushUps: 7, SitReach: 12 },
+        18: { PacerLaps: 38, MileRunTime: 562, CurlUps: 18, PushUps: 7, SitReach: 12 }
+      }
+    };
+
+    /** The chart row for this age/sex, or null if either is missing/out of range. */
+    function ptStandardFor(age, sex) {
+      const ageNum = Math.round(Number(age));
+      if (!ageNum || isNaN(ageNum)) return null;
+      const bracket = Math.min(18, Math.max(10, ageNum));
+      const table = String(sex || "").trim().toUpperCase().startsWith("F") ? PT_CHART.female : PT_CHART.male;
+      return table[bracket] || null;
+    }
+
+    /** Parses "mm:ss" (or a bare number of seconds) into whole seconds, or null if unparseable. */
+    function parseMinSecToSeconds(str) {
+      const s = String(str || "").trim();
+      if (!s) return null;
+      const m = s.match(/^(\d+):(\d{1,2})$/);
+      if (m) return Number(m[1]) * 60 + Number(m[2]);
+      const n = Number(s);
+      return isNaN(n) ? null : n;
+    }
+
+    function formatSecondsToMinSec(totalSeconds) {
+      if (totalSeconds === null || totalSeconds === undefined || isNaN(totalSeconds)) return "";
+      const secs = Math.round(totalSeconds);
+      return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+    }
+
+    /**
+     * Evaluates one PT item's raw entered value against the age/sex
+     * standard. Returns true/false, or null when there's nothing to
+     * compare (blank entry, or no standard available for this student).
+     */
+    function evaluatePtItem(item, rawValue, standard) {
+      if (!standard || standard[item.key] === undefined) return null;
+      const threshold = standard[item.key];
+      const value = item.type === "time" ? parseMinSecToSeconds(rawValue) : Number(rawValue);
+      if (value === null || value === undefined || isNaN(value)) return null;
+      return item.better === "lower" ? value <= threshold : value >= threshold;
+    }
+
     // Per-type config driving the shared flight/student/history/scorecard
     // flow below. Student identity fields (CapId, Name, Flight) and the
     // inspecting position are never part of the form itself — they come
@@ -591,15 +676,22 @@
         sheet: "RoomInspections",
         items: ROOM_SCORE_ITEMS,
         sectionTitle: null // grouped by each item's own `section` instead
+      },
+      pt: {
+        sheet: "PTInspections",
+        items: PT_SCORE_ITEMS,
+        sectionTitle: "Physical Fitness Test",
+        isPt: true // every item optional, scored via ptStandardFor() instead of a manual 0/1 toggle
       }
     };
 
-    let activeType = "uniform"; // "uniform" | "room"
+    let activeType = "uniform"; // "uniform" | "room" | "pt"
 
     let rosterRows = [];
     let inspectionsByType = {
       uniform: { all: [], byStudent: {} },
-      room: { all: [], byStudent: {} }
+      room: { all: [], byStudent: {} },
+      pt: { all: [], byStudent: {} }
     };
     let selectedFlight = null;
     let selectedStudent = null;
@@ -657,7 +749,9 @@
     // read the schedule so they know what's coming up.
 
     function periodLabel(p) {
-      return p.Category === "room" ? "Room Inspection" : `Uniform — ${p.UniformType || "—"}`;
+      if (p.Category === "room") return "Room Inspection";
+      if (p.Category === "pt") return "Physical Training";
+      return `Uniform — ${p.UniformType || "—"}`;
     }
 
     /** The period (if any) scheduled for `dateStr` in the currently active tab's category. */
@@ -741,7 +835,7 @@
 
       const editing = !!existing;
       let selection = existing
-        ? (existing.Category === "room" ? "room" : (existing.UniformType === "Blues" ? "uniform-blues" : "uniform-ocp"))
+        ? (existing.Category === "room" ? "room" : existing.Category === "pt" ? "pt" : (existing.UniformType === "Blues" ? "uniform-blues" : "uniform-ocp"))
         : "uniform-ocp";
 
       slot.innerHTML = `
@@ -753,6 +847,7 @@
               <button type="button" data-type="uniform-ocp">OCP/ABU</button>
               <button type="button" data-type="uniform-blues">Blues</button>
               <button type="button" data-type="room">Room</button>
+              <button type="button" data-type="pt">PT</button>
             </div>
           </div>
           <div style="display:flex; gap: var(--space-3);">
@@ -792,7 +887,7 @@
         return;
       }
       const selection = getSelection();
-      const category = selection === "room" ? "room" : "uniform";
+      const category = selection === "room" ? "room" : selection === "pt" ? "pt" : "uniform";
       const uniformType = selection === "uniform-blues" ? "Blues" : (selection === "uniform-ocp" ? "OCP/ABU" : "");
 
       const row = existing
@@ -912,7 +1007,7 @@
                     <div class="student-row__name">${esc(m.Name) || "—"}</div>
                     <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
                   </div>
-                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${activeItems().length}</span>` : ""}
+                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${INSPECTION_TYPES[activeType].isPt ? esc(latest.ItemsAttempted || 0) : activeItems().length}</span>` : ""}
                 </button>`;
             }).join("")}
           </div>
@@ -1013,7 +1108,7 @@
                   <div class="history-row__date">${esc(h.Date)}</div>
                   <div class="history-row__meta">${esc(h.InspectingPosition) || "—"}${h.Notes ? " · has notes" : ""}</div>
                 </div>
-                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${activeItems().length}</div>
+                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${INSPECTION_TYPES[activeType].isPt ? (h.ItemsAttempted || 0) : activeItems().length}</div>
               </div>
             `).join("")}
           </div>
@@ -1061,6 +1156,9 @@
 
     function renderScorecard() {
       currentView = "scorecard";
+      const isPt = !!INSPECTION_TYPES[activeType].isPt;
+      if (isPt) return renderPtScorecard();
+
       const items = activeItems();
       const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
       const existing = selectedInspectionDate
@@ -1158,6 +1256,145 @@
       Shell.animateIn(contentEl);
     }
 
+    /**
+     * PT's scorecard is a different shape from uniform/room: raw values
+     * typed in (a number of reps/laps, or "mm:ss" for the mile run)
+     * rather than a manual pass/fail tap — pass/fail is DERIVED from the
+     * chart, live, as the person types. All 5 items are optional.
+     */
+    function renderPtScorecard() {
+      const items = PT_SCORE_ITEMS;
+      const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
+      const existing = selectedInspectionDate
+        ? (history.find(h => h.Date === selectedInspectionDate) || {})
+        : {};
+
+      const age = selectedStudent.Age || existing.Age || "";
+      const sex = selectedStudent.Sex || existing.Sex || "";
+      const standard = ptStandardFor(age, sex);
+
+      currentScores = {};
+      items.forEach(item => { currentScores[item.key] = existing[item.key] || ""; });
+
+      const now = new Date();
+      const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA");
+      const timestampStr = now.toISOString();
+      const isEditingPast = !!selectedInspectionDate;
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-history-btn">← Back</button>
+          <h2>${esc(selectedStudent.Name) || "—"}</h2>
+        </div>
+
+        <div class="scorecard-meta">
+          <div class="scorecard-meta__item"><span>Student CAP ID</span>${esc(selectedStudent.CapId) || "—"}</div>
+          <div class="scorecard-meta__item"><span>Flight</span>${esc(selectedFlight)}</div>
+          <div class="scorecard-meta__item"><span>Age / Sex</span>${esc(age) || "—"} / ${esc(sex) || "—"}</div>
+          <div class="scorecard-meta__item"><span>Date</span>${esc(dateStr)}${isEditingPast ? " (editing existing entry)" : ""}</div>
+        </div>
+
+        ${!standard ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">⚠ This cadet has no Age/Sex on file in the Roster — raw scores can still be recorded, but pass/fail can't be computed until Age and Sex are added.</div>` : ""}
+
+        <div class="scorecard-section">
+          <h3>${esc(INSPECTION_TYPES.pt.sectionTitle)}</h3>
+          ${items.map(item => {
+            const threshold = standard ? standard[item.key] : null;
+            const thresholdLabel = threshold === null ? "—" : (item.type === "time" ? formatSecondsToMinSec(threshold) : threshold);
+            return `
+              <div class="scorecard-item" data-pt-key="${item.key}">
+                <span class="scorecard-item__label">${item.label} <span style="color: var(--ink-600); font-weight: 400;">(${item.unit}${threshold !== null ? ` · standard ${esc(thresholdLabel)}` : ""})</span></span>
+                <div style="display:flex; align-items:center; gap: var(--space-2);">
+                  <input type="text" inputmode="${item.type === "time" ? "numeric" : "decimal"}" class="pt-input" data-key="${item.key}" placeholder="${item.type === "time" ? "mm:ss" : "optional"}" value="${esc(currentScores[item.key])}" style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+                  <span class="badge pt-pass-badge" data-pt-badge="${item.key}" style="background: var(--surface-sunken); color: var(--ink-600);">—</span>
+                </div>
+              </div>`;
+          }).join("")}
+        </div>
+
+        <div class="scorecard-total">
+          <span>Events passed</span>
+          <span id="total-points-display">${ptTotalLabel()}</span>
+        </div>
+
+        <div class="scorecard-section scorecard-notes">
+          <h3>Notes</h3>
+          <textarea id="notes-input" placeholder="Optional notes…">${esc(existing.Notes || "")}</textarea>
+        </div>
+
+        <button class="btn btn--primary" id="submit-scorecard-btn">Save PT Test</button>
+      `;
+
+      document.getElementById("back-to-history-btn").addEventListener("click", () => {
+        selectedInspectionDate = null;
+        renderHistory();
+      });
+
+      function refreshPtBadge(item) {
+        const badge = contentEl.querySelector(`[data-pt-badge="${item.key}"]`);
+        if (!badge) return;
+        const raw = currentScores[item.key];
+        if (!String(raw || "").trim()) {
+          badge.textContent = "—";
+          badge.style.background = "var(--surface-sunken)";
+          badge.style.color = "var(--ink-600)";
+          return;
+        }
+        const pass = evaluatePtItem(item, raw, standard);
+        if (pass === null) {
+          badge.textContent = "Unscored";
+          badge.style.background = "var(--surface-sunken)";
+          badge.style.color = "var(--ink-600)";
+        } else if (pass) {
+          badge.textContent = "Pass";
+          badge.style.background = "var(--green-100)";
+          badge.style.color = "var(--green-600)";
+        } else {
+          badge.textContent = "Fail";
+          badge.style.background = "var(--red-100)";
+          badge.style.color = "var(--red-600)";
+        }
+      }
+
+      items.forEach(refreshPtBadge);
+
+      contentEl.querySelectorAll(".pt-input").forEach(input => {
+        const item = items.find(i => i.key === input.dataset.key);
+        input.addEventListener("input", () => {
+          currentScores[item.key] = input.value;
+          refreshPtBadge(item);
+          const totalEl = document.getElementById("total-points-display");
+          totalEl.textContent = ptTotalLabel();
+          totalEl.classList.remove("total-pulse");
+          void totalEl.offsetWidth;
+          totalEl.classList.add("total-pulse");
+        });
+      });
+
+      document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitPtScorecard(dateStr, timestampStr, age, sex, standard));
+      Shell.animateIn(contentEl);
+    }
+
+    /** { passed, attempted } for PT's currently-entered raw values, using whatever standard applies to the student on screen. */
+    function computePtTotals(standard) {
+      let attempted = 0, passed = 0;
+      PT_SCORE_ITEMS.forEach(item => {
+        const raw = currentScores[item.key];
+        if (!String(raw || "").trim()) return;
+        attempted++;
+        const pass = evaluatePtItem(item, raw, standard);
+        if (pass === true) passed++;
+      });
+      return { passed, attempted };
+    }
+
+    function ptTotalLabel() {
+      const age = selectedStudent.Age || "";
+      const sex = selectedStudent.Sex || "";
+      const { passed, attempted } = computePtTotals(ptStandardFor(age, sex));
+      return attempted ? `${passed} / ${attempted} passed` : "No events entered";
+    }
+
     function updateToggleUI(key) {
       const toggle = contentEl.querySelector(`.scorecard-toggle[data-key="${key}"]`);
       if (!toggle) return;
@@ -1222,6 +1459,52 @@
       Api.setCachedRows(activeSheet(), bucket.all);
 
       Shell.showToast("Inspection saved.", { type: "success" });
+      selectedInspectionDate = null;
+      renderHistory();
+    }
+
+    /**
+     * PT's save path: unlike submitScorecard() above, nothing here is
+     * required — all 5 events are optional, so this only computes
+     * pass/fail for whichever ones actually have a value.
+     */
+    function submitPtScorecard(dateStr, timestampStr, age, sex, standard) {
+      const { passed, attempted } = computePtTotals(standard);
+
+      const row = {
+        StudentCapId: selectedStudent.CapId,
+        StudentName: selectedStudent.Name,
+        Flight: selectedFlight,
+        InspectingPosition: session.Position,
+        Date: dateStr,
+        Timestamp: timestampStr,
+        Age: age,
+        Sex: sex,
+        Notes: document.getElementById("notes-input").value.trim(),
+        TotalPoints: passed,
+        ItemsAttempted: attempted
+      };
+      PT_SCORE_ITEMS.forEach(item => {
+        const raw = currentScores[item.key];
+        row[item.key] = raw || "";
+        const pass = evaluatePtItem(item, raw, standard);
+        row[`${item.key}Pass`] = pass === null ? "" : (pass ? 1 : 0);
+      });
+
+      Api.writeRow("PTInspections", row, { matchColumns: ["StudentCapId", "Date"] });
+
+      const capId = String(selectedStudent.CapId);
+      const bucket = inspectionsByType.pt;
+      const list = bucket.byStudent[capId] || (bucket.byStudent[capId] = []);
+      const idx = list.findIndex(h => h.Date === dateStr);
+      if (idx >= 0) list[idx] = row; else list.unshift(row);
+      list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
+
+      const allIdx = bucket.all.findIndex(h => String(h.StudentCapId) === capId && h.Date === dateStr);
+      if (allIdx >= 0) bucket.all[allIdx] = row; else bucket.all.push(row);
+      Api.setCachedRows("PTInspections", bucket.all);
+
+      Shell.showToast("PT test saved.", { type: "success" });
       selectedInspectionDate = null;
       renderHistory();
     }
@@ -1548,6 +1831,10 @@
         reindexInspections("room", fresh.rows || []);
         renderActiveView();
       });
+      const ptHandle = Api.getSheetCached("PTInspections", (fresh) => {
+        reindexInspections("pt", fresh.rows || []);
+        renderActiveView();
+      });
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
         inspectionPeriods = fresh.rows || [];
         renderPeriodsSection();
@@ -1563,12 +1850,13 @@
       // allCachedNow gates BOTH behind every one of the four sheets
       // being ready together — either synchronously right now (warm
       // cache) or once the cold load's Promise.all resolves below.
-      const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && periodsHandle.data);
+      const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && ptHandle.data && periodsHandle.data);
 
       if (allCachedNow) {
         rosterRows = rosterHandle.data.rows || [];
         reindexInspections("uniform", uniformHandle.data.rows || []);
         reindexInspections("room", roomHandle.data.rows || []);
+        reindexInspections("pt", ptHandle.data.rows || []);
         inspectionPeriods = periodsHandle.data.rows || [];
         revealTabsBar();
         renderPeriodsSection();
@@ -1577,11 +1865,12 @@
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
-      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, periodsHandle.ready])
-        .then(([rosterData, uniformData, roomData, periodsData]) => {
+      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, ptHandle.ready, periodsHandle.ready])
+        .then(([rosterData, uniformData, roomData, ptData, periodsData]) => {
           rosterRows = rosterData.rows || [];
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
+          reindexInspections("pt", ptData.rows || []);
           inspectionPeriods = periodsData.rows || [];
           // Only re-render here on a COLD load — when everything was
           // already cached and rendered together above, this same
@@ -1624,7 +1913,7 @@
       if (tab === "trends") {
         renderTrends();
       } else {
-        activeType = tab === "room" ? "room" : "uniform";
+        activeType = (tab === "room" || tab === "pt") ? tab : "uniform";
       }
     }
 
@@ -1646,8 +1935,12 @@
     // this position may view, in the sheet's column order.
     Shell.registerExport(() => {
       const items = INSPECTION_TYPES[activeType].items;
-      const columns = ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp",
-        ...items.map(i => i.key), "TotalPoints", "Notes"];
+      const isPt = !!INSPECTION_TYPES[activeType].isPt;
+      const columns = isPt
+        ? ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp", "Age", "Sex",
+           ...items.flatMap(i => [i.key, `${i.key}Pass`]), "TotalPoints", "ItemsAttempted", "Notes"]
+        : ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp",
+           ...items.map(i => i.key), "TotalPoints", "Notes"];
       const rows = (inspectionsByType[activeType].all || []).filter(r => isFlightAllowed(r.Flight));
       return { filename: `inspections-${activeType}-${new Date().toISOString().slice(0, 10)}.csv`, columns, rows };
     });
