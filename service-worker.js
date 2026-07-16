@@ -1,19 +1,27 @@
 /* ============================================================
    NJWG ENCAMPMENT — SERVICE WORKER
-   Caches the app shell (HTML/CSS/JS) for OFFLINE use, but serves it
-   NETWORK-FIRST when online (see the fetch handler) so a freshly
-   deployed change shows up on the very next load instead of only after
-   a second visit — the trap a cache-first shell falls into. The cached
-   copy is the offline fallback, refreshed on every successful fetch.
+   Caches the app shell (HTML/CSS/JS) and serves it STALE-WHILE-
+   REVALIDATE (see the fetch handler): an instant response from cache
+   when one exists, with a network fetch kicked off in parallel to
+   refresh the cache for the NEXT navigation. This app is a static
+   multi-page site — every nav-rail click is a full browser navigation
+   to a new HTML document — so a network-first shell meant every single
+   page-to-page click paused on a round trip before anything painted,
+   even though the sheet data itself was already rendering instantly
+   from js/api.js's own cache. Cache-first removes that pause; a fresh
+   deploy still shows up (one navigation later than before, instead of
+   immediately), which is a fair trade for every click no longer
+   blocking on the network.
    Does NOT cache Apps Script API responses — schedule/roster data
    always comes straight from the network.
    ============================================================ */
 
-// Bumped to v4 alongside the switch from cache-first to network-first
-// for the app shell (see the fetch handler below) — changing this name
-// forces every device to drop its old cached shell on activate instead
-// of continuing to serve stale markup/CSS/JS.
-const CACHE_NAME = "njwg-encampment-v6";
+// Bumped to v7 alongside the switch from network-first to
+// stale-while-revalidate for the app shell (see the fetch handler
+// below) — changing this name forces every device to drop its old
+// cached shell on activate instead of continuing to serve whatever the
+// previous strategy left behind.
+const CACHE_NAME = "njwg-encampment-v7";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -119,20 +127,21 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // App shell: network-first, falling back to the cached copy offline.
-  // Keeping this network-first (rather than cache-first) means a deploy
-  // is picked up immediately when online — HTML and its matching JS/CSS
-  // are always fetched together fresh — while the cache, refreshed on
-  // every successful response, still serves the whole app offline.
+  // App shell: stale-while-revalidate. Serve the cached copy instantly
+  // if we have one (no network wait between clicking a nav link and the
+  // next page painting), while a background fetch refreshes the cache
+  // for next time. First-ever load (nothing cached yet) still waits on
+  // the network, same as before.
   event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        if (response.ok) {
-          const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
-        }
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(event.request);
+
+      const network = fetch(event.request).then((response) => {
+        if (response.ok) cache.put(event.request, response.clone());
         return response;
-      })
-      .catch(() => caches.match(event.request))
+      }).catch(() => cached);
+
+      return cached || network;
+    })
   );
 });
