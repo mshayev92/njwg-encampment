@@ -172,6 +172,10 @@ const Shell = (() => {
     // hasn't been updated with the static markup for some reason, so
     // this never silently renders an empty rail.
     const linksContainer = document.getElementById("nav-rail-links") || rail;
+    // Scrollable list of links ONLY — the footer card below is a sibling
+    // of this element (not inside it), so it never scrolls out of view
+    // along with the links (see .nav-rail__links in css/app.css).
+    linksContainer.classList.add("nav-rail__links");
 
     const links = getAllowedNavItems().map(item => `
       <a class="nav-rail__link" href="${window.APP_BASE_PATH}${item.href}" ${item.id === activePage ? 'aria-current="page"' : ''}>
@@ -180,18 +184,22 @@ const Shell = (() => {
       </a>
     `).join("");
 
-    const session = Auth.getSession();
+    linksContainer.innerHTML = links;
 
-    linksContainer.innerHTML = `
-      ${links}
-      ${session ? `
-        <div class="nav-rail__footer">
-          <div class="nav-rail__footer-label">Signed in as</div>
-          <div class="nav-rail__footer-position">${escapeHtml_(session.Position || session.position || "Staff")}</div>
-          <button class="btn btn--ghost" id="logout-btn">Log out</button>
-        </div>
-      ` : ""}
-    `;
+    const session = Auth.getSession();
+    const existingFooter = rail.querySelector(".nav-rail__footer");
+    if (existingFooter) existingFooter.remove();
+
+    if (session) {
+      const footer = document.createElement("div");
+      footer.className = "nav-rail__footer";
+      footer.innerHTML = `
+        <div class="nav-rail__footer-label">Signed in as</div>
+        <div class="nav-rail__footer-position">${escapeHtml_(session.Position || session.position || "Staff")}</div>
+        <button class="btn btn--ghost" id="logout-btn">Log out</button>
+      `;
+      linksContainer.insertAdjacentElement("afterend", footer);
+    }
 
     applyCollapsedState_(isNavCollapsed_());
 
@@ -1150,6 +1158,32 @@ const Shell = (() => {
   // ---- Custom dropdown (replaces native <select>) -----------------------
 
   /**
+   * Positions a `position: fixed`, body-appended floating panel (custom
+   * dropdown menu / date field / time field popover) against its
+   * trigger element. Appending to <body> and computing coordinates from
+   * getBoundingClientRect() — rather than `position: absolute` nested
+   * inside the trigger's own wrapper — is what lets these popovers
+   * escape an ancestor with overflow:hidden (e.g. .card, used by every
+   * form in the app), which otherwise clips them instead of letting
+   * them float above the page. Flips above the trigger, and clamps
+   * horizontally, whenever there isn't room below/right.
+   */
+  function positionFloatingPanel_(panel, anchorEl, { matchWidth = false } = {}) {
+    const rect = anchorEl.getBoundingClientRect();
+    if (matchWidth) panel.style.width = `${rect.width}px`;
+
+    const panelHeight = panel.offsetHeight;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const openAbove = spaceBelow < panelHeight && rect.top > panelHeight;
+    panel.style.top = `${Math.round(openAbove ? rect.top - panelHeight - 4 : rect.bottom + 4)}px`;
+
+    const panelWidth = panel.offsetWidth;
+    let left = rect.left;
+    left = Math.max(4, Math.min(left, window.innerWidth - panelWidth - 4));
+    panel.style.left = `${Math.round(left)}px`;
+  }
+
+  /**
    * Progressively enhances a native <select> into the themed custom
    * dropdown (see .dropdown/.dropdown__trigger/.dropdown__menu in
    * app.css) while keeping the underlying <select> as the source of
@@ -1204,19 +1238,30 @@ const Shell = (() => {
     function close() {
       wrap.classList.remove("is-open");
       menu.style.display = "none";
+      if (menu.parentNode === document.body) document.body.removeChild(menu);
       document.removeEventListener("click", onOutsideClick, true);
       document.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    }
+
+    function onReposition() {
+      positionFloatingPanel_(menu, trigger, { matchWidth: true });
     }
 
     function open() {
       wrap.classList.add("is-open");
+      document.body.appendChild(menu);
       menu.style.display = "block";
+      positionFloatingPanel_(menu, trigger, { matchWidth: true });
       document.addEventListener("click", onOutsideClick, true);
       document.addEventListener("keydown", onKeydown);
+      window.addEventListener("scroll", onReposition, true);
+      window.addEventListener("resize", onReposition);
     }
 
     function onOutsideClick(e) {
-      if (!wrap.contains(e.target)) close();
+      if (!wrap.contains(e.target) && !menu.contains(e.target)) close();
     }
 
     function onKeydown(e) {
@@ -1305,6 +1350,8 @@ const Shell = (() => {
       if (panelEl) { panelEl.remove(); panelEl = null; }
       wrap.classList.remove("is-open");
       if (outsideHandler) { document.removeEventListener("mousedown", outsideHandler, true); outsideHandler = null; }
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
     }
 
     function pick(iso) {
@@ -1359,7 +1406,8 @@ const Shell = (() => {
           ${inputEl.value ? `<button type="button" data-action="clear">Clear</button>` : "<span></span>"}
         </div>
       `;
-      wrap.appendChild(panelEl);
+      document.body.appendChild(panelEl);
+      positionFloatingPanel_(panelEl, trigger);
 
       panelEl.querySelectorAll("[data-nav]").forEach(btn => {
         btn.addEventListener("click", () => {
@@ -1378,6 +1426,10 @@ const Shell = (() => {
       if (clearBtn) clearBtn.addEventListener("click", () => pick(""));
     }
 
+    function onReposition() {
+      if (panelEl) positionFloatingPanel_(panelEl, trigger);
+    }
+
     function open() {
       close();
       const base = inputEl.value ? new Date(inputEl.value + "T00:00:00") : new Date();
@@ -1385,8 +1437,10 @@ const Shell = (() => {
       viewMonth = base.getMonth();
       renderPanel();
       wrap.classList.add("is-open");
-      outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      outsideHandler = (e) => { if (!wrap.contains(e.target) && (!panelEl || !panelEl.contains(e.target))) close(); };
       setTimeout(() => document.addEventListener("mousedown", outsideHandler, true), 0);
+      window.addEventListener("scroll", onReposition, true);
+      window.addEventListener("resize", onReposition);
     }
 
     trigger.addEventListener("click", () => {
@@ -1448,6 +1502,12 @@ const Shell = (() => {
       if (panelEl) { panelEl.remove(); panelEl = null; }
       wrap.classList.remove("is-open");
       if (outsideHandler) { document.removeEventListener("mousedown", outsideHandler, true); outsideHandler = null; }
+      window.removeEventListener("scroll", onReposition, true);
+      window.removeEventListener("resize", onReposition);
+    }
+
+    function onReposition() {
+      if (panelEl) positionFloatingPanel_(panelEl, trigger);
     }
 
     function open() {
@@ -1455,7 +1515,8 @@ const Shell = (() => {
       panelEl = document.createElement("div");
       panelEl.className = "time-field__panel";
       panelEl.innerHTML = SLOTS.map(t => `<button type="button" class="time-field__option ${t === inputEl.value ? "is-selected" : ""}" data-time="${t}">${t}</button>`).join("");
-      wrap.appendChild(panelEl);
+      document.body.appendChild(panelEl);
+      positionFloatingPanel_(panelEl, trigger);
       wrap.classList.add("is-open");
 
       panelEl.querySelectorAll("[data-time]").forEach(btn => {
@@ -1470,8 +1531,10 @@ const Shell = (() => {
       const selected = panelEl.querySelector(".is-selected");
       if (selected) selected.scrollIntoView({ block: "center" });
 
-      outsideHandler = (e) => { if (!wrap.contains(e.target)) close(); };
+      outsideHandler = (e) => { if (!wrap.contains(e.target) && !panelEl.contains(e.target)) close(); };
       setTimeout(() => document.addEventListener("mousedown", outsideHandler, true), 0);
+      window.addEventListener("scroll", onReposition, true);
+      window.addEventListener("resize", onReposition);
     }
 
     trigger.addEventListener("click", () => {
@@ -1780,6 +1843,60 @@ const Shell = (() => {
     }
   }
 
+  // ---- Content entrance animation (in-page view swaps) ------------------
+  //
+  // Every page replaces a container's whole innerHTML on nearly every
+  // interaction (switching flights, filtering the roster, opening a
+  // scorecard) — previously an instant pop-in. Call this right after
+  // setting that innerHTML so the new content rises/fades in instead.
+  // Safe to call repeatedly on the SAME element (e.g. re-rendering the
+  // same view after a background refresh): removing the class and
+  // forcing a reflow before re-adding it restarts the animation rather
+  // than silently no-op'ing because the class never actually changed.
+
+  function animateIn(el) {
+    if (!el) return;
+    el.classList.remove("view-fade-in");
+    void el.offsetWidth; // force reflow
+    el.classList.add("view-fade-in");
+  }
+
+  // ---- Tabs: animated sliding active-tab indicator -----------------------
+  //
+  // Progressively enhances a .tabs container (Uniform/Room/Trends,
+  // Staff Access/Login Activity, etc.) with a single positioned element
+  // that slides/resizes to sit behind the active .tabs__tab, instead of
+  // each tab's own background appearing/disappearing instantly when
+  // .is-active is toggled. The page itself still owns click handling and
+  // toggling .is-active — call the returned `.move()` right after that,
+  // so the indicator catches up to wherever the newly-active tab is.
+  // Safe to call again on the same container (e.g. after its tabs are
+  // re-rendered from scratch) — reuses the existing indicator if the
+  // container still has one.
+  function enhanceTabs(container) {
+    if (!container) return null;
+    container.classList.add("tabs--enhanced");
+
+    let indicator = container.querySelector(":scope > .tabs__indicator");
+    if (!indicator) {
+      indicator = document.createElement("div");
+      indicator.className = "tabs__indicator";
+      container.insertBefore(indicator, container.firstChild);
+    }
+
+    function move() {
+      const active = container.querySelector(".tabs__tab.is-active");
+      if (!active) { indicator.style.opacity = "0"; return; }
+      indicator.style.opacity = "1";
+      indicator.style.width = `${active.offsetWidth}px`;
+      indicator.style.left = `${active.offsetLeft}px`;
+    }
+
+    move();
+    window.addEventListener("resize", move);
+    return { move };
+  }
+
   return {
     init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
@@ -1789,6 +1906,7 @@ const Shell = (() => {
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
-    formatDateTime: formatDateTime_, formatTime: formatTime_
+    formatDateTime: formatDateTime_, formatTime: formatTime_,
+    animateIn, enhanceTabs
   };
 })();

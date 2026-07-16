@@ -6,6 +6,74 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* ============================================================
+   PAGE-TO-PAGE TRANSITIONS
+   This is a static multi-page app — every nav-rail click is a real
+   browser navigation to a new document, which used to read as a flat
+   flicker (old page gone, new page instantly there). The cross-document
+   View Transitions API (Chrome/Edge 126+; a progressive enhancement
+   that's simply inert everywhere else, so no fallback/JS needed) lets
+   the browser snapshot the outgoing and incoming pages and animate
+   between them. The default is a plain cross-fade; the keyframes below
+   swap in a slight rise/fall so the new page feels like it settles into
+   place rather than just popping in. Respects prefers-reduced-motion
+   automatically via the animation-duration override in tokens.css. */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root) {
+  animation: view-page-out var(--duration-base) var(--ease-standard) both;
+}
+::view-transition-new(root) {
+  animation: view-page-in var(--duration-base) var(--ease-standard) both;
+}
+@keyframes view-page-out {
+  to { opacity: 0; transform: translateY(-6px); }
+}
+@keyframes view-page-in {
+  from { opacity: 0; transform: translateY(6px); }
+}
+
+/* Same idea, one level down: whenever a page swaps the CONTENT of its
+   main container in place (switching flights/tabs, reloading a list,
+   opening a scorecard) rather than navigating — see Shell.animateIn in
+   js/shell.js, called by every page's render(). Retriggerable: calling
+   it again (even on the same element) restarts the animation instead of
+   silently no-op'ing because the class was already present. */
+@keyframes view-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.view-fade-in {
+  animation: view-fade-in var(--duration-base) var(--ease-standard);
+}
+
+/* Small list/grid items get a brief staggered rise-in on first render —
+   a whole flight grid or note feed appearing instantly, all at once,
+   reads as static; a few tens of milliseconds of stagger reads as
+   alive. Capped at the first 8 items per container; anything past that
+   still animates, just without extra delay. */
+@keyframes item-rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.flight-grid > .flight-tile,
+.student-list > .student-row,
+.note-feed > .note-card,
+.history-list > .history-row,
+.flight-avg-grid > .flight-avg-card {
+  animation: item-rise-in var(--duration-base) var(--ease-standard) both;
+}
+.flight-grid > :nth-child(1), .student-list > :nth-child(1), .note-feed > :nth-child(1), .history-list > :nth-child(1), .flight-avg-grid > :nth-child(1) { animation-delay: 0ms; }
+.flight-grid > :nth-child(2), .student-list > :nth-child(2), .note-feed > :nth-child(2), .history-list > :nth-child(2), .flight-avg-grid > :nth-child(2) { animation-delay: 30ms; }
+.flight-grid > :nth-child(3), .student-list > :nth-child(3), .note-feed > :nth-child(3), .history-list > :nth-child(3), .flight-avg-grid > :nth-child(3) { animation-delay: 60ms; }
+.flight-grid > :nth-child(4), .student-list > :nth-child(4), .note-feed > :nth-child(4), .history-list > :nth-child(4), .flight-avg-grid > :nth-child(4) { animation-delay: 90ms; }
+.flight-grid > :nth-child(5), .student-list > :nth-child(5), .note-feed > :nth-child(5), .history-list > :nth-child(5), .flight-avg-grid > :nth-child(5) { animation-delay: 120ms; }
+.flight-grid > :nth-child(6), .student-list > :nth-child(6), .note-feed > :nth-child(6), .history-list > :nth-child(6), .flight-avg-grid > :nth-child(6) { animation-delay: 150ms; }
+.flight-grid > :nth-child(7), .student-list > :nth-child(7), .note-feed > :nth-child(7), .history-list > :nth-child(7), .flight-avg-grid > :nth-child(7) { animation-delay: 180ms; }
+.flight-grid > :nth-child(8), .student-list > :nth-child(8), .note-feed > :nth-child(8), .history-list > :nth-child(8), .flight-avg-grid > :nth-child(8) { animation-delay: 210ms; }
+
 html, body {
   margin: 0;
   padding: 0;
@@ -254,14 +322,31 @@ html.nav-rail-collapsed .nav-rail__crest {
   50% { opacity: 1; transform: scale(1); }
 }
 
-/* ---- Nav rail (desktop) ---- */
+/* ---- Nav rail (desktop) ----
+   Pinned to the viewport (not the grid row's computed height, which
+   grows with however tall the current page's main content is) so the
+   rail never scrolls away with the page. Only .nav-rail__links (the
+   link list) scrolls internally if it doesn't fit; the crest and the
+   footer card stay put. */
 .nav-rail {
   grid-area: nav;
+  position: sticky;
+  top: 0;
+  height: 100vh;
   background: var(--indigo-950);
   color: var(--steel-300);
   display: flex;
   flex-direction: column;
   padding: var(--space-5) var(--space-3);
+  gap: var(--space-1);
+  overflow: hidden;
+}
+
+.nav-rail__links {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-1);
   overflow-y: auto;
 }
@@ -327,9 +412,11 @@ html.nav-rail-collapsed .nav-rail__crest {
   justify-content: center;
 }
 
-/* ---- Nav rail footer card (signed-in-as / log out) ---- */
+/* ---- Nav rail footer card (signed-in-as / log out) ----
+   A direct sibling of .nav-rail__links (not inside it), so it never
+   scrolls with the link list — see .nav-rail/.nav-rail__links above. */
 .nav-rail__footer {
-  margin-top: auto;
+  flex-shrink: 0;
   padding: var(--space-4) var(--space-3);
   background: var(--indigo-900);
   border-radius: var(--radius-md);
@@ -435,6 +522,20 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--indigo-900);
 }
 
+/* ---- Section label ----
+   The small uppercase heading used above a block of content within a
+   page (a card section, a table, a pending-rows list, etc.) — several
+   pages used to hand-roll this same look via inline styles with subtly
+   different font sizes/margins each time. One shared class keeps every
+   page's sub-headings the same size and spacing. */
+.section-label {
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  color: var(--ink-600);
+  margin-bottom: var(--space-4);
+}
+
 /* ---- Card ----
    A thin gold hairline draws in from the center on hover/focus-within,
    echoing the patch's wing-fan motif without repeating it outright. */
@@ -480,6 +581,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   cursor: pointer;
   transition: background var(--duration-fast) var(--ease-standard),
               border-color var(--duration-fast) var(--ease-standard),
+              box-shadow var(--duration-fast) var(--ease-standard),
               transform var(--duration-fast) var(--ease-standard);
 }
 
@@ -496,6 +598,15 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--indigo-950);
 }
 .btn--gold:hover { background: var(--gold-600); }
+
+/* A little tactile lift on the two "primary action" button styles —
+   subtle enough not to fight with :active's press-down below, since
+   :active always wins on the same interaction (mouse down cancels the
+   hover lift's translateY before it would ever combine with it). */
+.btn--primary:hover, .btn--gold:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
 
 .btn--ghost {
   background: transparent;
@@ -890,10 +1001,14 @@ html.nav-rail-collapsed .nav-rail__crest {
   transform: rotate(180deg);
 }
 
+/* position: fixed and appended to <body> at open time (see
+   Shell.enhanceSelect) rather than absolutely positioned inside
+   .dropdown — an ancestor with overflow:hidden (e.g. .card, used on
+   every form) would otherwise clip the menu instead of letting it float
+   above the page. JS sets top/left/width inline from the trigger's own
+   getBoundingClientRect() at open time. */
 .dropdown__menu {
-  position: absolute;
-  top: 100%; left: 0; right: 0;
-  margin-top: var(--space-1);
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -951,10 +1066,15 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--ink-400);
 }
 
+/* position: fixed and appended to <body> at open time (see
+   Shell.enhanceDateInput / enhanceTimeInput) rather than absolutely
+   positioned inside .date-field/.time-field — an ancestor with
+   overflow:hidden (e.g. .card, used on every form) would otherwise clip
+   the panel instead of letting it float above the page. JS sets
+   top/left inline from the trigger's own getBoundingClientRect() at
+   open time. */
 .date-field__panel, .time-field__panel {
-  position: absolute;
-  top: 100%; left: 0;
-  margin-top: var(--space-1);
+  position: fixed;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -1115,6 +1235,7 @@ button.date-field__day:hover {
 
 /* ---- Tabs (segmented control) ---- */
 .tabs {
+  position: relative;
   display: inline-flex;
   gap: var(--space-1);
   background: var(--surface-sunken);
@@ -1132,12 +1253,45 @@ button.date-field__day:hover {
   border: none;
   background: transparent;
   font-family: inherit;
+  transition: color var(--duration-fast) var(--ease-standard);
 }
 
 .tabs__tab.is-active {
   color: var(--indigo-900);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+}
+
+/* ---- Tabs: sliding active indicator (see Shell.enhanceTabs) ----
+   A single positioned element that slides/resizes to sit behind
+   whichever tab is active, instead of each tab's own background
+   popping in/out instantly — the same visual result as
+   .tabs__tab.is-active, just animated between tabs. Opt-in per
+   container (.tabs--enhanced) so tab bars that don't call
+   Shell.enhanceTabs keep the plain instant-swap look untouched. */
+.tabs__indicator {
+  position: absolute;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  left: 0;
+  width: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  transition: left var(--duration-base) var(--ease-standard),
+              width var(--duration-base) var(--ease-standard),
+              opacity var(--duration-fast) var(--ease-standard);
+  pointer-events: none;
+}
+
+.tabs--enhanced .tabs__tab {
+  position: relative;
+  z-index: 1;
+}
+.tabs--enhanced .tabs__tab.is-active {
+  background: transparent;
+  box-shadow: none;
 }
 
 /* ---- Toggle switch ---- */
@@ -1302,10 +1456,17 @@ button.date-field__day:hover {
     padding: 0;
     border-top: 1px solid var(--indigo-700);
     position: sticky;
+    top: auto;
     bottom: 0;
+    height: auto;
     z-index: var(--z-nav);
     /* Keep the tab bar clear of the iOS/Android home indicator. */
     padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+
+  .nav-rail__links {
+    flex-direction: row;
+    overflow: visible;
   }
 
   .nav-rail__crest,

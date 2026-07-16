@@ -203,6 +203,7 @@
     const EDIT_GATES = [
       { id: "edit-roster", label: "Edit roster" },
       { id: "edit-schedule", label: "Edit schedule" },
+      { id: "edit-inspections", label: "Edit inspection periods" },
       { id: "edit-announcements", label: "Edit announcements / black flag" }
     ];
     const KNOWN_PAGES = [
@@ -328,6 +329,7 @@
         b.addEventListener("click", () => deletePosition(b.dataset.delete)));
 
       Shell.wireTooltips(contentEl);
+      Shell.animateIn(contentEl);
     }
 
     async function savePosition() {
@@ -420,6 +422,8 @@
 
       contentEl.querySelectorAll("[data-filter]").forEach(b =>
         b.addEventListener("click", () => { failuresOnly = b.dataset.filter === "failures"; renderLogTab(); }));
+      Shell.enhanceTabs(contentEl.querySelector(".log-toolbar .tabs"));
+      Shell.animateIn(contentEl);
     }
 
     // ---- Loading + tabs --------------------------------------------------
@@ -473,10 +477,12 @@
       }
     }
 
+    const adminTabsIndicator = Shell.enhanceTabs(document.querySelector(".admin-tabs"));
     tabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         tabButtons.forEach(b => b.classList.remove("is-active"));
         btn.classList.add("is-active");
+        adminTabsIndicator.move();
         activeTab = btn.dataset.tab;
         editing = null;
         showActiveTab();

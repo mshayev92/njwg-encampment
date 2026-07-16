@@ -132,14 +132,20 @@
       padding-left: var(--space-5);
     }
 
-    /* Square-ish tiles in a wrapping grid, instead of full-width rows —
-       lets many notes sit side by side rather than each one claiming
-       the whole content width. */
+    /* Tiles in a wrapping grid, instead of full-width rows — lets many
+       notes sit side by side rather than each one claiming the whole
+       content width. align-items: start (rather than the grid default
+       of "stretch") lets each card size to its OWN content instead of
+       stretching to match the tallest card in its row — a short note
+       with little/no body used to be forced to the same fixed height as
+       a long one, leaving a big block of empty space under its subject
+       line. max-height on .note-card below still caps how tall a single
+       very long note can grow, scrolling its body instead. */
     .note-feed {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-      grid-auto-rows: 240px;
-      gap: var(--space-3);
+      align-items: start;
+      gap: var(--space-4);
       margin-top: var(--space-5);
     }
 
@@ -150,6 +156,7 @@
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
       padding: var(--space-4);
+      max-height: 320px;
       overflow: hidden;
     }
 
@@ -174,8 +181,13 @@
     .note-card__body {
       font-size: var(--fs-sm);
       color: var(--ink-900);
-      flex: 1;
       overflow-y: auto;
+    }
+
+    .note-card__body:empty::before {
+      content: "(no additional details)";
+      color: var(--ink-400);
+      font-style: italic;
     }
 
     .note-card__body ul, .note-card__body ol {
@@ -336,6 +348,7 @@
         btn.addEventListener("click", () => deleteNote(btn.dataset.deleteId));
       });
       Shell.wireTooltips(contentEl);
+      Shell.animateIn(contentEl);
     }
 
     /** Prefills the form from an existing note and switches it into edit mode. */

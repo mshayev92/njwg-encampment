@@ -32,7 +32,7 @@
     .roster-toolbar {
       display: flex;
       gap: var(--space-3);
-      margin-bottom: var(--space-4);
+      margin-bottom: var(--space-5);
       flex-wrap: wrap;
       align-items: center;
     }
@@ -215,6 +215,7 @@
           render(allRows);
         });
       });
+      Shell.animateIn(contentEl);
     }
 
     function renderFlightDetail(rows, flight) {
@@ -290,6 +291,7 @@
           render(allRows);
         });
       }
+      Shell.animateIn(contentEl);
     }
 
     /**
@@ -334,7 +336,7 @@
 
       formContainer.innerHTML = `
         <div class="card" style="margin-bottom: var(--space-5);">
-          <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+          <h3 class="section-label">
             ${student ? "Edit Cadet" : "Add Cadet"}
           </h3>
           <div class="roster-form">

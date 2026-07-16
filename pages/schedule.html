@@ -259,6 +259,7 @@
         const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
         contentEl.innerHTML = renderScheduleCard(todaysGroup);
         wireRowActions();
+        Shell.animateIn(contentEl);
         return;
       }
 
@@ -281,6 +282,7 @@
         btn.addEventListener("click", () => { activeGroupKey = btn.dataset.groupKey; render(scheduleRows); });
       });
       wireRowActions();
+      Shell.animateIn(contentEl);
     }
 
     function wireRowActions() {
@@ -336,7 +338,7 @@
     function renderPendingTable() {
       return `
         <div class="schedule-pending">
-          <h4 style="font-size: var(--fs-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-3);">
+          <h4 class="section-label">
             Rows to add (${pendingRows.length})
           </h4>
           <table class="data-table">
@@ -375,7 +377,7 @@
 
       formContainer.innerHTML = `
         <div class="card" style="margin-bottom: var(--space-5);">
-          <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-4);">
+          <h3 class="section-label">
             ${mode === "add" ? "Add Schedule Items" : "Edit Schedule Item"}
           </h3>
           <div class="schedule-form">

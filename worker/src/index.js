@@ -12,7 +12,7 @@
  */
 
 import {
-  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS,
+  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS,
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
@@ -721,6 +721,9 @@ async function ensureAutoCreatedTab(env, sheetName) {
   }
   if (sheetName === "RoomInspections") {
     await ensureSheetExists(env, "RoomInspections", ROOM_INSPECTION_COLUMNS);
+  }
+  if (sheetName === "InspectionPeriods") {
+    await ensureSheetExists(env, "InspectionPeriods", INSPECTION_PERIOD_COLUMNS);
   }
   if (sheetName === "Announcements") {
     await ensureSheetExists(env, "Announcements", ANNOUNCEMENT_COLUMNS);

@@ -291,6 +291,7 @@
         btn.addEventListener("click", () => deleteAnnouncement(btn.dataset.deleteId));
       });
       Shell.wireTooltips(contentEl);
+      Shell.animateIn(contentEl);
     }
 
     /** Prefills the post form from an existing announcement and switches it into edit mode. */
