@@ -325,6 +325,12 @@
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
+      // The black-flag banner above this content loads via Shell's own,
+      // separate pipeline (BlackFlagStatus) — telling Shell this page's
+      // own content is ready now means the banner reveals in the same
+      // beat as everything below, instead of popping in on its own
+      // whenever ITS fetch happens to resolve. See Shell.markContentReady.
+      Shell.markContentReady();
       contentEl.innerHTML = `
         <div class="overview-stack">
           <div class="overview-grid">

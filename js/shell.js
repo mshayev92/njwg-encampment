@@ -973,6 +973,22 @@ const Shell = (() => {
     return el;
   }
 
+  // Overview's own content (roster/schedule/weather) loads via a
+  // completely separate pipeline from this banner (BlackFlagStatus,
+  // fetched by loadGlobalAlerts_ as part of Shell.init — see below).
+  // Without a gate, whichever one happens to resolve first (often the
+  // banner, off a warm cache, while the page's own three sources are
+  // still cold) pops in on its own, then the rest of the page assembles
+  // moments later — the "some content loads first, then others"
+  // fragmented feel. contentReady_ holds the banner back until
+  // Shell.markContentReady() (called by overview.html once its own
+  // load() has everything it needs) says the rest of the page is about
+  // to appear too, so both settle in the same visual beat. Every OTHER
+  // page's compact header pill is unaffected — it's small enough that a
+  // moment's delay after the header itself (already instant, static
+  // markup) isn't the same jarring "half a page" pop-in.
+  let contentReady_ = false;
+
   /**
    * Overview keeps the full-width banner exactly as designed; every
    * other page shows a compact pill in the header instead (see
@@ -983,6 +999,7 @@ const Shell = (() => {
     const active = !!(status && (status.Active === true || status.Active === "TRUE" || status.Active === "true"));
 
     if (activePage_ === "overview") {
+      if (!contentReady_) return; // deferred until markContentReady() — see above
       const el = ensureGlobalBannerSlot_();
       el.style.display = active ? "flex" : "none";
       el.textContent = "⚑ BLACK FLAG IN EFFECT — outdoor activity restricted";
@@ -990,6 +1007,20 @@ const Shell = (() => {
 
     const pill = document.getElementById("black-flag-pill");
     if (pill) pill.style.display = (active && activePage_ !== "overview") ? "inline-flex" : "none";
+  }
+
+  /**
+   * Called by a page (currently just overview.html) once ITS OWN content
+   * is ready to appear, so the black-flag banner — which loads via an
+   * entirely separate pipeline (see contentReady_ above) — reveals at
+   * the same moment instead of popping in independently, earlier or
+   * later. A no-op on pages that never call it (they just get the
+   * always-on-time header pill instead, unaffected by this gate).
+   */
+  function markContentReady() {
+    if (contentReady_) return;
+    contentReady_ = true;
+    renderBlackFlagBanner_(lastBlackFlagStatus_);
   }
 
   function getAnnouncementsLastSeen_() {
@@ -2137,7 +2168,7 @@ const Shell = (() => {
   return {
     init, renderNav, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
-    markNotesSeen: markNotesSeen_,
+    markNotesSeen: markNotesSeen_, markContentReady,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, enhanceDateInput, enhanceTimeInput, openContextMenu,
