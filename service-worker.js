@@ -16,14 +16,16 @@
    always comes straight from the network.
    ============================================================ */
 
-// Bumped to v10 alongside two robustness fixes: a resilient install
-// (see below) so a single missing shell asset can no longer abort the
-// whole install and leave a device stuck on an OLD worker version, and
-// a navigation-safe fetch handler that never serves or caches a
-// redirected/opaque response (which would fail the navigation with the
-// browser's "page might be temporarily down" error). Changing this name
-// forces every device to drop its old cached shell on activate.
-const CACHE_NAME = "njwg-encampment-v10";
+// Bumped to v11: on top of the v10 robustness fixes (resilient install,
+// never serving/caching a redirected/opaque response), navigation
+// fetches now go out via an explicit redirect:"follow" Request (see
+// toFollowingRequest_ below) — navigation FetchEvents carry
+// request.redirect === "manual", and handing back a followed redirect's
+// response for a "manual"-mode request is exactly what threw "a
+// redirected response was used for a request whose redirect mode is not
+// 'follow'" in DevTools. Changing this name forces every device to drop
+// its old cached shell on activate.
+const CACHE_NAME = "njwg-encampment-v11";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -188,12 +190,25 @@ function isUsableResponse_(response) {
   return response && response.ok && !response.redirected && response.type !== "opaque";
 }
 
+// Navigation FetchEvents carry request.redirect === "manual" (a Chrome
+// quirk, not a bug in this code) — but fetch() still follows any
+// redirect the server sends and returns the final response with
+// redirected=true. Handing THAT back via respondWith() for a request
+// whose own redirect mode isn't "follow" throws exactly: 'a redirected
+// response was used for a request whose redirect mode is not "follow"'.
+// The fix is to fetch with an explicit redirect:"follow" Request
+// instead of the original — same URL/headers/etc, just an actual
+// "follow" mode so a followed redirect is a normal, usable response.
+function toFollowingRequest_(request) {
+  return request.redirect === "follow" ? request : new Request(request, { redirect: "follow" });
+}
+
 async function serveShell(request) {
   const cache = await caches.open(CACHE_NAME);
 
   // Background revalidation — refreshes the cache for next time, but
   // only stores a clean, non-redirected response.
-  const network = fetch(request)
+  const network = fetch(toFollowingRequest_(request))
     .then((response) => {
       if (isUsableResponse_(response)) cache.put(request, response.clone()).catch(() => {});
       return response;
