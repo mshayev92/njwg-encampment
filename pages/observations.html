@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint, so a collapsed sidebar
+    // renders at its collapsed width immediately instead of flashing
+    // open at the default width for a frame and visibly animating shut
+    // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    try {
+      if (localStorage.getItem("njwg_nav_collapsed") === "true") {
+        document.documentElement.classList.add("nav-rail-collapsed");
+      }
+    } catch (e) { /* storage unavailable — falls back to expanded */ }
+  </script>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Observations — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
+  <link rel="manifest" href="../manifest.json">
+  <link rel="icon" href="../icons/favicon.ico" sizes="any">
+  <link rel="icon" href="../icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="../css/tokens.css">
+  <link rel="stylesheet" href="../css/app.css">
+
+  <style>
+    .obs-tabs { margin-bottom: var(--space-5); }
+
+    .flight-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: var(--space-4);
+    }
+
+    .flight-tile {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-5);
+      cursor: pointer;
+      text-align: left;
+      box-shadow: var(--shadow-sm);
+      transition: border-color var(--duration-fast) var(--ease-standard),
+                  transform var(--duration-fast) var(--ease-standard);
+      font-family: inherit;
+    }
+    .flight-tile:hover { border-color: var(--gold-500); transform: translateY(-2px); }
+    .flight-tile__name {
+      display: block;
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--indigo-900);
+      margin-bottom: var(--space-2);
+    }
+    .flight-tile__count {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-1);
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+    }
+
+    .student-list { display: flex; flex-direction: column; gap: var(--space-2); }
+    .student-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      width: 100%;
+    }
+    .student-row:hover { border-color: var(--gold-500); }
+    .student-row__name { font-weight: 600; color: var(--indigo-900); }
+    .student-row__meta { font-size: var(--fs-xs); color: var(--ink-600); font-family: var(--font-mono); }
+    .student-row__count {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      padding: var(--space-1) var(--space-2);
+      border-radius: 999px;
+      background: var(--surface-sunken);
+      color: var(--ink-600);
+      white-space: nowrap;
+    }
+
+    .detail-header {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+      flex-wrap: wrap;
+    }
+    .detail-header h2 { font-size: var(--fs-lg); color: var(--indigo-900); margin: 0; }
+
+    .obs-summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+      padding: var(--space-4);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      font-size: var(--fs-sm);
+    }
+    .obs-summary__item span {
+      display: block;
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-1);
+    }
+
+    /* ---- Quick-log chips ---- */
+    .obs-category { margin-bottom: var(--space-5); }
+    .obs-category__label {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--indigo-900);
+      margin-bottom: var(--space-2);
+    }
+    .obs-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-bottom: var(--space-2);
+    }
+    .obs-chip {
+      font-family: inherit;
+      font-size: var(--fs-xs);
+      padding: var(--space-2) var(--space-3);
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      cursor: pointer;
+      transition: transform var(--duration-fast) var(--ease-standard);
+      white-space: nowrap;
+    }
+    .obs-chip:active { transform: scale(0.95); }
+    .obs-chip--positive { border-color: var(--green-600); color: var(--green-600); }
+    .obs-chip--positive:hover { background: var(--green-100); }
+    .obs-chip--concern { border-color: var(--amber-600); color: var(--amber-600); }
+    .obs-chip--concern:hover { background: var(--amber-100); }
+    .obs-chip[disabled] { opacity: 0.5; cursor: default; transform: none; }
+
+    /* Brief confirmation pop on whichever chip was just tapped. */
+    @keyframes obs-chip-pop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.15); }
+      100% { transform: scale(1); }
+    }
+    .obs-chip.is-logged { animation: obs-chip-pop 260ms var(--ease-standard); }
+
+    .obs-note-form {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: flex-start;
+    }
+    .obs-note-form textarea {
+      flex: 1 1 220px;
+      min-height: 44px;
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      padding: var(--space-2) var(--space-3);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: var(--surface);
+      resize: vertical;
+    }
+    .obs-sentiment-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; flex-shrink: 0; }
+    .obs-sentiment-toggle button {
+      padding: var(--space-2) var(--space-3);
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      border: none;
+      background: var(--surface);
+      color: var(--ink-600);
+      cursor: pointer;
+    }
+    .obs-sentiment-toggle button.is-selected.sentiment-positive { background: var(--green-100); color: var(--green-600); }
+    .obs-sentiment-toggle button.is-selected.sentiment-concern { background: var(--amber-100); color: var(--amber-600); }
+
+    /* ---- Recent observations list ---- */
+    .obs-history-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
+    .obs-history-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+    .obs-history-row__body { flex: 1; }
+    .obs-history-row__tag { font-size: var(--fs-sm); color: var(--ink-900); font-weight: 600; }
+    .obs-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); }
+    .obs-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
+    .obs-history-row__sentiment {
+      flex-shrink: 0;
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      padding: var(--space-1) var(--space-2);
+      border-radius: 999px;
+    }
+    .obs-history-row__sentiment--positive { background: var(--green-100); color: var(--green-600); }
+    .obs-history-row__sentiment--concern { background: var(--amber-100); color: var(--amber-600); }
+    .obs-history-row__delete {
+      flex-shrink: 0;
+      background: none;
+      border: none;
+      color: var(--ink-400);
+      cursor: pointer;
+      font-size: var(--fs-md);
+      line-height: 1;
+      padding: 0 0 0 var(--space-2);
+    }
+    .obs-history-row__delete:hover { color: var(--red-600); }
+
+    /* ---- Trends tab ---- */
+    .obs-volume-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+    .obs-volume-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      box-shadow: var(--shadow-sm);
+    }
+    .obs-volume-card__name {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      color: var(--indigo-900);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      margin-bottom: var(--space-2);
+    }
+    .obs-volume-card__value { font-family: var(--font-display); font-size: var(--fs-2xl); color: var(--indigo-900); line-height: 1; }
+    .obs-volume-card__value span { font-size: var(--fs-md); color: var(--ink-600); }
+    .obs-volume-card__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-2); }
+
+    .obs-student-card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      padding: var(--space-4);
+      box-shadow: var(--shadow-sm);
+      margin-bottom: var(--space-3);
+    }
+    .obs-student-card__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+    .obs-student-card__name { font-weight: 600; color: var(--indigo-900); }
+    .obs-student-card__meta { font-size: var(--fs-xs); color: var(--ink-600); font-family: var(--font-mono); }
+    .obs-student-card__counts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+    .obs-category-chip {
+      font-size: var(--fs-2xs);
+      padding: var(--space-1) var(--space-2);
+      border-radius: 999px;
+      background: var(--surface-sunken);
+      color: var(--ink-600);
+      white-space: nowrap;
+    }
+
+    @media (pointer: coarse) {
+      .obs-chip { min-height: 40px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="app-shell">
+    <nav class="nav-rail" id="nav-rail">
+      <button type="button" class="nav-rail__crest" id="nav-rail-crest" aria-label="Toggle navigation width">
+        <span class="nav-rail__crest-mark"><img src="../icons/icon-192.png" alt="NJWG"></span>
+        <span class="nav-rail__crest-text">NJWG<span>Encampment</span></span>
+      </button>
+      <div id="nav-rail-links"></div>
+    </nav>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/shell.js"></script>
+    <script>
+      // See overview.html for why this runs here instead of only inside
+      // Shell.init() at the bottom — keeps the sidebar links from ever
+      // being visibly empty for a moment on navigation between pages.
+      Shell.renderNav("observations");
+    </script>
+
+    <header class="app-header" id="app-header"></header>
+
+    <main class="app-main">
+      <!-- Hidden until everything's loaded (see load()'s allCachedNow gate
+           below) — same "appear together, not piecemeal" treatment every
+           other tabbed page in this app uses. -->
+      <div class="tabs obs-tabs" id="obs-tabs-bar" style="display:none;">
+        <button class="tabs__tab is-active" data-tab="log">Log</button>
+        <button class="tabs__tab" data-tab="trends">Trends</button>
+      </div>
+
+      <div id="obs-content">
+        <div class="state-message">
+          <div class="spinner"></div>
+          <p>Loading…</p>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    Shell.init({ activePage: "observations" });
+
+    const contentEl = document.getElementById("obs-content");
+    const tabsBarEl = document.getElementById("obs-tabs-bar");
+    const esc = Shell.escapeHtml;
+
+    const session = Auth.getSession();
+    const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
+    const loggerPosition = (session && (session.Position || session.position)) || "Staff";
+
+    /**
+     * The preset tag vocabulary. Deliberately small and binary
+     * (positive/concern, not a 1-5 scale) so a quick tap in the middle
+     * of running an activity is enough — see the "one tap" logging flow
+     * this page is built around, discussed with the user before
+     * building this: staff can't be stuck in a tablet while leading, so
+     * capturing an observation has to cost under 2 seconds, and two
+     * different raters logging the same moment need to land on
+     * basically the same tag rather than two different points on a
+     * finer scale.
+     */
+    const OBSERVATION_CATEGORIES = [
+      { key: "leadership", label: "Leadership",
+        positive: ["Stepped up to lead", "Gave clear direction", "Mentored a peer"],
+        concern: ["Avoided leading when asked"] },
+      { key: "followership", label: "Followership",
+        positive: ["Followed instructions immediately", "Respectful to staff"],
+        concern: ["Needed repeated reminders", "Pushed back on instructions"] },
+      { key: "teamwork", label: "Teamwork",
+        positive: ["Helped a struggling peer", "Encouraged the flight"],
+        concern: ["Friction with peers", "Isolated from the group"] },
+      { key: "bearing", label: "Bearing & Attitude",
+        positive: ["Bearing under stress", "Positive despite adversity"],
+        concern: ["Visible frustration", "Difficulty regulating emotion"] },
+      { key: "initiative", label: "Initiative",
+        positive: ["Took initiative unprompted", "Volunteered for a task"],
+        concern: ["Needed prompting to start"] },
+      { key: "effort", label: "Effort",
+        positive: ["Gave full effort", "Pushed through a tough moment"],
+        concern: ["Minimal effort/participation"] }
+    ];
+    const CATEGORY_LABELS = Object.fromEntries(OBSERVATION_CATEGORIES.map(c => [c.key, c.label]));
+
+    // Below this many total logged observations, a student's counts are
+    // shown with a "Low data" caveat on the Trends tab rather than
+    // presented as an equally-confident tally — discussed with the user
+    // as the way to surface (not hide) the fact that a 2-staff flight
+    // will generate wildly different volumes than another.
+    const LOW_DATA_THRESHOLD = 4;
+
+    /** Empty/absent Flights on the session means "all flights" per the backend. Also expands squadron audiences. */
+    function isFlightAllowed(flight) {
+      return Shell.flightMatchesAudience(allowedFlights, flight);
+    }
+
+    function groupByFlight(rows) {
+      return rows
+        .filter(r => isFlightAllowed(r.Flight))
+        .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        .reduce((groups, row) => {
+          const flight = row.Flight || "Unassigned";
+          (groups[flight] = groups[flight] || []).push(row);
+          return groups;
+        }, {});
+    }
+
+    let rosterRows = [];
+    let observationRows = [];
+    let selectedFlight = null;
+    let selectedStudent = null;
+    let currentTab = "log"; // "log" | "trends"
+    let currentView = "flights"; // "flights" | "students" | "detail" — only meaningful while currentTab === "log"
+
+    function observationsByStudent() {
+      const map = {};
+      observationRows.forEach(o => {
+        const key = String(o.StudentCapId);
+        (map[key] = map[key] || []).push(o);
+      });
+      Object.values(map).forEach(list => list.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)));
+      return map;
+    }
+
+    function isPositive(o) { return String(o.Sentiment).toLowerCase() === "positive"; }
+
+    // ---- Log tab: flight grid -> student list -> student detail ----------
+
+    function renderFlightGrid() {
+      currentView = "flights";
+      const grouped = groupByFlight(rosterRows);
+      const flightNames = Object.keys(grouped).sort();
+
+      if (!flightNames.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">⭐</div>
+            <p>No flights available to log observations for.</p>
+          </div>`;
+        return;
+      }
+
+      contentEl.innerHTML = `
+        <div class="flight-grid">
+          ${flightNames.map(flight => `
+            <button class="flight-tile" data-flight="${esc(flight)}">
+              <span class="flight-tile__name">${esc(flight)}</span>
+              <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+            </button>
+          `).join("")}
+        </div>`;
+
+      contentEl.querySelectorAll(".flight-tile").forEach(tile => {
+        tile.addEventListener("click", () => {
+          selectedFlight = tile.dataset.flight;
+          renderStudentList();
+        });
+      });
+      Shell.animateIn(contentEl);
+    }
+
+    function renderStudentList() {
+      currentView = "students";
+      const grouped = groupByFlight(rosterRows);
+      const members = grouped[selectedFlight] || [];
+      const byStudent = observationsByStudent();
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-flights-btn">← Back</button>
+          <h2>${esc(selectedFlight)}</h2>
+        </div>
+        ${members.length ? `
+          <div class="student-list">
+            ${members.map(m => {
+              const count = (byStudent[String(m.CapId)] || []).length;
+              return `
+                <button class="student-row" data-capid="${esc(m.CapId)}">
+                  <div>
+                    <div class="student-row__name">${esc(m.Name) || "—"}</div>
+                    <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
+                  </div>
+                  <span class="student-row__count">${count} logged</span>
+                </button>`;
+            }).join("")}
+          </div>
+        ` : `
+          <div class="state-message">
+            <div class="state-message__icon">⭐</div>
+            <p>No cadets in this flight.</p>
+          </div>
+        `}
+      `;
+
+      document.getElementById("back-to-flights-btn").addEventListener("click", () => {
+        selectedFlight = null;
+        renderFlightGrid();
+      });
+
+      contentEl.querySelectorAll(".student-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedStudent = members.find(m => String(m.CapId) === row.dataset.capid);
+          renderStudentDetail();
+        });
+      });
+      Shell.animateIn(contentEl);
+    }
+
+    function chipsHtml(category) {
+      return `
+        <div class="obs-category" data-category="${esc(category.key)}">
+          <div class="obs-category__label">${esc(category.label)}</div>
+          <div class="obs-chip-row">
+            ${category.positive.map(tag => `<button type="button" class="obs-chip obs-chip--positive" data-sentiment="positive" data-tag="${esc(tag)}">✓ ${esc(tag)}</button>`).join("")}
+          </div>
+          <div class="obs-chip-row">
+            ${category.concern.map(tag => `<button type="button" class="obs-chip obs-chip--concern" data-sentiment="concern" data-tag="${esc(tag)}">⚠ ${esc(tag)}</button>`).join("")}
+          </div>
+        </div>`;
+    }
+
+    function historyRowHtml(o) {
+      const positive = isPositive(o);
+      return `
+        <div class="obs-history-row" data-id="${esc(o.Id)}">
+          <div class="obs-history-row__body">
+            ${o.Tag ? `<div class="obs-history-row__tag">${esc(o.Tag)}</div>` : ""}
+            ${o.Note ? `<div class="obs-history-row__note">${esc(o.Note)}</div>` : ""}
+            <div class="obs-history-row__meta">${esc(CATEGORY_LABELS[o.Category] || "General")} · ${esc(Shell.formatDateTime(o.Timestamp))} · ${esc(o.LoggerPosition) || "—"}</div>
+          </div>
+          <span class="obs-history-row__sentiment obs-history-row__sentiment--${positive ? "positive" : "concern"}">${positive ? "Positive" : "Concern"}</span>
+          <button type="button" class="obs-history-row__delete" data-delete-id="${esc(o.Id)}" aria-label="Remove observation">✕</button>
+        </div>`;
+    }
+
+    function renderStudentDetail() {
+      currentView = "detail";
+      const history = (observationsByStudent()[String(selectedStudent.CapId)] || []);
+      const positiveCount = history.filter(isPositive).length;
+      const concernCount = history.length - positiveCount;
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-students-btn">← Back</button>
+          <h2>${esc(selectedStudent.Name) || "—"}</h2>
+        </div>
+
+        <div class="obs-summary">
+          <div class="obs-summary__item"><span>Flight</span>${esc(selectedFlight)}</div>
+          <div class="obs-summary__item"><span>Total Logged</span>${history.length}</div>
+          <div class="obs-summary__item"><span>Positive</span>${positiveCount}</div>
+          <div class="obs-summary__item"><span>Concern</span>${concernCount}</div>
+        </div>
+
+        ${OBSERVATION_CATEGORIES.map(chipsHtml).join("")}
+
+        <div class="obs-category">
+          <div class="obs-category__label">Custom note</div>
+          <div class="obs-note-form">
+            <div class="obs-sentiment-toggle" id="custom-sentiment-toggle">
+              <button type="button" class="is-selected sentiment-positive" data-sentiment="positive">Positive</button>
+              <button type="button" class="sentiment-concern" data-sentiment="concern">Concern</button>
+            </div>
+            <textarea id="custom-note-input" placeholder="Anything that doesn't fit a preset tag…"></textarea>
+            <button class="btn btn--primary" id="save-custom-note-btn">Log</button>
+          </div>
+        </div>
+
+        <div class="obs-category">
+          <div class="obs-category__label">Recent Observations</div>
+          <div class="obs-history-list" id="obs-history-list">
+            ${history.length ? history.map(historyRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No observations logged yet for this cadet.</p>`}
+          </div>
+        </div>
+      `;
+
+      document.getElementById("back-to-students-btn").addEventListener("click", () => {
+        selectedStudent = null;
+        renderStudentList();
+      });
+
+      wireChipHandlers();
+      wireCustomNoteForm();
+      wireHistoryDeleteHandlers();
+      Shell.animateIn(contentEl);
+    }
+
+    /** Re-renders just the history list + summary counts in place, without tearing down/re-animating the whole detail view — called after every log/delete so chips stay put under the tapping finger. */
+    function refreshStudentDetailInPlace() {
+      const history = (observationsByStudent()[String(selectedStudent.CapId)] || []);
+      const positiveCount = history.filter(isPositive).length;
+      const concernCount = history.length - positiveCount;
+
+      const summary = contentEl.querySelector(".obs-summary");
+      if (summary) {
+        summary.innerHTML = `
+          <div class="obs-summary__item"><span>Flight</span>${esc(selectedFlight)}</div>
+          <div class="obs-summary__item"><span>Total Logged</span>${history.length}</div>
+          <div class="obs-summary__item"><span>Positive</span>${positiveCount}</div>
+          <div class="obs-summary__item"><span>Concern</span>${concernCount}</div>
+        `;
+      }
+
+      const listEl = document.getElementById("obs-history-list");
+      if (listEl) {
+        listEl.innerHTML = history.length ? history.map(historyRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No observations logged yet for this cadet.</p>`;
+        wireHistoryDeleteHandlers();
+      }
+    }
+
+    function logObservation({ category, tag, sentiment, note }) {
+      const row = {
+        Id: `obs_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        StudentCapId: selectedStudent.CapId,
+        StudentName: selectedStudent.Name,
+        Flight: selectedFlight,
+        LoggerPosition: loggerPosition,
+        Timestamp: new Date().toISOString(),
+        Category: category,
+        Tag: tag || "",
+        Sentiment: sentiment,
+        Note: note || ""
+      };
+
+      Api.writeRow("Observations", row);
+      observationRows.push(row);
+      // See inspections.html's identical pattern: reconciling the local
+      // cache immediately (rather than waiting for the write's own
+      // background revalidation) keeps the NEXT background refresh from
+      // finding a "changed" sheet and replaying the entrance animation a
+      // second time right after this one.
+      Api.setCachedRows("Observations", observationRows);
+
+      refreshStudentDetailInPlace();
+      Shell.showToast(`Logged: ${tag || "note"}`, { type: "success" });
+    }
+
+    function wireChipHandlers() {
+      contentEl.querySelectorAll(".obs-chip").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const category = btn.closest(".obs-category").dataset.category;
+          const tag = btn.dataset.tag;
+          const sentiment = btn.dataset.sentiment;
+          btn.disabled = true;
+          btn.classList.add("is-logged");
+          logObservation({ category, tag, sentiment });
+          setTimeout(() => { btn.disabled = false; btn.classList.remove("is-logged"); }, 400);
+        });
+      });
+    }
+
+    function wireCustomNoteForm() {
+      const toggle = document.getElementById("custom-sentiment-toggle");
+      let customSentiment = "positive";
+      if (toggle) {
+        toggle.querySelectorAll("button").forEach(btn => {
+          btn.addEventListener("click", () => {
+            customSentiment = btn.dataset.sentiment;
+            toggle.querySelectorAll("button").forEach(b => b.classList.toggle("is-selected", b === btn));
+          });
+        });
+      }
+
+      const saveBtn = document.getElementById("save-custom-note-btn");
+      const input = document.getElementById("custom-note-input");
+      if (saveBtn && input) {
+        saveBtn.addEventListener("click", () => {
+          const note = input.value.trim();
+          if (!note) { Shell.showToast("Enter a note first.", { type: "error" }); return; }
+          logObservation({ category: "general", tag: "", sentiment: customSentiment, note });
+          input.value = "";
+        });
+      }
+    }
+
+    function wireHistoryDeleteHandlers() {
+      contentEl.querySelectorAll("[data-delete-id]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const id = btn.dataset.deleteId;
+          const confirmed = await Shell.confirm({
+            title: "Remove this observation?",
+            message: "This can't be undone.",
+            confirmLabel: "Remove"
+          });
+          if (!confirmed) return;
+
+          Api.deleteRow("Observations", { Id: id }, { matchColumns: ["Id"] });
+          observationRows = observationRows.filter(o => String(o.Id) !== String(id));
+          Api.setCachedRows("Observations", observationRows);
+          refreshStudentDetailInPlace();
+          Shell.showToast("Removed.", { type: "success" });
+        });
+      });
+    }
+
+    function renderLogTab() {
+      if (currentView === "detail" && selectedStudent) return renderStudentDetail();
+      if (currentView === "students" && selectedFlight) return renderStudentList();
+      return renderFlightGrid();
+    }
+
+    // ---- Trends tab --------------------------------------------------------
+
+    function renderTrends() {
+      const grouped = groupByFlight(rosterRows);
+      const flightNames = Object.keys(grouped).sort();
+      const byStudent = observationsByStudent();
+
+      if (!flightNames.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">📊</div>
+            <p>No flights available yet.</p>
+          </div>`;
+        return;
+      }
+
+      // Surfaces the volume gap between flights directly, rather than
+      // silently blending it away — a flight that's logged 6 this week
+      // vs. another's 40 is itself a signal (maybe a nudge is needed, or
+      // that flight is genuinely calmer), not something to hide.
+      const volumeCardsHtml = flightNames.length > 1 ? `
+        <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-3);">Logging Volume by Flight</h3>
+        <div class="obs-volume-grid">
+          ${flightNames.map(flight => {
+            const capIds = new Set(grouped[flight].map(m => String(m.CapId)));
+            const flightObs = observationRows.filter(o => capIds.has(String(o.StudentCapId)));
+            const loggers = new Set(flightObs.map(o => o.LoggerPosition).filter(Boolean));
+            return `
+              <div class="obs-volume-card">
+                <div class="obs-volume-card__name">${esc(flight)}</div>
+                <div class="obs-volume-card__value">${flightObs.length} <span>logged</span></div>
+                <div class="obs-volume-card__meta">${loggers.size} logger${loggers.size === 1 ? "" : "s"} · ${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</div>
+              </div>`;
+          }).join("")}
+        </div>
+      ` : "";
+
+      const studentCardsHtml = flightNames.map(flight => `
+        <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-3);">${esc(flight)}</h3>
+        ${grouped[flight].map(m => {
+          const history = byStudent[String(m.CapId)] || [];
+          const positiveCount = history.filter(isPositive).length;
+          const concernCount = history.length - positiveCount;
+          const byCategory = {};
+          history.forEach(o => { byCategory[o.Category] = (byCategory[o.Category] || 0) + 1; });
+          const categoryChips = Object.keys(byCategory)
+            .filter(k => CATEGORY_LABELS[k])
+            .map(k => `<span class="obs-category-chip">${esc(CATEGORY_LABELS[k])}: ${byCategory[k]}</span>`)
+            .join("");
+          return `
+            <div class="obs-student-card">
+              <div class="obs-student-card__top">
+                <div>
+                  <div class="obs-student-card__name">${esc(m.Name) || "—"}</div>
+                  <div class="obs-student-card__meta">${esc(m.CapId) || "—"}</div>
+                </div>
+                <div class="obs-student-card__counts">
+                  ${history.length < LOW_DATA_THRESHOLD ? `<span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">Low data (${history.length})</span>` : `<span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">${history.length} logged</span>`}
+                  <span class="badge" style="background: var(--green-100); color: var(--green-600);">${positiveCount} positive</span>
+                  <span class="badge" style="background: var(--amber-100); color: var(--amber-600);">${concernCount} concern</span>
+                </div>
+              </div>
+              ${categoryChips ? `<div class="obs-student-card__counts" style="margin-top: var(--space-2);">${categoryChips}</div>` : ""}
+            </div>`;
+        }).join("")}
+      `).join("");
+
+      contentEl.innerHTML = `
+        <div class="alert" style="margin-bottom: var(--space-5); background: var(--surface-sunken); color: var(--ink-600);">
+          Raw counts only — this deliberately does not compute a ranking or score. Use these alongside your own judgment, especially for any cadet flagged "Low data."
+        </div>
+        ${volumeCardsHtml}
+        ${studentCardsHtml}
+      `;
+      Shell.animateIn(contentEl);
+    }
+
+    function renderActiveTab() {
+      if (currentTab === "trends") return renderTrends();
+      return renderLogTab();
+    }
+
+    // ---- Tabs, load, wiring -------------------------------------------------
+
+    function revealTabsBar() {
+      tabsBarEl.style.display = "";
+      if (obsTabsIndicator) obsTabsIndicator.move();
+    }
+
+    const obsTabsIndicator = Shell.enhanceTabs(document.querySelector(".obs-tabs"));
+
+    tabsBarEl.querySelectorAll(".tabs__tab").forEach(tab => {
+      tab.addEventListener("click", () => {
+        if (tab.dataset.tab === currentTab) return;
+        currentTab = tab.dataset.tab;
+        tabsBarEl.querySelectorAll(".tabs__tab").forEach(t => t.classList.toggle("is-active", t === tab));
+        if (obsTabsIndicator) obsTabsIndicator.move();
+        renderActiveTab();
+      });
+    });
+
+    function load() {
+      const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
+        rosterRows = fresh.rows || [];
+        renderActiveTab();
+      });
+      const obsHandle = Api.getSheetCached("Observations", (fresh) => {
+        observationRows = fresh.rows || [];
+        renderActiveTab();
+      });
+
+      const allCachedNow = !!(rosterHandle.data && obsHandle.data);
+
+      if (allCachedNow) {
+        rosterRows = rosterHandle.data.rows || [];
+        observationRows = obsHandle.data.rows || [];
+        revealTabsBar();
+        renderActiveTab();
+      } else {
+        contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
+      }
+
+      return Promise.all([rosterHandle.ready, obsHandle.ready])
+        .then(([rosterData, obsData]) => {
+          rosterRows = rosterData.rows || [];
+          observationRows = obsData.rows || [];
+          if (!allCachedNow) {
+            selectedFlight = null;
+            selectedStudent = null;
+            revealTabsBar();
+            renderActiveTab();
+          }
+        })
+        .catch((err) => {
+          if (!allCachedNow) {
+            contentEl.innerHTML = `
+              <div class="state-message">
+                <div class="state-message__icon">⚠️</div>
+                <p>${esc(err.message)}</p>
+              </div>`;
+          }
+          Shell.showToast(err.message, { type: "error" });
+        });
+    }
+
+    Shell.registerRefresh(load);
+    load();
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register(`${window.APP_BASE_PATH}service-worker.js`);
+    }
+  </script>
+</body>
+</html>

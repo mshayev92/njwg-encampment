@@ -56,7 +56,8 @@ const Shell = (() => {
     bellPlus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-9.9-4.5"/><path d="M6 8c0 7-3 9-3 9h13"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/><path d="M18 3v6M15 6h6"/></svg>',
     shield:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>',
     clock:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
-    grid:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>'
+    grid:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+    star:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5l2.9 6.06 6.6.85-4.85 4.6 1.28 6.6L12 17.5l-5.93 3.11 1.28-6.6-4.85-4.6 6.6-.85z"/></svg>'
   };
 
   // All of these used to be single GLOBAL localStorage keys, shared by
@@ -597,6 +598,14 @@ const Shell = (() => {
       fields: ["StudentName", "StudentCapId", "InspectingPosition"],
       title: (r) => r.StudentName || r.StudentCapId || "—",
       meta: (r) => [r.Date, r.Flight, (r.TotalPoints != null ? `${r.TotalPoints} pts` : "")].filter(Boolean).join(" · ")
+    },
+    {
+      sheet: "Observations", page: "observations", label: "Observation", href: "pages/observations.html",
+      flightField: "Flight",
+      fields: ["StudentName", "StudentCapId", "Tag", "Note", "LoggerPosition"],
+      title: (r) => r.StudentName || r.StudentCapId || "—",
+      meta: (r) => [r.Category, r.Sentiment, r.Timestamp ? formatDateTime_(r.Timestamp) : ""].filter(Boolean).join(" · "),
+      snippet: (r) => r.Note
     },
     {
       sheet: "Notes", page: "notes", label: "Note", href: "pages/notes.html",
