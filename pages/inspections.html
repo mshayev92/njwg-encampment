@@ -1533,7 +1533,15 @@
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
           inspectionPeriods = periodsData.rows || [];
-          renderPeriodsSection();
+          // Only re-render here on a COLD load (nothing was cached yet at
+          // line ~1518, so the sync renderPeriodsSection() call above ran
+          // on an empty/stale list). When periods WERE already cached and
+          // rendered, this same "ready" resolving again on a warm load
+          // used to call renderPeriodsSection() unconditionally — a
+          // second render/animateIn moments after the first, even when
+          // the revalidated data was identical (the periodsHandle
+          // subscriber above already re-renders on any ACTUAL change).
+          if (!periodsHandle.data) renderPeriodsSection();
           if (!rosterCached || !uniformCached || !roomCached) {
             selectedFlight = null;
             selectedStudent = null;

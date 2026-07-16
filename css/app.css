@@ -402,38 +402,59 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--steel-300);
 }
 
-.app-shell--collapsed .nav-rail__crest-text,
-.app-shell--collapsed .nav-rail__link-label {
-  display: none;
-}
-
 .app-shell--collapsed .nav-rail__link {
   justify-content: center;
 }
 
-/* The footer card (signed-in-as / log out) used to share the plain
-   display:none toggle above — instant on both directions. Collapsing is
-   fine instant (nothing to reveal), but EXPANDING showed the card at
-   full content width/opacity the instant the class was removed, while
-   .app-shell's grid-template-columns transition (see above) was still
-   animating the rail from its narrow collapsed width to full width —
-   so the card briefly rendered squeezed into a too-narrow rail before
-   the width caught up, reading as a faint horizontal flicker. Fading
-   opacity in/out instead of an instant display snap, and delaying the
-   fade-IN until the width transition has had time to run, keeps the
-   card invisible until the rail is actually wide enough for it. */
+/* .nav-rail__crest-text, .nav-rail__link-label, and .nav-rail__footer
+   (the "signed in as" / log out card) all used a plain display:none
+   toggle tied to the SAME class that also drives .app-shell's
+   grid-template-columns WIDTH transition (see above) — instant on both
+   directions. Collapsing is fine instant (nothing to reveal), but
+   EXPANDING showed every one of these at full content width/opacity
+   the instant the class was removed, while the rail itself was still
+   animating from its narrow collapsed width up to full width. Each
+   label/card briefly rendered squeezed into (or overflowing) a
+   still-too-narrow rail — most noticeably the LAST link's label,
+   sitting right above the footer, which read as a faint horizontal bar
+   flickering in and vanishing almost instantly. Fading opacity in/out
+   instead of an instant display snap, and delaying the fade-IN until
+   the width transition has had time to run, keeps all of them
+   invisible until the rail is actually wide enough. white-space:nowrap
+   + overflow:hidden keep a still-narrow rail from wrapping/reflowing
+   the text at all in the meantime (moot once actually invisible, but
+   keeps row heights stable through the transition regardless). */
+.nav-rail__crest-text,
+.nav-rail__link-label,
 .nav-rail__footer {
   opacity: 1;
-  transition: opacity var(--duration-base) var(--ease-standard);
 }
 
+.nav-rail__link-label {
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.app-shell--collapsed .nav-rail__crest-text,
+.app-shell--collapsed .nav-rail__link-label,
 .app-shell--collapsed .nav-rail__footer {
   opacity: 0;
   pointer-events: none;
-  transition-delay: 0s;
+  /* Collapsing hides these INSTANTLY — nothing to visually protect
+     against, and animating it away would (on a cold page load that
+     starts collapsed, before shell.js has even added this class) show
+     the full label text for up to --duration-base before it faded
+     out, instead of it just never appearing. */
+  transition: none;
 }
 
+.app-shell:not(.app-shell--collapsed) .nav-rail__crest-text,
+.app-shell:not(.app-shell--collapsed) .nav-rail__link-label,
 .app-shell:not(.app-shell--collapsed) .nav-rail__footer {
+  /* Expanding fades IN instead, delayed until the width transition
+     above has had time to finish, so none of these are visible while
+     the rail is still narrow. */
+  transition: opacity var(--duration-base) var(--ease-standard);
   transition-delay: var(--duration-base);
 }
 
