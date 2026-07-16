@@ -59,16 +59,33 @@ const Shell = (() => {
     grid:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>'
   };
 
-  const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
+  // All of these used to be single GLOBAL localStorage keys, shared by
+  // every position that ever signed in on a given device. That meant a
+  // shared/testing device switching from Position A to Position B could
+  // silently suppress the popup for something Position B had never
+  // actually seen — Position A's session already advanced the SAME
+  // stored "last known" baseline past it. Every one of these is now
+  // suffixed per-position (see positionScopedKey_ below) so each
+  // position signed in on a device tracks its own baseline, while still
+  // persisting across restarts (unlike sessionStorage, which would lose
+  // the baseline on every browser close and re-alert the whole backlog).
+  const ANNOUNCEMENTS_SEEN_KEY_PREFIX = "njwg_announcements_last_seen_at_";
   const NOTES_SEEN_KEY_PREFIX = "njwg_notes_last_seen_at_";
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
-  // Tracks what THIS device already knows about, independent of the
-  // per-device "last seen" bell timestamp above — used only to detect a
-  // genuinely NEW announcement/black-flag change since the last poll
-  // (on any page), so the blocking alert popup fires once per new
+  // Tracks what THIS position already knows about, independent of the
+  // "last seen" bell/notifications timestamp above — used only to detect
+  // a genuinely NEW announcement/black-flag/note-to-me since the last
+  // poll (on any page), so the blocking alert popup fires once per new
   // arrival instead of replaying the whole backlog on every page load.
-  const LAST_KNOWN_ANNOUNCEMENT_TS_KEY = "njwg_last_known_announcement_ts";
-  const LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY = "njwg_last_known_blackflag_signature";
+  const LAST_KNOWN_ANNOUNCEMENT_TS_KEY_PREFIX = "njwg_last_known_announcement_ts_";
+  const LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY_PREFIX = "njwg_last_known_blackflag_signature_";
+  const LAST_KNOWN_NOTE_TS_KEY_PREFIX = "njwg_last_known_note_ts_";
+
+  function positionScopedKey_(prefix) {
+    const session = Auth.getSession();
+    const position = session && session.Position ? String(session.Position).trim().toLowerCase() : "anonymous";
+    return prefix + position;
+  }
 
   /**
    * Escapes a value for safe interpolation into innerHTML — both element
@@ -239,7 +256,7 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
           </button>
-          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Announcements" aria-label="Announcements">
+          <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Notifications" aria-label="Notifications">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
             <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
           </button>
@@ -254,15 +271,13 @@ const Shell = (() => {
 
     const bellBtn = document.getElementById("announcements-bell-btn");
     if (bellBtn) {
+      // Always opens the popover now, rather than navigating to the
+      // Announcements page when one exists — the popover is a merged
+      // feed (Announcements + Black Flag + Notes sent to me), which the
+      // standalone Announcements page doesn't show.
       bellBtn.addEventListener("click", () => {
         markAnnouncementsSeen_();
-        const allowed = getAllowedNavItems();
-        const hasAnnouncementsPage = allowed.some(i => i.id === "announcements");
-        if (hasAnnouncementsPage) {
-          window.location.href = `${window.APP_BASE_PATH}pages/announcements.html`;
-        } else {
-          toggleAnnouncementsPopover_();
-        }
+        toggleAnnouncementsPopover_();
       });
     }
 
@@ -943,23 +958,75 @@ const Shell = (() => {
   }
 
   function getAnnouncementsLastSeen_() {
-    return Number(localStorage.getItem(ANNOUNCEMENTS_SEEN_KEY) || 0);
+    return Number(localStorage.getItem(positionScopedKey_(ANNOUNCEMENTS_SEEN_KEY_PREFIX)) || 0);
   }
 
   function markAnnouncementsSeen_() {
-    localStorage.setItem(ANNOUNCEMENTS_SEEN_KEY, String(Date.now()));
+    localStorage.setItem(positionScopedKey_(ANNOUNCEMENTS_SEEN_KEY_PREFIX), String(Date.now()));
     const badge = document.getElementById("announcements-badge");
     if (badge) badge.style.display = "none";
   }
 
-  function updateAnnouncementsBadge_(announcements) {
+  // ---- Notifications feed (bell popover) ----
+  //
+  // Merges three otherwise-separate sources — Announcements, the
+  // current Black Flag status, and Notes addressed to me — into one
+  // reverse-chronological feed and one unseen-count badge, so "check
+  // what's new" is one place instead of three. Kept up to date by
+  // loadGlobalAlerts_'s three subscriptions below; the popover (see
+  // toggleAnnouncementsPopover_) reads from these same cached arrays
+  // instead of re-fetching.
+
+  let lastAnnouncementRows_ = [];
+  let lastBlackFlagStatus_ = null;
+  let lastNotesToMeRows_ = [];
+
+  function notesToMe_(notes) {
+    const session = Auth.getSession();
+    const myPosition = session && session.Position ? String(session.Position).trim().toLowerCase() : "";
+    if (!myPosition) return [];
+    return notes.filter(n => String(n.ToPosition || "").trim().toLowerCase() === myPosition);
+  }
+
+  /** Unified feed entries, newest first — the single source both the popover list and the badge count read from. */
+  function mergedNotificationEntries_() {
+    const entries = [];
+    lastAnnouncementRows_.forEach(a => entries.push({
+      type: "announcement", icon: "📣", timestamp: a.Timestamp,
+      title: a.Position || "Announcement",
+      body: messagePreviewText_(a.Message || "")
+    }));
+    lastNotesToMeRows_.forEach(n => entries.push({
+      type: "note", icon: "📝", timestamp: n.Timestamp,
+      title: `Note from ${n.AuthorPosition || "Staff"}`,
+      body: n.Subject || messagePreviewText_(n.Body || "")
+    }));
+    if (lastBlackFlagStatus_) {
+      const active = isBlackFlagActiveClient_(lastBlackFlagStatus_);
+      // Black Flag has no history of past toggles, only the CURRENT
+      // status — so this can only ever contribute its one latest
+      // change, not a full log of every activation/lift like the other
+      // two sources have.
+      entries.push({
+        type: "blackflag", icon: "⚑", timestamp: lastBlackFlagStatus_.UpdatedAt,
+        title: active ? "Black Flag Activated" : "Black Flag Lifted",
+        body: active ? "Outdoor activity is restricted." : `Restrictions lifted${lastBlackFlagStatus_.UpdatedBy ? ` by ${lastBlackFlagStatus_.UpdatedBy}` : ""}.`
+      });
+    }
+    return entries
+      .filter(e => e.timestamp && !isNaN(new Date(e.timestamp).getTime()))
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  }
+
+  function isBlackFlagActiveClient_(status) {
+    return !!(status.Active === true || status.Active === "TRUE" || status.Active === "true" || status.Active === "1" || status.Active === 1);
+  }
+
+  function updateAnnouncementsBadge_() {
     const badge = document.getElementById("announcements-badge");
     if (!badge) return;
     const lastSeen = getAnnouncementsLastSeen_();
-    const unseenCount = announcements.filter(a => {
-      const t = new Date(a.Timestamp).getTime();
-      return !isNaN(t) && t > lastSeen;
-    }).length;
+    const unseenCount = mergedNotificationEntries_().filter(e => new Date(e.timestamp).getTime() > lastSeen).length;
 
     if (unseenCount > 0) {
       badge.textContent = unseenCount > 9 ? "9+" : String(unseenCount);
@@ -1031,14 +1098,20 @@ const Shell = (() => {
     return template.content.textContent || "";
   }
 
-  function renderAnnouncementsList_(announcements) {
-    const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
-    return sorted.length ? sorted.map(a => `
+  function renderAnnouncementsList_(entries) {
+    return entries.length ? entries.map(e => `
       <div class="announcements-popover__item">
-        <div class="announcements-popover__meta">${escapeHtml_(a.Position || "—")} · ${escapeHtml_(formatDateTime_(a.Timestamp))}</div>
-        <div class="announcements-popover__message">${escapeHtml_(messagePreviewText_(a.Message || ""))}</div>
+        <div class="announcements-popover__meta">${e.icon} ${escapeHtml_(e.title || "—")} · ${escapeHtml_(formatDateTime_(e.timestamp))}</div>
+        <div class="announcements-popover__message">${escapeHtml_(e.body || "")}</div>
       </div>
-    `).join("") : `<div class="announcements-popover__empty">No announcements yet.</div>`;
+    `).join("") : `<div class="announcements-popover__empty">No notifications yet.</div>`;
+  }
+
+  /** Keeps an already-OPEN popover's list live as fresh data arrives, instead of only updating it the next time it's opened. */
+  function refreshOpenNotificationsPopover_() {
+    if (!announcementsPopoverEl_) return;
+    const listEl = announcementsPopoverEl_.querySelector(".announcements-popover__list");
+    if (listEl) listEl.innerHTML = renderAnnouncementsList_(mergedNotificationEntries_());
   }
 
   function closeAnnouncementsPopover_() {
@@ -1057,10 +1130,12 @@ const Shell = (() => {
   }
 
   /**
-   * Opens (or, if already open, closes) the announcements popover.
-   * Renders instantly from Api's persisted cache when warm — which it
-   * normally is, since Shell.init() eagerly warms "Announcements" on
-   * every page — then silently revalidates in the background. Closes
+   * Opens (or, if already open, closes) the Notifications popover — a
+   * merged, reverse-chronological feed of Announcements, the current
+   * Black Flag status, and Notes sent to me (see
+   * mergedNotificationEntries_). Reads from the SAME cached arrays
+   * loadGlobalAlerts_ already keeps warm (Shell.init calls it on every
+   * page), rather than re-fetching, so this renders instantly. Closes
    * on its own × button, an outside click, or Escape.
    */
   function toggleAnnouncementsPopover_() {
@@ -1073,11 +1148,11 @@ const Shell = (() => {
     el.className = "announcements-popover";
     el.innerHTML = `
       <div class="announcements-popover__header">
-        <span>Announcements</span>
+        <span>Notifications</span>
         <button type="button" class="announcements-popover__close" aria-label="Close">&times;</button>
       </div>
       <div class="announcements-popover__list">
-        <div class="state-message" style="padding: var(--space-5);"><div class="spinner spinner--sm"></div></div>
+        ${renderAnnouncementsList_(mergedNotificationEntries_())}
       </div>
     `;
     document.body.appendChild(el);
@@ -1112,18 +1187,6 @@ const Shell = (() => {
       document.addEventListener("mousedown", announcementsOutsideHandler_, true);
       document.addEventListener("keydown", announcementsKeyHandler_);
     }, 0);
-
-    const listEl = el.querySelector(".announcements-popover__list");
-    const { data: cached, ready } = Api.getSheetCached("Announcements", (fresh) => {
-      if (announcementsPopoverEl_ === el) listEl.innerHTML = renderAnnouncementsList_(fresh.rows || []);
-    });
-    if (cached) listEl.innerHTML = renderAnnouncementsList_(cached.rows || []);
-
-    ready.catch(() => {
-      if (announcementsPopoverEl_ === el && !cached) {
-        listEl.innerHTML = `<div class="announcements-popover__empty">Couldn't load announcements.</div>`;
-      }
-    });
   }
 
   /**
@@ -1139,31 +1202,45 @@ const Shell = (() => {
    */
   function loadGlobalAlerts_() {
     const announcementsCache = Api.getSheetCached("Announcements", (data) => {
-      const rows = data.rows || [];
-      updateAnnouncementsBadge_(rows);
-      checkNewAnnouncements_(rows);
+      lastAnnouncementRows_ = data.rows || [];
+      updateAnnouncementsBadge_();
+      refreshOpenNotificationsPopover_();
+      checkNewAnnouncements_(lastAnnouncementRows_);
     });
     const blackFlagCache = Api.getSheetCached("BlackFlagStatus", (data) => {
       const status = (data.rows || [])[0] || null;
+      lastBlackFlagStatus_ = status;
       renderBlackFlagBanner_(status);
+      updateAnnouncementsBadge_();
+      refreshOpenNotificationsPopover_();
       checkBlackFlagChange_(status);
     });
     const notesCache = Api.getSheetCached("Notes", (data) => {
-      updateNotesBadge_(data.rows || []);
+      const rows = data.rows || [];
+      updateNotesBadge_(rows);
+      lastNotesToMeRows_ = notesToMe_(rows);
+      updateAnnouncementsBadge_();
+      refreshOpenNotificationsPopover_();
+      checkNewNotes_(lastNotesToMeRows_);
     });
 
     if (announcementsCache.data) {
-      updateAnnouncementsBadge_(announcementsCache.data.rows || []);
-      checkNewAnnouncements_(announcementsCache.data.rows || []);
+      lastAnnouncementRows_ = announcementsCache.data.rows || [];
+      checkNewAnnouncements_(lastAnnouncementRows_);
     }
     if (blackFlagCache.data) {
       const status = (blackFlagCache.data.rows || [])[0] || null;
+      lastBlackFlagStatus_ = status;
       renderBlackFlagBanner_(status);
       checkBlackFlagChange_(status);
     }
     if (notesCache.data) {
-      updateNotesBadge_(notesCache.data.rows || []);
+      const rows = notesCache.data.rows || [];
+      updateNotesBadge_(rows);
+      lastNotesToMeRows_ = notesToMe_(rows);
+      checkNewNotes_(lastNotesToMeRows_);
     }
+    updateAnnouncementsBadge_();
 
     // Always let the background fetches land too, even with no cache —
     // this covers the very first load, where getSheetCached() returned
@@ -1774,20 +1851,34 @@ const Shell = (() => {
     document.getElementById("alert-modal-dismiss-btn").focus();
   }
 
+  // A popup for something that happened while nobody was actually
+  // looking at the tab is easy to miss entirely (a background tab's
+  // modal doesn't grab attention the way a foreground one does, and on
+  // some browsers a hidden tab's rendering is throttled/suspended
+  // altogether) — so a genuinely new alert queues normally but only
+  // actually SHOWS once the tab is visible; visibilitychange flushes
+  // the queue the moment someone comes back to look.
   function enqueueAlertModal_(config) {
     alertModalQueue_.push(config);
-    if (!alertModalShowing_) showNextAlertModal_();
+    if (!alertModalShowing_ && document.visibilityState === "visible") showNextAlertModal_();
   }
 
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && !alertModalShowing_ && alertModalQueue_.length) {
+      showNextAlertModal_();
+    }
+  });
+
   /**
-   * Compares fresh Announcements rows against this device's last-known
+   * Compares fresh Announcements rows against this POSITION's last-known
    * timestamp and pops the alert modal for the newest one if it's
-   * genuinely new. The very first time this ever runs on a device (key
-   * absent), it just seeds the baseline silently — otherwise every
-   * fresh install would immediately alert for the entire backlog.
+   * genuinely new. The very first time this ever runs for a position
+   * (key absent), it just seeds the baseline silently — otherwise every
+   * fresh sign-in would immediately alert for the entire backlog.
    */
   function checkNewAnnouncements_(rows) {
-    const stored = localStorage.getItem(LAST_KNOWN_ANNOUNCEMENT_TS_KEY);
+    const key = positionScopedKey_(LAST_KNOWN_ANNOUNCEMENT_TS_KEY_PREFIX);
+    const stored = localStorage.getItem(key);
     const lastKnownTs = Number(stored || 0);
     const isFirstRun = stored === null;
 
@@ -1805,7 +1896,7 @@ const Shell = (() => {
         bodyHtml: `<strong>${escapeHtml_(newest.Position || "Staff")}</strong><br>${escapeHtml_(messagePreviewText_(newest.Message || ""))}`
       });
     }
-    if (maxTs !== lastKnownTs || isFirstRun) localStorage.setItem(LAST_KNOWN_ANNOUNCEMENT_TS_KEY, String(maxTs));
+    if (maxTs !== lastKnownTs || isFirstRun) localStorage.setItem(key, String(maxTs));
   }
 
   /**
@@ -1816,9 +1907,10 @@ const Shell = (() => {
    */
   function checkBlackFlagChange_(status) {
     if (!status) return;
-    const active = !!(status.Active === true || status.Active === "TRUE" || status.Active === "true");
+    const active = isBlackFlagActiveClient_(status);
     const signature = `${active}|${status.UpdatedAt || ""}`;
-    const lastSignature = localStorage.getItem(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY);
+    const key = positionScopedKey_(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY_PREFIX);
+    const lastSignature = localStorage.getItem(key);
     const isFirstRun = lastSignature === null;
 
     if (!isFirstRun && lastSignature !== signature) {
@@ -1831,7 +1923,31 @@ const Shell = (() => {
           : `Outdoor activity restrictions have been lifted${status.UpdatedBy ? ` (by ${escapeHtml_(status.UpdatedBy)})` : ""}.`
       });
     }
-    localStorage.setItem(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY, signature);
+    localStorage.setItem(key, signature);
+  }
+
+  /** Same idea again, for Notes addressed directly to this position. `rows` is already pre-filtered to just those (see notesToMe_). */
+  function checkNewNotes_(rows) {
+    const key = positionScopedKey_(LAST_KNOWN_NOTE_TS_KEY_PREFIX);
+    const stored = localStorage.getItem(key);
+    const lastKnownTs = Number(stored || 0);
+    const isFirstRun = stored === null;
+
+    let maxTs = lastKnownTs;
+    let newest = null;
+    rows.forEach((n) => {
+      const t = new Date(n.Timestamp).getTime();
+      if (!isNaN(t) && t > maxTs) { maxTs = t; newest = n; }
+    });
+
+    if (newest && !isFirstRun) {
+      enqueueAlertModal_({
+        icon: "📝",
+        title: "New Note Sent To You",
+        bodyHtml: `<strong>${escapeHtml_(newest.AuthorPosition || "Staff")}</strong>${newest.Subject ? `<br>${escapeHtml_(newest.Subject)}` : ""}`
+      });
+    }
+    if (maxTs !== lastKnownTs || isFirstRun) localStorage.setItem(key, String(maxTs));
   }
 
   function wireIdleTimeout() {

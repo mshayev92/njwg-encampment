@@ -295,9 +295,20 @@
     let lastWeather = null;
     let lastRosterRows = null;
     let lastScheduleRows = null;
+    // Roster/Schedule/Weather come from three independent sources
+    // (Api's sheet cache x2, a direct Open-Meteo fetch) that used to
+    // each trigger their OWN renderAll() the moment they landed — so a
+    // cold load visibly built itself piece by piece (weather popping in
+    // after the rest, in particular), and a warm-cache load could still
+    // replay the entrance animation once per piece. These three flags
+    // gate the FIRST render behind everything being ready, so the page
+    // appears once, fully formed, instead of assembling in front of you.
+    let rosterLoaded = false;
+    let scheduleLoaded = false;
+    let weatherLoaded = false;
 
     function renderAll() {
-      if (lastRosterRows === null) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -307,7 +318,7 @@
             ${renderWeatherCard(lastWeather)}
           </div>
           ${renderActivityCard(lastScheduleRows)}
-          ${renderFlightStats(lastRosterRows)}
+          ${renderFlightStats(lastRosterRows || [])}
         </div>
       `;
       Shell.animateIn(contentEl);
@@ -324,39 +335,47 @@
 
       if (cached) {
         lastRosterRows = cached.rows || [];
+        rosterLoaded = true;
       }
 
       ready.catch((err) => {
-        if (lastRosterRows === null) {
-          contentEl.innerHTML = `
-            <div class="state-message">
-              <div class="state-message__icon">⚠️</div>
-              <p>${err.message}</p>
-            </div>`;
-        }
         Shell.showToast(err.message, { type: "error" });
+      }).finally(() => {
+        // Loaded=true regardless of success/failure — a failed piece
+        // shouldn't block the other two from ever appearing; the render
+        // functions already tolerate a null/empty array for whichever
+        // piece didn't come through.
+        rosterLoaded = true;
+        renderAll();
       });
 
-      // Schedule: same instant-cache pattern, independent of Roster —
-      // whichever resolves first still renders, the other slot shows a
-      // small inline spinner until it lands.
+      // Schedule: same instant-cache pattern, independent of Roster.
       const scheduleHandle = Api.getSheetCached("Schedule", (fresh) => {
         lastScheduleRows = fresh.rows || [];
         renderAll();
       });
-      if (scheduleHandle.data) lastScheduleRows = scheduleHandle.data.rows || [];
-
-      // Single render for whatever's already warm in cache (both, one, or
-      // neither) rather than one renderAll() per sheet — back-to-back
-      // synchronous calls each replaced contentEl's innerHTML and replayed
-      // the entrance animation, so a warm-cache load visibly flickered/
-      // re-animated once per cached sheet instead of rendering once.
-      renderAll();
+      if (scheduleHandle.data) { lastScheduleRows = scheduleHandle.data.rows || []; scheduleLoaded = true; }
+      scheduleHandle.ready.catch(() => { /* surfaced by the Schedule page itself if it matters */ }).finally(() => {
+        scheduleLoaded = true;
+        renderAll();
+      });
 
       // Weather has no backend cache of its own (it's a direct call to
-      // Open-Meteo, not the Apps Script) — just fetch it every load and
-      // patch it into whatever's already rendered.
-      fetchWeather().then((w) => { lastWeather = w; }).catch(() => { lastWeather = null; }).finally(renderAll);
+      // Open-Meteo, not the Apps Script) — fetched every load, and now
+      // gates the first render the same way Roster/Schedule do instead
+      // of patching in separately once the other two are already shown.
+      fetchWeather().then((w) => { lastWeather = w; }).catch(() => { lastWeather = null; }).finally(() => {
+        weatherLoaded = true;
+        renderAll();
+      });
+
+      // One synchronous call for whatever's ALREADY warm in cache right
+      // now (shows the spinner if nothing is yet, or renders instantly
+      // if all three already were) — the async branches above each also
+      // call renderAll() as their own piece lands, but renderAll() itself
+      // is a no-op repaint (same content) once every flag is already
+      // true, so this doesn't risk a second visible animation.
+      renderAll();
     }
 
     Shell.registerRefresh(load);
