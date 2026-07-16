@@ -78,6 +78,18 @@
       </button>
       <div id="nav-rail-links"></div>
     </nav>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/shell.js"></script>
+    <script>
+      // See overview.html for why this runs here instead of only inside
+      // Shell.init() at the bottom — keeps the sidebar links from ever
+      // being visibly empty for a moment on navigation between pages.
+      Shell.renderNav("schedule");
+    </script>
+
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
@@ -97,10 +109,6 @@
     </main>
   </div>
 
-  <script src="../js/config.js"></script>
-  <script src="../js/api.js"></script>
-  <script src="../js/auth.js"></script>
-  <script src="../js/shell.js"></script>
   <script>
     // "schedule" must match this page's NAV_ITEMS id in js/config.js and
     // a value in a staff member's StaffAccess Pages column, or

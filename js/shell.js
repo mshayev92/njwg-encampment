@@ -183,7 +183,14 @@ const Shell = (() => {
    * only wires its click handler and fills in the links/footer below
    * it, it doesn't recreate it.
    */
+  // Tracks whether renderNav() already ran for this page load (see
+  // renderNavEarly_ below) — Shell.init()'s own renderNav(activePage)
+  // call is skipped when it would just be an identical, wasted re-render
+  // moments after the early one already painted the same links.
+  let navRenderedForPage_ = null;
+
   function renderNav(activePage) {
+    navRenderedForPage_ = activePage;
     const rail = document.getElementById("nav-rail");
     if (!rail) return;
 
@@ -2000,7 +2007,11 @@ const Shell = (() => {
     activePage_ = activePage;
     if (requireAuth) Auth.requireSession();
     if (requireAuth && activePage) requirePageAccess(activePage);
-    renderNav(activePage);
+    // Skip if Shell.renderNav(activePage) already ran earlier in this
+    // same page load (see the inline script right after #nav-rail in
+    // every page's markup) — otherwise the sidebar links get torn down
+    // and rebuilt a second time for no visible difference.
+    if (navRenderedForPage_ !== activePage) renderNav(activePage);
     renderHeader(activePage);
     wireTooltips_(document);
     // Global search keyboard shortcut (⌘/Ctrl-K), available on every page.
@@ -2096,7 +2107,7 @@ const Shell = (() => {
   }
 
   return {
-    init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
+    init, renderNav, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
     markNotesSeen: markNotesSeen_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
