@@ -145,6 +145,23 @@
       </button>
       <div id="nav-rail-links"></div>
     </nav>
+
+    <script src="../js/config.js"></script>
+    <script src="../js/api.js"></script>
+    <script src="../js/auth.js"></script>
+    <script src="../js/shell.js"></script>
+    <script>
+      // Render the sidebar links as early as physically possible — right
+      // after #nav-rail-links exists, rather than waiting for the rest of
+      // this page (header, main content, this page's own script) to parse
+      // first. Without this, the browser could paint that div empty for a
+      // moment before the equivalent call inside Shell.init() below ever
+      // ran, making the sidebar visibly flash empty on every navigation
+      // between pages. Shell.init() still owns auth-gating/redirects and
+      // skips re-rendering the nav since this already ran.
+      Shell.renderNav("overview");
+    </script>
+
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
@@ -157,10 +174,6 @@
     </main>
   </div>
 
-  <script src="../js/config.js"></script>
-  <script src="../js/api.js"></script>
-  <script src="../js/auth.js"></script>
-  <script src="../js/shell.js"></script>
   <script>
     Shell.init({ activePage: "overview" });
 

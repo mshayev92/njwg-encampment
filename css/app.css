@@ -512,6 +512,26 @@ html.nav-rail-collapsed .nav-rail__crest {
               color var(--duration-fast) var(--ease-standard);
 }
 
+/* Each navigation is still a full page reload in this static multi-page
+   app (see the early Shell.renderNav() call right after #nav-rail in
+   every page's markup, which is what keeps the LINKS from ever briefly
+   being empty), so the sidebar can't literally persist/slide across the
+   page boundary the way it would in an SPA — but reusing the same
+   rise-in stagger every other list in the app already uses (see
+   item-rise-in above) makes it settle into place smoothly each time
+   instead of just snapping into its final state instantly. */
+.nav-rail__links > .nav-rail__link {
+  animation: item-rise-in var(--duration-base) var(--ease-standard) both;
+}
+.nav-rail__links > .nav-rail__link:nth-child(1) { animation-delay: 0ms; }
+.nav-rail__links > .nav-rail__link:nth-child(2) { animation-delay: 30ms; }
+.nav-rail__links > .nav-rail__link:nth-child(3) { animation-delay: 60ms; }
+.nav-rail__links > .nav-rail__link:nth-child(4) { animation-delay: 90ms; }
+.nav-rail__links > .nav-rail__link:nth-child(5) { animation-delay: 120ms; }
+.nav-rail__links > .nav-rail__link:nth-child(6) { animation-delay: 150ms; }
+.nav-rail__links > .nav-rail__link:nth-child(7) { animation-delay: 180ms; }
+.nav-rail__links > .nav-rail__link:nth-child(8) { animation-delay: 210ms; }
+
 .nav-rail__link:hover {
   background: var(--indigo-700);
   color: var(--surface);
