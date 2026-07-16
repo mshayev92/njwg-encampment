@@ -613,16 +613,19 @@
     let editingPeriodId = null; // Id of the period being edited, or null; periods form is closed unless this or showPeriodForm is set
     let showPeriodForm = false;
 
-    /** Empty/absent Flights on the session means "all flights" per Code.gs. */
+    /** Empty/absent Flights on the session means "all flights" per Code.gs. Also expands squadron audiences (see Shell.flightMatchesAudience). */
     function isFlightAllowed(flight) {
-      if (!allowedFlights.length) return true;
-      if (allowedFlights.some(f => f.toLowerCase() === "all")) return true;
-      return allowedFlights.some(f => f.toLowerCase() === String(flight || "").toLowerCase());
+      return Shell.flightMatchesAudience(allowedFlights, flight);
     }
 
     function groupByFlight(rows) {
       return rows
         .filter(r => isFlightAllowed(r.Flight))
+        // Drop blank/placeholder roster rows (no CapId AND no Name) —
+        // a stray empty row in the sheet that still has a Flight value
+        // was showing up as a phantom flight with one uninspectable
+        // "—" cadet (see the student-list card with no real name).
+        .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);

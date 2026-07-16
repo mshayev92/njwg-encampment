@@ -513,8 +513,17 @@
     async function loadStaff() {
       try {
         const res = await Api.adminListStaffAccess();
-        staff = res.positions || [];
-        if (activeTab === "staff") renderStaffTab();
+        const fresh = res.positions || [];
+        // showActiveTab() already rendered synchronously from whatever
+        // was cached in `staff` BEFORE this network call started (so
+        // switching back to an already-visited tab feels instant). Only
+        // re-render here if this fetch actually came back different —
+        // otherwise switching Staff Access <-> Login Activity replayed
+        // the entrance animation a second time moments after the first,
+        // for a re-render that changed nothing on screen.
+        const changed = JSON.stringify(fresh) !== JSON.stringify(staff);
+        staff = fresh;
+        if (activeTab === "staff" && changed) renderStaffTab();
       } catch (err) {
         if (activeTab === "staff") contentEl.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${esc(err.message)}</p></div>`;
         Shell.showToast(err.message, { type: "error" });
@@ -524,9 +533,15 @@
     async function loadLog() {
       try {
         const res = await Api.adminListLoginLog({ limit: 200 });
-        loginEntries = res.entries || [];
-        logTotal = res.total || loginEntries.length;
-        if (activeTab === "log") renderLogTab();
+        const freshEntries = res.entries || [];
+        const freshTotal = res.total || freshEntries.length;
+        // Same reasoning as loadStaff() above — skip the redundant
+        // re-render/re-animate when this fetch didn't change anything
+        // from what was already shown from cache.
+        const changed = freshTotal !== logTotal || JSON.stringify(freshEntries) !== JSON.stringify(loginEntries);
+        loginEntries = freshEntries;
+        logTotal = freshTotal;
+        if (activeTab === "log" && changed) renderLogTab();
       } catch (err) {
         if (activeTab === "log") contentEl.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${esc(err.message)}</p></div>`;
         Shell.showToast(err.message, { type: "error" });

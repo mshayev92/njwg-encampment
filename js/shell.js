@@ -60,6 +60,7 @@ const Shell = (() => {
   };
 
   const ANNOUNCEMENTS_SEEN_KEY = "njwg_announcements_last_seen_at";
+  const NOTES_SEEN_KEY_PREFIX = "njwg_notes_last_seen_at_";
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
   // Tracks what THIS device already knows about, independent of the
   // per-device "last seen" bell timestamp above — used only to detect a
@@ -182,6 +183,7 @@ const Shell = (() => {
       <a class="nav-rail__link" href="${window.APP_BASE_PATH}${item.href}" ${item.id === activePage ? 'aria-current="page"' : ''}>
         <span class="nav-rail__link-icon">${ICONS[item.icon] || ""}</span>
         <span class="nav-rail__link-label">${item.label}</span>
+        ${item.id === "notes" ? `<span id="notes-nav-badge" style="display:none; position:absolute; top:6px; left:28px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>` : ""}
       </a>
     `).join("");
 
@@ -574,11 +576,39 @@ const Shell = (() => {
     return (s && Array.isArray(s.Flights)) ? s.Flights : [];
   }
 
-  function isFlightAllowed_(flight) {
-    const flights = sessionFlights_();
+  /**
+   * Does `viewerFlights` (a session's Flights list — the individual
+   * flight(s), e.g. ["Alpha"], a position is scoped to) have visibility
+   * into a row/event whose own Flight/audience value is `targetFlight`
+   * (e.g. "Alpha", "Squadron 1", or blank/"All")?
+   *
+   * Squadrons have no cadets of their own — they're a grouping of
+   * flights (see APP_CONFIG.SQUADRON_FLIGHTS) — so an exact string
+   * match alone means a schedule item audienced to "Squadron 1" was
+   * only ever visible to whoever's OWN Flights literally equals the
+   * string "Squadron 1", never to "Alpha" or "Bravo" even though
+   * they're that squadron's actual members. This also checks whether
+   * targetFlight is a known squadron and, if so, whether the viewer
+   * belongs to any flight under it.
+   */
+  function flightMatchesAudience_(viewerFlights, targetFlight) {
+    const flights = Array.isArray(viewerFlights) ? viewerFlights : [];
     if (!flights.length) return true;
     if (flights.some((f) => String(f).toLowerCase() === "all")) return true;
-    return flights.some((f) => String(f).toLowerCase() === String(flight || "").toLowerCase());
+    if (!targetFlight) return true;
+    const target = String(targetFlight).toLowerCase();
+    if (flights.some((f) => String(f).toLowerCase() === target)) return true;
+
+    const squadronFlights = (window.APP_CONFIG && window.APP_CONFIG.SQUADRON_FLIGHTS) || {};
+    const members = squadronFlights[target];
+    if (members && members.some((m) => flights.some((f) => String(f).toLowerCase() === String(m).toLowerCase()))) {
+      return true;
+    }
+    return false;
+  }
+
+  function isFlightAllowed_(flight) {
+    return flightMatchesAudience_(sessionFlights_(), flight);
   }
 
   /** Flattens a rich-text/HTML value to plain searchable text. */
@@ -859,8 +889,7 @@ const Shell = (() => {
    */
   function currentAndNextScheduleItems(rows, flights) {
     const flightList = Array.isArray(flights) ? flights : [];
-    const restricted = flightList.length && !flightList.some((f) => String(f).toLowerCase() === "all");
-    const isAllowed = (row) => !restricted || !row.Flight || flightList.some((f) => String(f).toLowerCase() === String(row.Flight || "").toLowerCase());
+    const isAllowed = (row) => flightMatchesAudience_(flightList, row.Flight);
 
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -929,6 +958,52 @@ const Shell = (() => {
     const lastSeen = getAnnouncementsLastSeen_();
     const unseenCount = announcements.filter(a => {
       const t = new Date(a.Timestamp).getTime();
+      return !isNaN(t) && t > lastSeen;
+    }).length;
+
+    if (unseenCount > 0) {
+      badge.textContent = unseenCount > 9 ? "9+" : String(unseenCount);
+      badge.style.display = "inline-block";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  // ---- Notes-sent-to-me badge (nav-rail Notes link) ----
+  //
+  // Keyed per-POSITION (not just per-device) since a shared tablet can
+  // sign in as different positions over its lifetime — a note sent to
+  // "Bravo Flight" shouldn't still show as unseen once the device signs
+  // in as "Alpha Flight" and back.
+
+  function notesSeenKey_() {
+    const session = Auth.getSession();
+    const position = session && session.Position ? String(session.Position).trim().toLowerCase() : "";
+    return NOTES_SEEN_KEY_PREFIX + position;
+  }
+
+  function getNotesLastSeen_() {
+    return Number(localStorage.getItem(notesSeenKey_()) || 0);
+  }
+
+  /** Call when the Notes page has actually been viewed — see notes.html's load(). */
+  function markNotesSeen_() {
+    localStorage.setItem(notesSeenKey_(), String(Date.now()));
+    const badge = document.getElementById("notes-nav-badge");
+    if (badge) badge.style.display = "none";
+  }
+
+  function updateNotesBadge_(notes) {
+    const badge = document.getElementById("notes-nav-badge");
+    if (!badge) return;
+    const session = Auth.getSession();
+    const myPosition = session && session.Position ? String(session.Position).trim().toLowerCase() : "";
+    if (!myPosition) { badge.style.display = "none"; return; }
+
+    const lastSeen = getNotesLastSeen_();
+    const unseenCount = notes.filter(n => {
+      if (String(n.ToPosition || "").trim().toLowerCase() !== myPosition) return false;
+      const t = new Date(n.Timestamp).getTime();
       return !isNaN(t) && t > lastSeen;
     }).length;
 
@@ -1073,6 +1148,9 @@ const Shell = (() => {
       renderBlackFlagBanner_(status);
       checkBlackFlagChange_(status);
     });
+    const notesCache = Api.getSheetCached("Notes", (data) => {
+      updateNotesBadge_(data.rows || []);
+    });
 
     if (announcementsCache.data) {
       updateAnnouncementsBadge_(announcementsCache.data.rows || []);
@@ -1083,11 +1161,14 @@ const Shell = (() => {
       renderBlackFlagBanner_(status);
       checkBlackFlagChange_(status);
     }
+    if (notesCache.data) {
+      updateNotesBadge_(notesCache.data.rows || []);
+    }
 
     // Always let the background fetches land too, even with no cache —
     // this covers the very first load, where getSheetCached() returned
     // null data but still kicked off the real request via `ready`.
-    return Promise.all([announcementsCache.ready, blackFlagCache.ready]).catch(() => {});
+    return Promise.all([announcementsCache.ready, blackFlagCache.ready, notesCache.ready]).catch(() => {});
   }
 
   function showToast(message, { type = "" } = {}) {
@@ -1901,11 +1982,13 @@ const Shell = (() => {
   return {
     init, showToast, encampmentDayInfo, requirePageAccess, getAllowedNavItems,
     markAnnouncementsSeen: markAnnouncementsSeen_, refreshGlobalAlerts: loadGlobalAlerts_,
+    markNotesSeen: markNotesSeen_,
     confirm: confirmDialog, wireTooltips: wireTooltips_, registerRefresh, hardRefresh,
     mountSheet, escapeHtml: escapeHtml_,
     enhanceSelect, enhanceDateInput, enhanceTimeInput, openContextMenu,
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems,
+    flightMatchesAudience: flightMatchesAudience_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
     formatDateTime: formatDateTime_, formatTime: formatTime_,
     animateIn, enhanceTabs

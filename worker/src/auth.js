@@ -72,7 +72,7 @@ export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // visibility to positions allowed to see that flight, same as
 // Inspections/Roster/Overview (blank Flight = visible to everyone,
 // same as a note with no cadet tied to it).
-export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body"];
+export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition"];
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 
 // ---- Hashing / signing ------------------------------------------------------
