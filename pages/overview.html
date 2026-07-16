@@ -50,10 +50,116 @@
       gap: var(--space-4);
     }
 
+    /* ---- Welcome card: a time-of-day "scene" (gradient sky + sun/moon/
+       stars/clouds), purely CSS — no images or network calls, so it
+       never has anything to fail/load and matches every other card's
+       instant-from-cache render timing. Recomputed on the SAME 60s
+       interval Overview already uses for Now/Next, so it naturally
+       transitions from one scene to the next as real time passes while
+       the tab stays open. */
+    .welcome-card {
+      position: relative;
+      overflow: hidden;
+      isolation: isolate;
+      min-height: 128px;
+      display: flex;
+      align-items: center;
+    }
+
+    .welcome-card__scene {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+
+    .welcome-card__content {
+      position: relative;
+      z-index: 1;
+    }
+
+    .welcome-card__greeting {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wider);
+      opacity: 0.85;
+    }
+
+    .welcome-card__position {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xl);
+      margin-top: var(--space-1);
+    }
+
+    .welcome-card__orb {
+      position: absolute;
+      border-radius: 50%;
+    }
+
+    .welcome-card__cloud {
+      position: absolute;
+      background: rgba(255, 255, 255, 0.55);
+      border-radius: 999px;
+      filter: blur(2px);
+    }
+
+    .welcome-card__stars {
+      position: absolute;
+      inset: 0;
+      background-image:
+        radial-gradient(1.5px 1.5px at 20% 25%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 40% 55%, #fff, transparent),
+        radial-gradient(1px 1px at 60% 15%, #fff, transparent),
+        radial-gradient(1px 1px at 75% 40%, #fff, transparent),
+        radial-gradient(1.5px 1.5px at 85% 65%, #fff, transparent),
+        radial-gradient(1px 1px at 30% 75%, #fff, transparent),
+        radial-gradient(1px 1px at 10% 50%, #fff, transparent),
+        radial-gradient(1px 1px at 90% 25%, #fff, transparent);
+      opacity: 0.9;
+    }
+
+    /* Dawn (5-8am): soft sunrise pink/orange fading to pale morning blue. */
+    .welcome-card--dawn { background: linear-gradient(180deg, #ffd9a0 0%, #ffb199 40%, #8ec5e8 100%); color: #3a2410; }
+    .welcome-card--dawn .welcome-card__orb { width: 90px; height: 90px; right: 36px; bottom: -28px; background: #fff2c2; box-shadow: 0 0 60px 20px rgba(255, 235, 180, 0.8); }
+
+    /* Day (8am-5pm): bright clear sky. */
+    .welcome-card--day { background: linear-gradient(180deg, #4fa8e0 0%, #bfe3f7 100%); color: #103050; }
+    .welcome-card--day .welcome-card__orb { width: 68px; height: 68px; right: 48px; top: 20px; background: #fff6d0; box-shadow: 0 0 50px 16px rgba(255, 250, 210, 0.85); }
+
+    /* Dusk (5-8pm): sunset gradient, warm orange over deep purple. */
+    .welcome-card--dusk { background: linear-gradient(180deg, #33245f 0%, #b3466b 55%, #ff9d5c 100%); color: #fff3e6; }
+    .welcome-card--dusk .welcome-card__orb { width: 78px; height: 78px; right: 44px; bottom: 8px; background: #ffd39b; box-shadow: 0 0 55px 18px rgba(255, 170, 110, 0.7); }
+
+    /* Night (8pm-5am): deep indigo, echoing the app's own nav-rail
+       palette so the "dark mode" scene still feels on-brand. */
+    .welcome-card--night { background: linear-gradient(180deg, #0d1250 0%, #1a2470 100%); color: #f4f4fb; }
+    .welcome-card--night .welcome-card__orb { width: 52px; height: 52px; right: 56px; top: 24px; background: #eef1fb; box-shadow: 0 0 30px 8px rgba(230, 235, 255, 0.5); }
+
     .weather-card {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+    }
+
+    .weather-card__body {
       display: flex;
       align-items: center;
       gap: var(--space-4);
+    }
+
+    /* Black flag now lives inline in the weather card (Overview no
+       longer gets a separate full-width banner row — see js/shell.js'
+       renderBlackFlagBanner_) since weather/outdoor-activity impact is
+       exactly the context black flag status is most relevant to. */
+    .weather-card__blackflag {
+      background: #000;
+      color: #fff;
+      border-radius: var(--radius-md);
+      padding: var(--space-2) var(--space-3);
+      font-family: var(--font-display);
+      font-size: var(--fs-xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
     }
 
     .weather-card__temp {
@@ -181,13 +287,31 @@
       return response.json();
     }
 
-    function renderWeatherCard(weather) {
+    /**
+     * Black flag now renders INLINE in the weather card (weather/outdoor-
+     * activity impact is exactly the context it's most relevant to)
+     * instead of Overview's old separate full-width banner row — see
+     * js/shell.js's renderBlackFlagBanner_, which used to own that
+     * banner on a completely independent load pipeline from the rest of
+     * this page. Gated behind the SAME "everything's ready" check as
+     * every other card here (see blackFlagLoaded below), so it settles
+     * in the same visual beat instead of popping in on its own.
+     */
+    function renderWeatherCard(weather, blackFlagStatus) {
+      const blackFlagActive = !!(blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true"));
+      const blackFlagHtml = blackFlagActive
+        ? `<div class="weather-card__blackflag">⚑ Black Flag — outdoor activity restricted</div>`
+        : "";
+
       if (!weather || !weather.current) {
         return `
           <div class="card weather-card">
-            <div>
-              <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
-              <div class="weather-card__details">Weather unavailable right now.</div>
+            ${blackFlagHtml}
+            <div class="weather-card__body">
+              <div>
+                <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
+                <div class="weather-card__details">Weather unavailable right now.</div>
+              </div>
             </div>
           </div>`;
       }
@@ -196,10 +320,56 @@
       const label = WEATHER_CODE_LABELS[c.weather_code] || "—";
       return `
         <div class="card weather-card">
-          <div class="weather-card__temp">${Math.round(c.temperature_2m)}°F</div>
-          <div>
-            <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
-            <div class="weather-card__details">${label} · Humidity ${Math.round(c.relative_humidity_2m)}% · Wind ${Math.round(c.wind_speed_10m)} mph</div>
+          ${blackFlagHtml}
+          <div class="weather-card__body">
+            <div class="weather-card__temp">${Math.round(c.temperature_2m)}°F</div>
+            <div>
+              <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
+              <div class="weather-card__details">${label} · Humidity ${Math.round(c.relative_humidity_2m)}% · Wind ${Math.round(c.wind_speed_10m)} mph</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    /**
+     * Which of the four CSS "scenes" (see .welcome-card--dawn/day/dusk/
+     * night above) matches the device's current local time.
+     */
+    function timeOfDayScene() {
+      const hour = new Date().getHours();
+      if (hour >= 5 && hour < 8) return "dawn";
+      if (hour >= 8 && hour < 17) return "day";
+      if (hour >= 17 && hour < 20) return "dusk";
+      return "night";
+    }
+
+    /**
+     * "Welcome, {Position}" — its own box at the top of the page, with a
+     * purely-CSS time-of-day scene (gradient sky + sun/moon/stars/
+     * clouds) behind the text, like the "different illustration per
+     * time of day" greeting some apps show. Recomputed on the same 60s
+     * interval as Now/Next (see setInterval below), so it transitions on
+     * its own as real time passes while the tab stays open — no images,
+     * no network calls, so it never has anything to fail or load.
+     */
+    function renderWelcomeCard() {
+      const scene = timeOfDayScene();
+      const position = (session && (session.Position || session.position)) || "Staff";
+      const hasClouds = scene !== "night";
+      return `
+        <div class="card welcome-card welcome-card--${scene}">
+          <div class="welcome-card__scene">
+            ${scene === "night" ? `<div class="welcome-card__stars"></div>` : ""}
+            ${hasClouds ? `
+              <div class="welcome-card__cloud" style="width:70px; height:24px; left:12%; top:32%;"></div>
+              <div class="welcome-card__cloud" style="width:48px; height:18px; left:55%; top:58%;"></div>
+            ` : ""}
+            <div class="welcome-card__orb"></div>
+          </div>
+          <div class="welcome-card__content">
+            <div class="welcome-card__greeting">Welcome</div>
+            <div class="welcome-card__position">${esc(position)}</div>
           </div>
         </div>
       `;
@@ -344,7 +514,8 @@
     let lastRoomRows = null;
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
-    // These come from independent sources (Api's sheet cache x6, a
+    let lastBlackFlagStatus = null;
+    // These come from independent sources (Api's sheet cache x7, a
     // direct Open-Meteo fetch) that used to each trigger their OWN
     // renderAll() the moment they landed — so a cold load visibly built
     // itself piece by piece (weather popping in after the rest, in
@@ -359,24 +530,20 @@
     let roomLoaded = false;
     let periodsLoaded = false;
     let observationsLoaded = false;
+    let blackFlagLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !periodsLoaded || !observationsLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
-      // The black-flag banner above this content loads via Shell's own,
-      // separate pipeline (BlackFlagStatus) — telling Shell this page's
-      // own content is ready now means the banner reveals in the same
-      // beat as everything below, instead of popping in on its own
-      // whenever ITS fetch happens to resolve. See Shell.markContentReady.
-      Shell.markContentReady();
       contentEl.innerHTML = `
         <div class="overview-stack">
+          ${renderWelcomeCard()}
           <div class="overview-grid">
-            ${renderWeatherCard(lastWeather)}
+            ${renderWeatherCard(lastWeather, lastBlackFlagStatus)}
+            ${renderActivityCard(lastScheduleRows)}
           </div>
-          ${renderActivityCard(lastScheduleRows)}
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastInspectionPeriods || [])}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
@@ -471,6 +638,20 @@
       if (observationsHandle.data) { lastObservationRows = observationsHandle.data.rows || []; observationsLoaded = true; }
       observationsHandle.ready.catch(() => { /* surfaced by the Observations page itself if it matters */ }).finally(() => {
         observationsLoaded = true;
+        renderAll();
+      });
+
+      // Black flag status, now rendered inline in the weather card (see
+      // renderWeatherCard) instead of via Shell's old separate banner —
+      // reading it directly here means it's gated behind the SAME
+      // "everything's ready" check as the rest of this page.
+      const blackFlagHandle = Api.getSheetCached("BlackFlagStatus", (fresh) => {
+        lastBlackFlagStatus = (fresh.rows || [])[0] || null;
+        renderAll();
+      });
+      if (blackFlagHandle.data) { lastBlackFlagStatus = (blackFlagHandle.data.rows || [])[0] || null; blackFlagLoaded = true; }
+      blackFlagHandle.ready.catch(() => { /* surfaced by the header pill on other pages if it matters */ }).finally(() => {
+        blackFlagLoaded = true;
         renderAll();
       });
 
