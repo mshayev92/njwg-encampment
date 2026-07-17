@@ -100,6 +100,15 @@
 
       <div id="schedule-form-container"></div>
 
+      <!-- Persistent across renders (unlike #schedule-content, which is
+           fully rebuilt each time) — see renderScheduleTabsBar() below for
+           why: keeping the SAME container/indicator DOM node alive is
+           what lets the sliding active-tab indicator actually animate
+           between day tabs, matching every other tabbed page in the app,
+           instead of a fresh indicator with no previous position to
+           animate from being recreated on every click. -->
+      <div class="tabs schedule-tabs" id="schedule-tabs-bar" style="display:none;"></div>
+
       <div id="schedule-content">
         <div class="state-message">
           <div class="spinner"></div>
@@ -273,11 +282,69 @@
       `;
     }
 
+    // Set once the tabs bar's buttons have actually been built (see
+    // renderScheduleTabsBar) — reused across renders so switching between
+    // two already-existing day tabs just moves the SAME indicator
+    // element instead of recreating it from scratch every time.
+    let scheduleTabsIndicator = null;
+    // The last set of group keys the tabs bar was actually built from —
+    // lets renderScheduleTabsBar tell "the day tabs themselves changed"
+    // (rebuild needed) apart from "just switching which one is active"
+    // (only toggle .is-active + move the indicator).
+    let renderedGroupKeysSignature = null;
+
+    const scheduleTabsBarEl = document.getElementById("schedule-tabs-bar");
+
+    /**
+     * Keeps the tabs bar's own container/indicator DOM node alive across
+     * renders, only rebuilding its buttons when the actual set of day
+     * tabs changes (a schedule added/removed) — switching which existing
+     * tab is active never tears the bar down, so Shell.enhanceTabs's
+     * sliding indicator has a previous position to animate FROM instead
+     * of a version rebuilt with no history. Before this, EVERY render()
+     * — including a plain tab click — rebuilt the whole `.schedule-tabs`
+     * div (and thus a brand-new indicator) from scratch, so the slide
+     * every other tabbed page in the app has (Inspections, Admin,
+     * Observations) never actually played here; it only ever snapped.
+     */
+    function renderScheduleTabsBar(groups) {
+      scheduleTabsBarEl.style.display = "";
+      const signature = groups.map(g => g.key).join(" ");
+
+      if (signature !== renderedGroupKeysSignature) {
+        scheduleTabsBarEl.setAttribute("role", "tablist");
+        scheduleTabsBarEl.innerHTML = groups.map(g => `<button class="tabs__tab ${g.key === activeGroupKey ? "is-active" : ""}" data-group-key="${esc(g.key)}">${esc(g.label)}</button>`).join("");
+        renderedGroupKeysSignature = signature;
+        scheduleTabsIndicator = Shell.enhanceTabs(scheduleTabsBarEl);
+
+        scheduleTabsBarEl.querySelectorAll("[data-group-key]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            if (btn.dataset.groupKey === activeGroupKey) return;
+            activeGroupKey = btn.dataset.groupKey;
+            scheduleTabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+            if (scheduleTabsIndicator) scheduleTabsIndicator.move();
+            renderActiveScheduleCard(groupSchedule(scheduleRows));
+          });
+        });
+      } else {
+        scheduleTabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b.dataset.groupKey === activeGroupKey));
+        if (scheduleTabsIndicator) scheduleTabsIndicator.move();
+      }
+    }
+
+    function renderActiveScheduleCard(groups) {
+      const activeGroup = groups.find(g => g.key === activeGroupKey);
+      contentEl.innerHTML = renderScheduleCard(activeGroup);
+      wireRowActions();
+      Shell.animateIn(contentEl);
+    }
+
     function render(rows) {
       addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
       addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
 
       if (!rows.length) {
+        scheduleTabsBarEl.style.display = "none";
         contentEl.innerHTML = `
           <div class="state-message">
             <div class="state-message__icon">📋</div>
@@ -291,6 +358,7 @@
       if (!canEditSchedule) {
         // Regular staff only ever see the one schedule matching today's
         // date on their own device — never a picker of other days.
+        scheduleTabsBarEl.style.display = "none";
         const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
         contentEl.innerHTML = renderScheduleCard(todaysGroup);
         wireRowActions();
@@ -304,29 +372,9 @@
         const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r)));
         activeGroupKey = todaysGroup ? todaysGroup.key : groups[0].key;
       }
-      const activeGroup = groups.find(g => g.key === activeGroupKey);
 
-      contentEl.innerHTML = `
-        <div class="tabs schedule-tabs" role="tablist">
-          ${groups.map(g => `<button class="tabs__tab ${g.key === activeGroupKey ? "is-active" : ""}" data-group-key="${esc(g.key)}">${esc(g.label)}</button>`).join("")}
-        </div>
-        ${renderScheduleCard(activeGroup)}
-      `;
-
-      contentEl.querySelectorAll("[data-group-key]").forEach(btn => {
-        btn.addEventListener("click", () => { activeGroupKey = btn.dataset.groupKey; render(scheduleRows); });
-      });
-      wireRowActions();
-      // The day tabs above are torn down and rebuilt from scratch on
-      // every render() (unlike Admin/Inspections/Observations, whose tabs
-      // bar is static markup enhanced once) — so the sliding active-tab
-      // indicator has to be (re-)wired here every time too, or these
-      // tabs just snap between states like a plain unenhanced list
-      // instead of matching the smooth slide every other tabbed page in
-      // the app uses. enhanceTabs is safe to call repeatedly on a fresh
-      // container (see its own doc comment).
-      Shell.enhanceTabs(contentEl.querySelector(".schedule-tabs"));
-      Shell.animateIn(contentEl);
+      renderScheduleTabsBar(groups);
+      renderActiveScheduleCard(groups);
     }
 
     function wireRowActions() {

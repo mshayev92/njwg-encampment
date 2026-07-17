@@ -739,6 +739,28 @@
         }, {});
     }
 
+    /**
+     * Sorts flight names so this position's OWN flight(s) come first —
+     * one for a Flight Commander, two for a Squadron Commander, in the
+     * order StaffAccess lists them — with anything else alphabetical
+     * after. Since groupByFlight already restricts a flight/squadron
+     * position down to just its own allowed flights (see isFlightAllowed
+     * above), this mostly governs the ORDER two owned flights appear in
+     * for a squadron position, rather than surfacing extra ones; CCT/
+     * Administrator (blank/"all" Flights) sees every flight with no
+     * ownership ranking, so this is just a plain alphabetical sort for
+     * them, same as before.
+     */
+    function orderFlightNames(names) {
+      if (!allowedFlights.length) return names.slice().sort();
+      const rank = new Map(allowedFlights.map((f, i) => [String(f).toLowerCase(), i]));
+      return names.slice().sort((a, b) => {
+        const ra = rank.has(a.toLowerCase()) ? rank.get(a.toLowerCase()) : Infinity;
+        const rb = rank.has(b.toLowerCase()) ? rank.get(b.toLowerCase()) : Infinity;
+        return ra !== rb ? ra - rb : a.localeCompare(b);
+      });
+    }
+
     // ---- Inspection periods (scheduling what's inspected on what date) ----
     //
     // A period is one Sheet row: { Id, Date, Category, UniformType }.
@@ -939,7 +961,7 @@
     function renderFlightGrid() {
       currentView = "flights";
       const grouped = groupByFlight(rosterRows);
-      const flightNames = Object.keys(grouped).sort();
+      const flightNames = orderFlightNames(Object.keys(grouped));
       const todaysPeriod = periodForActiveType(new Date().toLocaleDateString("en-CA"));
 
       if (!flightNames.length) {
@@ -1305,7 +1327,7 @@
               <div class="scorecard-item" data-pt-key="${item.key}">
                 <span class="scorecard-item__label">${item.label} <span style="color: var(--ink-600); font-weight: 400;">(${item.unit}${threshold !== null ? ` · standard ${esc(thresholdLabel)}` : ""})</span></span>
                 <div style="display:flex; align-items:center; gap: var(--space-2);">
-                  <input type="text" inputmode="${item.type === "time" ? "numeric" : "decimal"}" class="pt-input" data-key="${item.key}" placeholder="${item.type === "time" ? "mm:ss" : "optional"}" value="${esc(currentScores[item.key])}" style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+                  <input type="text" inputmode="${item.type === "time" ? "numeric" : "decimal"}" class="pt-input" data-key="${item.key}" placeholder="${item.type === "time" ? "mm:ss" : item.unit}" value="${esc(currentScores[item.key])}" style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
                   <span class="badge pt-pass-badge" data-pt-badge="${item.key}" style="background: var(--surface-sunken); color: var(--ink-600);">—</span>
                 </div>
               </div>`;
