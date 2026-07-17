@@ -9,11 +9,17 @@
  * data past their own write.
  */
 
-import { getAllValues } from "./sheets.js";
+import { getAllValues, batchGetValues, getSpreadsheetMeta } from "./sheets.js";
 import { READ_CACHE_TTL_SECONDS } from "./auth.js";
 
 function cacheKeyFor(sheetName) {
   return "sheetvals:" + sheetName;
+}
+
+function readCacheTtl() {
+  // Workers KV rejects any expirationTtl under 60s — floor it there (see
+  // the note in getCachedSheetValues below).
+  return Math.max(60, READ_CACHE_TTL_SECONDS);
 }
 
 export async function getCachedSheetValues(env, sheetName) {
@@ -35,10 +41,62 @@ export async function getCachedSheetValues(env, sheetName) {
   // second person's read of the same sheet can be up to 60s stale
   // instead of 20s, which writes still bypass immediately via
   // invalidateSheetCache below.
-  const ttl = Math.max(60, READ_CACHE_TTL_SECONDS);
-  await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: ttl });
+  await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: readCacheTtl() });
 
   return values;
+}
+
+/**
+ * Reads several sheets at once, using the SAME per-sheet KV read cache as
+ * getCachedSheetValues above. Returns { sheetName: values[][] } for every
+ * requested name. The whole point is the miss path: every sheet not
+ * already warm in KV is fetched in ONE Sheets values:batchGet call (see
+ * batchGetValues) instead of one API round-trip each, and the whole thing
+ * is one Worker invocation instead of one per sheet — this is what backs
+ * the frontend's background cache-warming (js/api.js warmCache).
+ *
+ * A requested tab that doesn't exist yet (e.g. an inspection sheet no one
+ * has written to) simply returns []: batchGet 400s the entire request if
+ * any range names a missing tab, so misses are filtered against the
+ * (KV-cached) spreadsheet metadata before the batch call, and absent tabs
+ * are reported empty rather than auto-created — a background warm should
+ * never mutate the sheet. The page's own on-demand read still auto-creates
+ * the tab when it's genuinely first needed (see ensureAutoCreatedTab).
+ */
+export async function getCachedSheetValuesBatch(env, sheetNames) {
+  const result = {};
+  const misses = [];
+
+  // 1. Serve whatever's already warm in KV, collecting the misses.
+  await Promise.all(sheetNames.map(async (name) => {
+    const cached = await env.NJWG_KV.get(cacheKeyFor(name), "json");
+    if (cached) result[name] = cached;
+    else misses.push(name);
+  }));
+
+  if (misses.length) {
+    // 2. Only batch-fetch tabs that actually exist; metadata is KV-cached,
+    //    so this guard is essentially free and avoids a 400 that would
+    //    fail the whole batch. Missing tabs report empty.
+    const meta = await getSpreadsheetMeta(env);
+    const existing = misses.filter((n) => n in meta);
+    misses.filter((n) => !(n in meta)).forEach((n) => { result[n] = []; });
+
+    if (existing.length) {
+      // 3. ONE Sheets API call for every cache-missed sheet.
+      const fetched = await batchGetValues(env, existing);
+      const ttl = readCacheTtl();
+      await Promise.all(existing.map(async (name) => {
+        const values = fetched[name] || [];
+        result[name] = values;
+        // Populate the same KV key the per-sheet read cache uses, so a
+        // later individual read of this sheet is served from cache too.
+        await env.NJWG_KV.put(cacheKeyFor(name), JSON.stringify(values), { expirationTtl: ttl });
+      }));
+    }
+  }
+
+  return result;
 }
 
 export function invalidateSheetCache(env, sheetName) {

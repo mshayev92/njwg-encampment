@@ -569,7 +569,7 @@
       });
     }
 
-    async function postNote() {
+    function postNote() {
       const subjectInput = document.getElementById("subject-input");
       const editor = document.getElementById("body-editor");
       const subject = subjectInput.value.trim();
@@ -579,10 +579,6 @@
         Shell.showToast("Add a subject or some note text before saving.", { type: "error" });
         return;
       }
-
-      const postBtn = document.getElementById("post-note-btn");
-      postBtn.disabled = true;
-      postBtn.textContent = "Saving…";
 
       const editing = editingNoteId !== null;
       const existing = editing ? notes.find(n => String(n.Id) === String(editingNoteId)) : null;
@@ -600,32 +596,30 @@
             ToPosition: toPosition
           };
 
-      try {
-        await Api.writeRow("Notes", noteRow, editing ? { matchColumns: ["Id"] } : {});
-        if (editing) {
-          const idx = notes.findIndex(n => String(n.Id) === String(editingNoteId));
-          if (idx >= 0) notes[idx] = noteRow; else notes.unshift(noteRow);
-          editingNoteId = null;
-        } else {
-          notes = [noteRow, ...notes];
-          showForm = false;
-        }
-        // writeRow() only marks the Notes cache stale — it doesn't know
-        // what the optimistic result looks like. Without pushing it in
-        // here, the next background revalidation (the periodic
-        // Api.warmCache poll, or just reopening this page) fetches the
-        // server's now-actually-updated rows, finds them different from
-        // the stale pre-write cache, and fires this page's onFresh
-        // subscriber again — a second render()/animateIn() replaying the
-        // entrance animation moments after this save's own.
-        Api.setCachedRows("Notes", notes);
-        render();
-        Shell.showToast(editing ? "Note updated." : "Note saved.", { type: "success" });
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-        postBtn.disabled = false;
-        postBtn.textContent = editing ? "Save Changes" : "Add Note";
+      // Optimistic, matching roster/schedule/observations: update local
+      // state and re-render instantly; the real write fires in the
+      // background (Api's queue), and the header's sync indicator reflects
+      // whether it lands. Api.writeRow is optimistic-by-default — it
+      // resolves BEFORE the network write returns — so there's no error to
+      // await/catch here; a background failure surfaces via the sync
+      // indicator, not a rejected promise.
+      Api.writeRow("Notes", noteRow, editing ? { matchColumns: ["Id"] } : {});
+      if (editing) {
+        const idx = notes.findIndex(n => String(n.Id) === String(editingNoteId));
+        if (idx >= 0) notes[idx] = noteRow; else notes.unshift(noteRow);
+        editingNoteId = null;
+      } else {
+        notes = [noteRow, ...notes];
+        showForm = false;
       }
+      // writeRow() only marks the Notes cache stale — it doesn't know what
+      // the optimistic result looks like. Pushing it in here keeps the next
+      // background revalidation from finding a "changed" sheet and firing
+      // this page's onFresh subscriber again — a second render()/animateIn()
+      // replaying the entrance animation moments after this save's own.
+      Api.setCachedRows("Notes", notes);
+      render();
+      Shell.showToast(editing ? "Note updated." : "Note saved.", { type: "success" });
     }
 
     let rosterLoaded = false;

@@ -27,8 +27,9 @@
 
    SECURITY NOTE: this module manages the CLIENT side of both layers
    only (storing/reading tokens). The actual authentication check
-   happens server-side in apps-script/Code.gs, which verifies every
-   token's signature and expiry on every single call. Nothing here is
+   happens server-side in the Cloudflare Worker (worker/src/auth.js),
+   which verifies every token's signature and expiry on every single
+   call. Nothing here is
    the security boundary — a user with dev tools open can always see
    or edit local/sessionStorage. That's expected and fine, because the
    backend never trusts the client, only the signed token it verifies

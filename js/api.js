@@ -1,19 +1,18 @@
 /* ============================================================
    NJWG ENCAMPMENT — API CLIENT
-   Talks to the Google Apps Script Web App deployed in front of
-   the private Google Sheet. No API key is used or needed — the
-   Apps Script runs "as me" (the sheet owner) under a public /exec
-   URL.
+   Talks to the Cloudflare Worker backend (worker/src/) deployed in
+   front of the private Google Sheet, which reaches the Sheet via the
+   Sheets API using a service account. The Worker URL is in
+   js/config.js (APPS_SCRIPT_URL — name kept for historical reasons).
 
    IMPORTANT — because the site is hosted publicly (GitHub Pages),
-   that /exec URL is not secret: anyone can view source and see it,
+   that Worker URL is not secret: anyone can view source and see it,
    and anyone can call it directly. So neither a passphrase nor a
    position is trusted as ongoing authentication — each is exchanged
    ONCE for a signed, expiring token (device token / session token,
    see js/auth.js), and this client attaches BOTH tokens to every
-   read/write. The Apps Script backend verifies both tokens'
-   signatures and expiry server-side on every call — see
-   apps-script/Code.gs.
+   read/write. The Worker verifies both tokens' signatures and expiry
+   server-side on every call — see worker/src/auth.js.
 
    PERFORMANCE MODEL (stale-while-revalidate + optimistic writes):
    Every read is cached in memory (cleared on full page reload, kept
@@ -333,6 +332,35 @@ const Api = (() => {
     return promise;
   }
 
+  /**
+   * Warms several sheets in ONE request (action=batchRead) instead of one
+   * read per sheet — this is the whole point of the batch endpoint. It
+   * populates the same in-memory + persisted cache a normal read fills,
+   * and notifies each sheet's subscribers when its data actually changed,
+   * so the header bell / any open page picks up fresher data from the warm
+   * too. Best-effort: a failure just leaves the cache as-is, and the page
+   * that actually needs a sheet still issues its own read.
+   */
+  async function batchFetchSheets_(sheetNames) {
+    if (!sheetNames.length) return;
+    const data = await request("batchRead", { params: { sheets: sheetNames.join(",") } });
+    const sheets = (data && data.sheets) || {};
+    Object.keys(sheets).forEach((name) => {
+      const key = cacheKey(name, {});
+      // Store the SAME shape a read caches ({ ok, rows }) so the change
+      // detection here — and every caller reading .rows — treats a warmed
+      // sheet identically to an individually-read one (a shape mismatch
+      // would make every warm look "changed" and re-fire subscribers).
+      const rowsData = { ok: true, rows: (sheets[name] && sheets[name].rows) || [] };
+      const previous = cache.get(key);
+      const changed = !previous || JSON.stringify(previous.data) !== JSON.stringify(rowsData);
+      const entry = { data: rowsData, fetchedAt: Date.now() };
+      cache.set(key, entry);
+      persistToStorage_(key, entry);
+      if (changed) notifySubscribers_(key, rowsData);
+    });
+  }
+
   // ---- Sync status (for the header's sync indicator) -------------------
 
   // "idle" | "syncing" | "synced" | "error"
@@ -598,19 +626,26 @@ const Api = (() => {
      * Shell.init) so that by the time someone navigates to another
      * page, its data is already warm in the persisted cache and renders
      * instantly instead of waiting on the network. Skips a sheet
-     * entirely if it was already fetched within maxAgeMs, so clicking
-     * around quickly doesn't re-hit the backend on every single load.
-     * Default is deliberately generous (2 minutes) — the backend caps
-     * reads at 30 requests/minute per session, and warming 5 sheets on
-     * every single page load/navigation adds up fast otherwise.
+     * entirely if it was already fetched within maxAgeMs (so clicking
+     * around quickly doesn't re-hit the backend on every single load) or
+     * if a page is already fetching it on its own (inFlight).
+     *
+     * Everything still stale after that filtering is warmed in a SINGLE
+     * batchRead request rather than one read per sheet — so warming a
+     * dozen sheets costs one Worker invocation, not a dozen, which is the
+     * dominant steady-state backend cost for a device left open all day.
      */
     warmCache(sheetNames, { maxAgeMs = 120000 } = {}) {
-      (sheetNames || []).forEach((name) => {
+      const stale = (sheetNames || []).filter((name) => {
         const key = cacheKey(name, {});
+        // A page is already fetching this on its own — its read will fill
+        // the cache, so don't also pull it into the warm batch.
+        if (inFlight.has(key)) return false;
         const cached = cache.get(key);
-        if (cached && Date.now() - cached.fetchedAt < maxAgeMs) return;
-        fetchSheet_(name, {}).catch(() => { /* best-effort — the page that actually needs this sheet will surface its own error */ });
+        return !(cached && Date.now() - cached.fetchedAt < maxAgeMs);
       });
+      if (!stale.length) return;
+      batchFetchSheets_(stale).catch(() => { /* best-effort — the page that actually needs a sheet issues its own read */ });
     },
 
     /**

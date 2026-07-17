@@ -149,6 +149,30 @@ const Shell = (() => {
     return window.APP_CONFIG.NAV_ITEMS.filter((item) => allowedSet.has(item.id.toLowerCase()));
   }
 
+  /**
+   * The set of sheets worth warming for THIS position: every sheet read by
+   * a page it's actually allowed to see (APP_CONFIG.PAGE_SHEETS), plus the
+   * always-on global sheets the header bell reads on every page
+   * (GLOBAL_SHEETS). This is what's handed to Api.warmCache instead of the
+   * full PREFETCH_SHEETS, so a position never spends background reads
+   * warming sheets behind pages it can't open. Falls back to the full
+   * PREFETCH_SHEETS if PAGE_SHEETS isn't configured, so nothing regresses.
+   */
+  function accessiblePrefetchSheets_() {
+    const cfg = window.APP_CONFIG || {};
+    const pageSheets = cfg.PAGE_SHEETS || {};
+    if (!Object.keys(pageSheets).length) return cfg.PREFETCH_SHEETS || [];
+
+    const allowed = getAllowedPageIds();
+    const set = new Set(cfg.GLOBAL_SHEETS || []);
+    Object.keys(pageSheets).forEach((pageId) => {
+      if (allowed.has(pageId.toLowerCase())) {
+        (pageSheets[pageId] || []).forEach((sheet) => set.add(sheet));
+      }
+    });
+    return Array.from(set);
+  }
+
   function isNavCollapsed_() {
     return localStorage.getItem(NAV_COLLAPSED_KEY) === "true";
   }
@@ -2073,19 +2097,18 @@ const Shell = (() => {
       setInterval(() => {
         if (document.visibilityState === "visible") loadGlobalAlerts_();
       }, 2 * 60 * 1000);
-      // Warm every sheet ANY page reads from, not just this one — so by
-      // the time someone clicks to another page, its data is already
-      // sitting in the persisted cache and renders instantly instead of
-      // making them wait on the network again. Kept deliberately
-      // infrequent (backend enforces a 30 requests/minute-per-session
-      // rate limit) — polling every 5 sheets too often was tipping
-      // normal navigation + this background warming over that limit,
-      // surfacing as intermittent "Too many requests" errors. Also gated
-      // on visibility, same reasoning as the alert poll above — a hidden
-      // tab isn't about to navigate anywhere, so there's nothing to warm.
-      Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
+      // Warm every sheet reachable from a page THIS position can open (not
+      // just the current page) — so by the time someone clicks to another
+      // page, its data is already sitting in the persisted cache and
+      // renders instantly instead of making them wait on the network
+      // again. Api.warmCache now pulls all of these in a SINGLE batchRead
+      // request rather than one read per sheet. Kept deliberately
+      // infrequent, and gated on visibility (same reasoning as the alert
+      // poll above — a hidden tab isn't about to navigate anywhere).
+      const prefetchSheets = accessiblePrefetchSheets_();
+      Api.warmCache(prefetchSheets);
       setInterval(() => {
-        if (document.visibilityState === "visible") Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
+        if (document.visibilityState === "visible") Api.warmCache(prefetchSheets);
       }, 3 * 60 * 1000);
       // Refresh alerts the moment the tab is refocused, so coming back to
       // a tab that was hidden for a while shows current data immediately

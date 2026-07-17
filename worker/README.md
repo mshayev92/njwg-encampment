@@ -1,15 +1,14 @@
 # NJWG Encampment — Cloudflare Worker backend
 
-Replaces `apps-script/Code.gs`. Talks to the **same Google Sheet** via the
-Sheets API v4 using a service account, instead of running inside Apps
-Script. Exposes the identical `action=read/write/delete/login/
-deviceLogin/listPositions` contract, so `js/api.js` needs no changes
-beyond pointing `APPS_SCRIPT_URL` at this Worker's URL once you're ready
-to cut over.
+The live backend for the app. Talks to the Google Sheet via the Sheets
+API v4 using a service account. Exposes the
+`action=read/batchRead/write/delete/login/deviceLogin/listPositions`
+contract that `js/api.js` calls; `js/config.js`'s `APPS_SCRIPT_URL` points
+at this Worker's URL.
 
-Keep `apps-script/Code.gs` deployed and live while you test this — they
-can both point at the same Sheet at the same time with no conflict,
-since each request is independent (no shared in-memory state).
+(This replaced an earlier Google Apps Script backend, which has since been
+retired and removed from the repo. Nothing else points at Apps Script
+anymore.)
 
 ## One-time setup
 

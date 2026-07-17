@@ -2,7 +2,7 @@
 
 A responsive, installable (PWA) tool for encampment **staff** — schedule, roster, and future features — backed by a private Google Sheet.
 
-> **Backend note (read first):** the live backend is the **Cloudflare Worker** in [`worker/`](./worker/) (deployed from `worker/src/`), which talks to the Google Sheet via the Sheets API using a service account. It is what `js/config.js`'s `APPS_SCRIPT_URL` points at. The older Google **Apps Script** backend in [`apps-script/Code.gs`](./apps-script/Code.gs) is a **legacy reference only — it is no longer deployed or used.** Some sections below still describe the Apps Script era; where they say "`Code.gs`" or "Apps Script" as the enforcement point, the real enforcement now lives in `worker/src/` (`worker/src/auth.js` for tokens/permissions/rate-limiting, `worker/src/index.js` for the request handlers). The security *model* (two signed tokens, per-position pages, plaintext CCT/Administrator passwords in the sheet) is unchanged; only the file that implements it moved.
+> **Backend note (read first):** the live backend is the **Cloudflare Worker** in [`worker/`](./worker/) (deployed from `worker/src/`), which talks to the Google Sheet via the Sheets API using a service account. It is what `js/config.js`'s `APPS_SCRIPT_URL` points at, and its setup lives in [`worker/README.md`](./worker/README.md). The project used to run on a Google **Apps Script** backend (`apps-script/Code.gs`); that has been **retired and removed** — the enforcement it used to describe now lives in `worker/src/` (`worker/src/auth.js` for tokens/permissions/rate-limiting, `worker/src/index.js` for the request handlers). A few sections below use the old "`Code.gs`" name in passing; read those as `worker/src/`. The security *model* (two signed tokens, per-position pages, plaintext CCT/Administrator passwords in the sheet) is unchanged; only the file that implements it moved.
 
 This app is **staff-only, and login is by position, not by person.** There are no individual accounts or CAP IDs used for login. Instead, at sign-in a user picks their **position** from a dropdown — a flight (e.g. `"Alpha Flight"`), a squadron (e.g. `"Squadron 1"`), the Cadet Command Team (`"CCT"`), or `"Administrator"` — and, for the two privileged positions (CCT, Administrator), enters a password. The `Roster` tab is a read-only display list of students for staff to view; it is never used for login.
 
@@ -42,9 +42,9 @@ Seeing a page no longer implies being able to edit it. A position with `Pages = 
 
 `UniformInspections`, `RoomInspections`, and `Notes` stay writable by any signed-in position — any position that can reach Inspections needs to be able to submit scorecards, and any position that can reach Notes needs to be able to jot one down; there's no `edit-inspections` or `edit-notes` id.
 
-Roster deletes go through a new `delete` action in `Code.gs` (`handleDelete`), gated by the same edit-id check as writing to that sheet.
+Roster deletes go through a `delete` action in `worker/src/index.js` (`handleDelete`), gated by the same edit-id check as writing to that sheet.
 
-The Schedule/Roster edit buttons in the app itself only render for positions whose session actually carries the matching edit id — but that's a UI convenience only; `assertPageWriteAccess_` in `Code.gs` is what actually enforces this on every write, regardless of what the browser shows.
+The Schedule/Roster edit buttons in the app itself only render for positions whose session actually carries the matching edit id — but that's a UI convenience only; `assertPageWriteAccess` in `worker/src/auth.js` is what actually enforces this on every write, regardless of what the browser shows.
 
 ### ⚠️ Important tradeoff: CCT/Administrator passwords are stored as PLAINTEXT in the sheet
 
@@ -82,15 +82,14 @@ njwg-encampment/
 ├── pages/                   # Feature pages (schedule, roster, inspections, observations,
 │                            #   recommendations, notes, announcements, admin, overview)
 ├── worker/                  # ★ THE LIVE BACKEND — Cloudflare Worker (deploy from here)
-│   ├── src/index.js        #   request router: read/write/delete/login/deviceLogin/listPositions/admin/push
+│   ├── src/index.js        #   request router: read/batchRead/write/delete/login/deviceLogin/listPositions/admin/push
 │   ├── src/auth.js         #   token issue+verify, rate limiting, sheet permission + page-write gates
-│   ├── src/sheets.js       #   Google Sheets API v4 wrapper
+│   ├── src/sheets.js       #   Google Sheets API v4 wrapper (incl. one-call batchGet)
 │   ├── src/googleAuth.js   #   service-account OAuth (JWT → access token)
-│   ├── src/readCache.js    #   KV-backed short-TTL read cache
+│   ├── src/readCache.js    #   KV-backed short-TTL read cache (single + batch)
 │   ├── src/webPush.js      #   VAPID + RFC 8291 Web Push
-│   └── wrangler.toml       #   Worker config (KV binding; secrets set via `wrangler secret put`)
-├── apps-script/
-│   └── Code.gs              # ⚠️ LEGACY reference only — the previous backend, no longer deployed
+│   ├── wrangler.toml       #   Worker config (KV binding; secrets set via `wrangler secret put`)
+│   └── README.md           #   ★ backend setup + deploy steps
 └── icons/                   # App icons/favicons — generated from the NJ Wing patch:
     ├── icon-192.png          #   used as the nav-rail crest image too, not just PWA install
     ├── icon-512.png
@@ -112,34 +111,21 @@ Create tabs named exactly:
 - **Roster** — columns: `CapId, Name, Rank, Flight, Age, Sex`. Purely a display list of students for staff to browse — **never used for login**. `Age`/`Sex` feed the Physical Training inspection's chart lookup (see below); both are optional per cadet.
 - **Schedule** — columns: `Day, Time, Activity, Location, Flight`
 
-### Step 2 — Add the Apps Script
-1. In the Sheet: **Extensions → Apps Script**.
-2. Delete the placeholder code, paste in the contents of [`apps-script/Code.gs`](./apps-script/Code.gs).
-3. Save (⌘S / Ctrl+S).
+### Step 2 — Deploy the Worker backend
+The backend is the Cloudflare Worker in [`worker/`](./worker/). Follow [`worker/README.md`](./worker/README.md) end to end — it covers creating the Google service account, sharing the Sheet with it, creating the KV namespace, and setting every secret via `wrangler secret put`:
 
-### Step 3 — Generate the signing secret (one time)
-1. Select **`setupSecret`** in the function dropdown, click **Run**, authorize when asked.
-2. Check the log — it should confirm the secret was generated and stored. **Never share it or commit it anywhere.**
-3. Don't run `setupSecret` again unless you intend to invalidate every active token.
+- `SESSION_SECRET` — random secret that signs the device/session tokens (the Worker's equivalent of the old signing secret).
+- `PASSPHRASE_HASH` — the SHA-256 hash of your device-gate passphrase. Give the real passphrase to staff verbally or on a printed check-in card — never commit it.
+- `GOOGLE_CLIENT_EMAIL` / `GOOGLE_PRIVATE_KEY` / `SPREADSHEET_ID` — the service account and target Sheet.
+- (optional) `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` — enable Web Push alerts.
 
-### Step 4 — Set the device passphrase (one time per encampment cycle)
-1. Find `setPassphrase()`, temporarily set `PASSPHRASE` to your real passphrase (6+ random words is plenty).
-2. Select `setPassphrase` in the function dropdown, click **Run**.
-3. Check the log, then **delete the plaintext from the function and save** — only the hash persists in Script Properties.
-4. Give the real passphrase to staff verbally or on a printed check-in card — never put it in GitHub.
+### Step 3 — Set the CCT and Administrator passwords
+Directly in the Sheet, in the `StaffAccess` tab, type the real password into the `Password` cell for the `CCT` row and, separately, for the `Administrator` row — these are read straight from the sheet at login time (see the plaintext-password tradeoff above). Leave every other row's `Password` cell blank. You can also do this in-app later from the Admin page.
 
-### Step 5 — Set the CCT and Administrator passwords
-Directly in the Sheet, in the `StaffAccess` tab, type the real password into the `Password` cell for the `CCT` row and, separately, for the `Administrator` row. No script step needed — these are read straight from the sheet at login time. Leave every other row's `Password` cell blank.
+### Step 4 — Point the app at the Worker
+Open `js/config.js` and paste your deployed Worker URL into `APPS_SCRIPT_URL`. It **must be the HTTPS `*.workers.dev` (or custom-domain) URL** — a plain-HTTP or `localhost` value is blocked as mixed content on the HTTPS Pages site.
 
-### Step 6 — Deploy as a Web App
-1. **Deploy → New deployment → Web app**.
-2. **Execute as:** Me, **Who has access:** Anyone.
-3. **Deploy**, authorize, then copy the `/exec` URL.
-
-### Step 7 — Point the app at it
-Open `js/config.js` and paste the URL into `APPS_SCRIPT_URL`.
-
-**Important:** any time you edit `Code.gs` inside the Sheet, go to **Deploy → Manage deployments → Edit (pencil) → New version** for changes to go live.
+**Important:** any time you change code in `worker/src/`, redeploy with `npx wrangler deploy` (from `worker/`) for it to go live.
 
 ## Part 2 — Publish on GitHub Pages
 
@@ -154,8 +140,8 @@ Already registered at the bottom of every page via `window.APP_BASE_PATH`. Nothi
 ## Adding a new feature page
 
 1. Copy `pages/schedule.html` → `pages/your-page.html`, update its `Shell.init({ activePage: "your-page" })` call.
-2. Add the tab to `ALLOWED_SHEETS` in `Code.gs` if it needs its own data source (then redeploy).
-3. Add an entry to `NAV_ITEMS` in `js/config.js`.
+2. Add the tab to `ALLOWED_SHEETS` (and a `SHEET_PERMISSIONS` entry) in `worker/src/auth.js` if it needs its own data source, then redeploy the Worker.
+3. Add an entry to `NAV_ITEMS` in `js/config.js` (and, if the page reads a sheet, to `PAGE_SHEETS` so it's prefetched).
 4. Add the new page's path to `APP_SHELL` in `service-worker.js`.
 5. Add the page's id to the relevant positions' `Pages` cell in `StaffAccess`.
 
