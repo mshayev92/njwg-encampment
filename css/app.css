@@ -164,6 +164,37 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 
+/* Skip-to-content link: the first focusable element on every page, hidden
+   off-screen until focused, so a keyboard/screen-reader user can jump past
+   the 7-9 nav-rail links straight to the page's main content. Injected by
+   Shell.init and targets #main-content (the <main> element). */
+.skip-link {
+  position: fixed;
+  top: var(--space-3);
+  left: var(--space-3);
+  z-index: var(--z-tooltip);
+  padding: var(--space-2) var(--space-4);
+  background: var(--indigo-900);
+  color: var(--surface);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: var(--tracking-wide);
+  text-decoration: none;
+  transform: translateY(-200%);
+  transition: transform var(--duration-fast) var(--ease-standard);
+}
+/* :focus (not :focus-visible) — a skip link is only ever reached by Tab,
+   and it must reveal whenever it holds focus, full stop. */
+.skip-link:focus {
+  transform: translateY(0);
+}
+/* The <main> target only takes focus programmatically (via the skip link);
+   never show a focus ring on it as a resting state. */
+.app-main:focus { outline: none; }
+
 /* Visible keyboard focus everywhere */
 :focus-visible {
   outline: 2px solid var(--gold-600);
@@ -661,6 +692,17 @@ html.nav-rail-collapsed .nav-rail__crest {
   letter-spacing: var(--tracking-wide);
   color: var(--ink-600);
   margin-bottom: var(--space-4);
+}
+
+/* ---- Card title ----
+   The <h2> that heads a card's content. Several pages hand-rolled this
+   exact look inline (font-size: var(--fs-lg); color: var(--indigo-900)),
+   a few via the legacy --navy-900 alias — one class keeps every card
+   heading identical. Inherits font-family/weight/margin from the base h2
+   rule above, so this only pins the size and color those inline styles set. */
+.card-title {
+  font-size: var(--fs-lg);
+  color: var(--indigo-900);
 }
 
 /* ---- Card ----
@@ -1804,7 +1846,7 @@ button.date-field__day:hover {
 
 .search-overlay__result-snippet {
   font-size: var(--fs-xs);
-  color: var(--ink-700, var(--ink-600));
+  color: var(--ink-600);
   margin-top: var(--space-1);
   overflow: hidden;
   text-overflow: ellipsis;

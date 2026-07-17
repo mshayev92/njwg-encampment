@@ -7,13 +7,18 @@
    ============================================================ */
 
 window.RichText = (function () {
+  // Uses data-tooltip (the app's themed hover/focus bubble, wired by
+  // Shell.wireTooltips after the toolbar is inserted) rather than the
+  // native title="" tooltip the rest of the app deliberately replaced —
+  // plus aria-label so each button has a clear accessible name beyond its
+  // one-letter/short glyph.
   const TOOLBAR_HTML = `
     <div class="richtext-toolbar">
-      <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
-      <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
-      <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
-      <button type="button" data-cmd="insertUnorderedList" title="Bulleted list">&#8226; List</button>
-      <button type="button" data-cmd="insertOrderedList" title="Numbered list">1. List</button>
+      <button type="button" data-cmd="bold" data-tooltip="Bold" aria-label="Bold"><b>B</b></button>
+      <button type="button" data-cmd="italic" data-tooltip="Italic" aria-label="Italic"><i>I</i></button>
+      <button type="button" data-cmd="underline" data-tooltip="Underline" aria-label="Underline"><u>U</u></button>
+      <button type="button" data-cmd="insertUnorderedList" data-tooltip="Bulleted list" aria-label="Bulleted list">&#8226; List</button>
+      <button type="button" data-cmd="insertOrderedList" data-tooltip="Numbered list" aria-label="Numbered list">1. List</button>
     </div>`;
 
   /** Wires up toolbar buttons found in toolbarEl to run execCommand on editorEl. */

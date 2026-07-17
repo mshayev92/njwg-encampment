@@ -374,7 +374,7 @@
       const currentToPosition = existing ? String(existing.ToPosition || "") : "";
       return `
         <div class="card note-form">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${editing ? "Edit Note" : "Add a Note"}</h2>
+          <h2 class="card-title">${editing ? "Edit Note" : "Add a Note"}</h2>
           <div class="subject-autocomplete" id="subject-autocomplete">
             <input type="text" id="subject-input" autocomplete="off" placeholder="Subject — a cadet's name from the roster, or any subject…">
           </div>
