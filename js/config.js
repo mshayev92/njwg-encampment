@@ -46,18 +46,21 @@ window.APP_CONFIG = {
   // APPS_SCRIPT_URL rather than renamed, since every page/script
   // references window.APP_CONFIG.APPS_SCRIPT_URL.
   //
-  // ROLLBACK: apps-script/Code.gs is still deployed and untouched — to
-  // revert, just paste its /exec URL back here (see git history for the
-  // previous value) and redeploy the site. No other changes needed.
-  //
   // SECURITY NOTE: this URL is NOT a secret. Because the site is hosted
   // publicly, anyone can view source and read this value, and call it
   // directly. That's expected and accounted for — the backend requires
   // a signed session token (issued at login) on every read/write.
   // Permissions live in the StaffAccess tab's Pages column (per-position
   // view/edit grants), not on the Roster — see SHEET_PERMISSIONS and
-  // PAGE_WRITE_GATES in worker/src/auth.js (ported from Code.gs).
-  APPS_SCRIPT_URL: "http://127.0.0.1:8787",
+  // PAGE_WRITE_GATES in worker/src/auth.js.
+  //
+  // MUST be the deployed Worker's HTTPS URL in production. A plain-HTTP or
+  // localhost value (e.g. the `wrangler dev` default http://127.0.0.1:8787)
+  // is blocked as mixed content on the HTTPS GitHub Pages site and is
+  // unreachable for real users — only use it for local development, and
+  // never commit it. For local dev, point this at your `wrangler dev` URL
+  // temporarily but revert before pushing.
+  APPS_SCRIPT_URL: "https://njwg-encampment-api.njwg-encampment-1.workers.dev",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.

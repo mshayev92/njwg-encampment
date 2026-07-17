@@ -5,8 +5,13 @@
    deployed change shows up on the very next load instead of only after
    a second visit — the trap a cache-first shell falls into. The cached
    copy is the offline fallback, refreshed on every successful fetch.
-   Does NOT cache Apps Script API responses — schedule/roster data
-   always comes straight from the network.
+   Only SAME-ORIGIN GET requests (the app shell) are ever cached — the
+   backend API (the Cloudflare Worker on a different origin), the weather
+   service, and web fonts are cross-origin and pass straight through to
+   the network, never cached. Caching API responses would both bloat the
+   cache (each request URL carries the device + session tokens as query
+   params, so every distinct token makes a new entry) and risk serving
+   stale JSON the app's own read cache (js/api.js) doesn't expect.
 
    A cache-first/stale-while-revalidate version of this file was tried
    (to make page-to-page navigation feel instant) and reverted — across
@@ -20,11 +25,13 @@
    navigation strategy).
    ============================================================ */
 
-// Bumped to v12 to revert every device from the v7-v11 cache-first
-// experiment back to network-first — changing this name forces every
-// device to drop its old cached shell on activate instead of
-// continuing to run any of the previous strategies.
-const CACHE_NAME = "njwg-encampment-v12";
+// Bumped to v13: the fetch handler now only caches same-origin GET
+// requests, so the new activate clears any older cache that may have
+// stored cross-origin API responses (with auth tokens in their URLs)
+// from the v12 handler, which cached every ok response regardless of
+// origin. Changing this name forces every device to drop its old cached
+// shell on activate.
+const CACHE_NAME = "njwg-encampment-v13";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -49,6 +56,8 @@ const APP_SHELL = [
   "./pages/overview.html",
   "./pages/announcements.html",
   "./pages/notes.html",
+  "./pages/observations.html",
+  "./pages/recommendations.html",
   "./pages/admin.html",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
@@ -130,12 +139,17 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("fetch", (event) => {
-  const url = new URL(event.request.url);
+  const request = event.request;
+  const url = new URL(request.url);
 
-  // Never cache calls to the Apps Script backend — always go to network.
-  if (url.hostname.includes("script.google.com")) {
-    event.respondWith(fetch(event.request));
-    return;
+  // Only the same-origin app shell is cached. Everything else — the
+  // backend API (the Cloudflare Worker, a different origin), the weather
+  // service, web fonts, and any non-GET request — goes straight to the
+  // network with default browser handling and is never cached. This is
+  // what keeps auth-token-bearing API URLs, and stale API JSON, out of
+  // the Cache Storage the app shell lives in.
+  if (request.method !== "GET" || url.origin !== self.location.origin) {
+    return; // don't call respondWith — let the browser fetch it normally
   }
 
   // App shell: network-first, falling back to the cached copy offline.
@@ -144,14 +158,14 @@ self.addEventListener("fetch", (event) => {
   // are always fetched together fresh — while the cache, refreshed on
   // every successful response, still serves the whole app offline.
   event.respondWith(
-    fetch(event.request)
+    fetch(request)
       .then((response) => {
         if (response.ok) {
           const clone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
         }
         return response;
       })
-      .catch(() => caches.match(event.request))
+      .catch(() => caches.match(request))
   );
 });

@@ -292,6 +292,25 @@
     // Must have already unlocked this device with the passphrase.
     Auth.requireDeviceGate();
 
+    /**
+     * Validates a ?returnTo= value before using it as a redirect target.
+     * The app only ever sets returnTo to its own same-origin path, but the
+     * URL is attacker-controllable, so an absolute or protocol-relative
+     * value ("https://evil.com", "//evil.com") must never be followed —
+     * that's an open-redirect / phishing vector. Returns a safe same-origin
+     * path, or null to fall back to the default landing page.
+     */
+    function safeReturnTo(raw) {
+      if (!raw) return null;
+      try {
+        const u = new URL(raw, window.location.origin);
+        if (u.origin !== window.location.origin) return null;
+        return u.pathname + u.search + u.hash;
+      } catch (e) {
+        return null;
+      }
+    }
+
     // Where to send a signed-in user by default: the FIRST page their
     // position is actually allowed to see, not a hardcoded page they
     // might not have access to (which would load, toast "no access", and
@@ -306,7 +325,7 @@
     // If already logged in, skip straight past this page.
     if (Auth.getSession()) {
       const params = new URLSearchParams(window.location.search);
-      window.location.href = params.get("returnTo") || defaultLandingHref();
+      window.location.href = safeReturnTo(params.get("returnTo")) || defaultLandingHref();
     }
 
     /** Shared success/redirect + failure handling for both login paths (direct click and password step). */
@@ -315,7 +334,7 @@
       try {
         await Auth.login(position, password || "");
         const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get("returnTo") || defaultLandingHref();
+        window.location.href = safeReturnTo(params.get("returnTo")) || defaultLandingHref();
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.classList.add("is-visible");

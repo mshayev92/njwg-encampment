@@ -175,10 +175,29 @@
     const submitBtn = document.getElementById("gate-submit");
     const passphraseInput = document.getElementById("passphrase-input");
 
+    /**
+     * Validates a ?returnTo= value before using it as a redirect target.
+     * The app only ever sets returnTo to its own same-origin path, but the
+     * URL is attacker-controllable (anyone can craft a link), so an absolute
+     * or protocol-relative value like "https://evil.com" or "//evil.com"
+     * must never be followed — that's an open-redirect / phishing vector.
+     * Returns a safe same-origin path, or null to fall back to the default.
+     */
+    function safeReturnTo(raw) {
+      if (!raw) return null;
+      try {
+        const u = new URL(raw, window.location.origin);
+        if (u.origin !== window.location.origin) return null;
+        return u.pathname + u.search + u.hash;
+      } catch (e) {
+        return null;
+      }
+    }
+
     // Already unlocked on this device? Skip straight past.
     if (Auth.getDeviceAuth()) {
       const params = new URLSearchParams(window.location.search);
-      window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}index.html`;
+      window.location.href = safeReturnTo(params.get("returnTo")) || `${window.APP_BASE_PATH}index.html`;
     }
 
     form.addEventListener("submit", async (e) => {
@@ -192,7 +211,7 @@
       try {
         await Auth.unlockDevice(passphraseInput.value, deviceType);
         const params = new URLSearchParams(window.location.search);
-        window.location.href = params.get("returnTo") || `${window.APP_BASE_PATH}index.html`;
+        window.location.href = safeReturnTo(params.get("returnTo")) || `${window.APP_BASE_PATH}index.html`;
       } catch (err) {
         errorBox.textContent = err.message;
         errorBox.classList.add("is-visible");
