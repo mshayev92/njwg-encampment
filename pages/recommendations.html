@@ -170,10 +170,24 @@
       return Object.keys(groupByFlight(rosterRows)).sort();
     }
 
+    /**
+     * StaffAccess's Flights column and Roster's Flight column are two
+     * independently-typed sources (e.g. "alpha" vs "Alpha") — matching
+     * `sessionFlightList` against Roster's own casing here (case-
+     * insensitively, same pattern as roster.html's actualOwnFlights) is
+     * what makes both the student picker below and the flight options
+     * shown in the form actually line up with real Roster rows, instead
+     * of silently finding zero students / showing the raw sheet casing.
+     */
+    function canonicalFlightNames(names) {
+      const actual = Object.keys(groupByFlight(rosterRows));
+      return names.map(f => actual.find(a => a.toLowerCase() === String(f).toLowerCase()) || f);
+    }
+
     // ---- Honor Cadet Recommendation (Part I — Flight Commanders) ----------
 
     function honorCadetFlightOptions() {
-      return isUnscoped ? allFlightNames() : sessionFlightList;
+      return isUnscoped ? allFlightNames() : canonicalFlightNames(sessionFlightList);
     }
 
     function studentsForFlight(flight) {
@@ -337,7 +351,7 @@
     // ---- Honor Flight Recommendation (Part II — Squadron Commanders) ------
 
     function honorFlightFlightOptions() {
-      return isUnscoped ? allFlightNames() : sessionFlightList;
+      return isUnscoped ? allFlightNames() : canonicalFlightNames(sessionFlightList);
     }
 
     function renderHonorFlightSection() {

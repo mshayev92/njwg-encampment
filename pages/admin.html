@@ -123,7 +123,11 @@
       gap: var(--space-2);
     }
 
-    .page-check {
+    /* .flight-check reuses this exact look for the Flights multi-select
+       below — kept as a SEPARATE class (not just another .page-check)
+       so the Pages-reading selector in savePosition() (".page-check
+       input:checked") can't accidentally sweep up flight checkboxes too. */
+    .page-check, .flight-check {
       display: flex;
       align-items: center;
       gap: var(--space-2);
@@ -263,6 +267,30 @@
     let logTotal = 0;
     let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
     let failuresOnly = false;
+    // Real flight names, sourced from the Roster tab (read is "any"
+    // signed-in position per SHEET_PERMISSIONS, so this works regardless
+    // of whether "roster" is in the Admin position's own Pages) — drives
+    // the Flights multi-select below instead of requiring someone to
+    // physically type comma-separated flight names that have to exactly
+    // match Roster's own casing.
+    let rosterFlightNames = [];
+
+    function distinctFlightNames(rows) {
+      const set = new Set();
+      (rows || []).forEach(r => { if (r.Flight && String(r.Flight).trim()) set.add(String(r.Flight).trim()); });
+      return Array.from(set).sort();
+    }
+
+    (() => {
+      const { data: cached, ready } = Api.getSheetCached("Roster", (fresh) => {
+        rosterFlightNames = distinctFlightNames(fresh.rows || []);
+        if (activeTab === "staff" && editing !== null) renderStaffTab();
+      });
+      if (cached) rosterFlightNames = distinctFlightNames(cached.rows || []);
+      ready.then((data) => {
+        if (!cached) rosterFlightNames = distinctFlightNames(data.rows || []);
+      }).catch(() => { /* best-effort — flights just falls back to free-typed custom entries below */ });
+    })();
 
     // ---- Staff Access ----------------------------------------------------
 
@@ -328,9 +356,42 @@
             `).join("")}
           </div>
 
-          <label class="field-label" for="pos-flights">Flights</label>
-          <input type="text" id="pos-flights" value="${esc(currentFlights.join(", "))}" placeholder="Alpha, Bravo — or blank / All for every flight">
-          <div class="hint">Comma-separated. Blank (or “All”) grants access to every flight’s cadets.</div>
+          <label class="field-label">Flights</label>
+          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Leave every flight unchecked (or check "All flights") to grant access to every flight's cadets.</div>
+          ${(() => {
+            const currentLower = currentFlights.map(f => f.toLowerCase());
+            // Blank Flights already means "all" per the backend (see
+            // flightsSummary() above) — reflect that as the checkbox
+            // being CHECKED by default, not an empty, unchecked-looking
+            // grid that reads as "no flights" instead of "every flight."
+            const isAll = !currentFlights.length || currentFlights.every(f => f.toLowerCase() === "all");
+            // Any flight already on this row that Roster doesn't currently
+            // have a cadet in (stale data, or typed in before this cadet
+            // existed) still gets its own checkbox — editing a position
+            // should never silently drop a flight it already had.
+            const extraFlights = currentFlights.filter(f => f.toLowerCase() !== "all" && !rosterFlightNames.some(r => r.toLowerCase() === f.toLowerCase()));
+            const allFlightOptions = [...rosterFlightNames, ...extraFlights];
+            return `
+              <div class="page-checks" style="margin-bottom: var(--space-2);">
+                <div class="flight-check">
+                  <label class="page-check__main">
+                    <input type="checkbox" id="pos-flights-all" ${isAll ? "checked" : ""}>
+                    <span class="page-check__label">All flights</span>
+                  </label>
+                </div>
+              </div>
+              <div class="page-checks" id="pos-flights-grid" style="${isAll ? "display:none;" : ""}">
+                ${allFlightOptions.length ? allFlightOptions.map(f => `
+                  <div class="flight-check">
+                    <label class="page-check__main">
+                      <input type="checkbox" class="pos-flight-check" value="${esc(f)}" ${currentLower.includes(f.toLowerCase()) ? "checked" : ""}>
+                      <span class="page-check__label">${esc(f)}</span>
+                    </label>
+                  </div>
+                `).join("") : `<div class="hint" style="margin:0;">No flights found in the Roster yet — add cadets there first, or check "All flights" above.</div>`}
+              </div>
+            `;
+          })()}
 
           <label class="field-label" for="pos-password">Password</label>
           <input type="password" id="pos-password" autocomplete="new-password" placeholder="${current && current.hasPassword ? "Leave blank to keep the current password" : "Leave blank for no password"}">
@@ -430,6 +491,14 @@
         });
       });
 
+      const allFlightsCheckbox = document.getElementById("pos-flights-all");
+      const flightsGrid = document.getElementById("pos-flights-grid");
+      if (allFlightsCheckbox && flightsGrid) {
+        allFlightsCheckbox.addEventListener("change", () => {
+          flightsGrid.style.display = allFlightsCheckbox.checked ? "none" : "";
+        });
+      }
+
       Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);
     }
@@ -440,7 +509,10 @@
       if (!position) { Shell.showToast("Enter a position name.", { type: "error" }); return; }
 
       const pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
-      const flights = document.getElementById("pos-flights").value.split(",").map(s => s.trim()).filter(Boolean);
+      const flightsAllChecked = document.getElementById("pos-flights-all").checked;
+      const flights = flightsAllChecked
+        ? []
+        : Array.from(contentEl.querySelectorAll(".pos-flight-check:checked")).map(i => i.value);
       const passwordVal = document.getElementById("pos-password").value;
       const clearPw = document.getElementById("clear-pw");
 

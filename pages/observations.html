@@ -393,6 +393,17 @@
         }, {});
     }
 
+    /** Own flight(s) first (a squadron position's two, in StaffAccess order), alphabetical after — see the matching helper in pages/inspections.html. */
+    function orderFlightNames(names) {
+      if (!allowedFlights.length) return names.slice().sort();
+      const rank = new Map(allowedFlights.map((f, i) => [String(f).toLowerCase(), i]));
+      return names.slice().sort((a, b) => {
+        const ra = rank.has(a.toLowerCase()) ? rank.get(a.toLowerCase()) : Infinity;
+        const rb = rank.has(b.toLowerCase()) ? rank.get(b.toLowerCase()) : Infinity;
+        return ra !== rb ? ra - rb : a.localeCompare(b);
+      });
+    }
+
     let rosterRows = [];
     let observationRows = [];
     let selectedFlight = null;
@@ -417,7 +428,7 @@
     function renderFlightGrid() {
       currentView = "flights";
       const grouped = groupByFlight(rosterRows);
-      const flightNames = Object.keys(grouped).sort();
+      const flightNames = orderFlightNames(Object.keys(grouped));
 
       if (!flightNames.length) {
         contentEl.innerHTML = `
