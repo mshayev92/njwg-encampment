@@ -25,13 +25,12 @@
    navigation strategy).
    ============================================================ */
 
-// Bumped to v13: the fetch handler now only caches same-origin GET
-// requests, so the new activate clears any older cache that may have
-// stored cross-origin API responses (with auth tokens in their URLs)
-// from the v12 handler, which cached every ok response regardless of
-// origin. Changing this name forces every device to drop its old cached
-// shell on activate.
-const CACHE_NAME = "njwg-encampment-v13";
+// Bumped to v14: added offline.html (the fallback shown for a navigation
+// that isn't in the cache while offline — see the fetch handler below) to
+// the precached shell. Changing this name forces every device to drop its
+// old cached shell on activate and re-fetch the new list, so the fallback
+// page is actually available offline from the very next successful visit.
+const CACHE_NAME = "njwg-encampment-v14";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -43,6 +42,7 @@ const APP_SHELL = [
   "./",
   "./index.html",
   "./gate.html",
+  "./offline.html",
   "./manifest.json",
   "./css/tokens.css",
   "./css/app.css",
@@ -157,6 +157,8 @@ self.addEventListener("fetch", (event) => {
   // is picked up immediately when online — HTML and its matching JS/CSS
   // are always fetched together fresh — while the cache, refreshed on
   // every successful response, still serves the whole app offline.
+  const isNavigation = request.mode === "navigate";
+
   event.respondWith(
     fetch(request)
       .then((response) => {
@@ -166,6 +168,22 @@ self.addEventListener("fetch", (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request))
+      .catch(async () => {
+        // ignoreSearch: true only for page navigations — a page URL isn't
+        // expected to carry a cache-relevant query string in this app, so a
+        // stray one (e.g. a future ?returnTo=... variant) shouldn't cause an
+        // otherwise-precached page to miss its cached copy while offline.
+        // JS/CSS/icon requests keep the default exact match.
+        const cached = await caches.match(request, isNavigation ? { ignoreSearch: true } : undefined);
+        if (cached) return cached;
+        // No cached copy of this exact navigation (a typo'd URL, or a page
+        // added to the app after this device's cache was last populated) —
+        // show the themed offline fallback instead of the browser's native
+        // "no internet" error page. Only for navigations; a missing CSS/JS/
+        // icon request just fails normally (the page already handles a
+        // missing asset far better than replacing it with a whole HTML page).
+        if (isNavigation) return caches.match("./offline.html");
+        return Response.error();
+      })
   );
 });

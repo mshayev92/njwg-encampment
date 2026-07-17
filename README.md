@@ -69,8 +69,9 @@ What this means in practice:
 njwg-encampment/
 ├── index.html              # Position picker + password (for CCT/Administrator) — Layer 2
 ├── gate.html                # Device passphrase gate — Layer 1, reached first
-├── manifest.json           # PWA manifest
-├── service-worker.js       # PWA offline caching
+├── manifest.json           # PWA manifest (id, scope, icons, install shortcuts)
+├── service-worker.js       # PWA offline caching + install/update lifecycle
+├── offline.html            # Fallback shown for an uncached page while offline
 ├── css/
 │   ├── tokens.css          # Universal design tokens (colors, type, spacing)
 │   └── app.css             # Universal layout, nav, components — used everywhere
@@ -136,6 +137,18 @@ Open `js/config.js` and paste your deployed Worker URL into `APPS_SCRIPT_URL`. I
 ## Part 3 — Service worker (already wired in)
 
 Already registered at the bottom of every page via `window.APP_BASE_PATH`. Nothing to add.
+
+## Installing on staff devices (PWA)
+
+This is a real installable PWA, not just a bookmark — installed, it opens full-screen with no browser bar, launches offline straight to whatever was last cached, and (with Web Push configured — see `worker/README.md`) can alert a device even while closed. Since staff mostly use tablets, getting the app onto the home screen is worth doing on day one of an encampment, not left as an afterthought.
+
+**Android / desktop Chrome or Edge:** once signed in, a small install icon (a device outline with a "+") appears in the header next to the notification bell — tap it and confirm. If it isn't visible yet, the browser hasn't offered to install (it uses its own engagement heuristics); the address bar's own install icon, or the browser's "⋮" menu → **Install app**, works identically.
+
+**iPad / iPhone (Safari):** there's no automatic install prompt on iOS — Apple doesn't allow it. Tap the same header button; it shows on-screen instructions instead (**Share → Add to Home Screen → Add**). This is also the only way to get the dark, full-screen status bar treatment and offline support on iOS — opening the site in a regular Safari tab every time works, but doesn't get any of that.
+
+Once installed, long-pressing the home screen icon (Android) or right-clicking the taskbar/dock icon (desktop) jumps straight to Schedule, Roster, Inspections, or Announcements via the manifest's `shortcuts` — useful for the pages staff open the most.
+
+**Updates:** a new deploy is picked up automatically the next time an installed device is online — the service worker always fetches fresh HTML/JS/CSS over the network when available (`network-first`, see `service-worker.js`), rather than serving a stale cached shell indefinitely. If a staffer already has the app open when that happens, they'll see a themed "Update available" prompt asking to refresh, rather than silently switching versions underneath unsaved work.
 
 ## Adding a new feature page
 

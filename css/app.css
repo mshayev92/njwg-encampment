@@ -1025,7 +1025,8 @@ html.nav-rail-collapsed .nav-rail__crest {
   margin-bottom: var(--space-2);
 }
 
-.modal-card p {
+.modal-card p,
+.modal-card__body {
   font-size: var(--fs-sm);
   color: var(--ink-600);
   margin: 0 0 var(--space-5);

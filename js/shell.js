@@ -58,7 +58,10 @@ const Shell = (() => {
     clock:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
     grid:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     star:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.5l2.9 6.06 6.6.85-4.85 4.6 1.28 6.6L12 17.5l-5.93 3.11 1.28-6.6-4.85-4.6 6.6-.85z"/></svg>',
-    award:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M8.5 13.5L7 22l5-3 5 3-1.5-8.5"/></svg>'
+    award:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M8.5 13.5L7 22l5-3 5 3-1.5-8.5"/></svg>',
+    // A device outline with a "+" — distinct from `download` (the CSV
+    // export tray-arrow), reads as "add this app to your device."
+    install:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 8v6M9 11h6"/><path d="M11 18h2"/></svg>'
   };
 
   // All of these used to be single GLOBAL localStorage keys, shared by
@@ -300,6 +303,9 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="export-btn" data-tooltip="Export this page to CSV" aria-label="Export CSV" style="display:none; padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.download}</span>
           </button>
+          <button class="btn btn--ghost" id="pwa-install-btn" data-tooltip="Install this app on your device" aria-label="Install app" style="display:none; padding: var(--space-2);">
+            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.install}</span>
+          </button>
           <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
           </button>
@@ -346,6 +352,16 @@ const Shell = (() => {
 
     const pushBtn = document.getElementById("push-enable-btn");
     if (pushBtn) pushBtn.addEventListener("click", () => enablePush_());
+
+    const installBtn = document.getElementById("pwa-install-btn");
+    if (installBtn) {
+      installBtn.addEventListener("click", () => promptInstall_());
+      // A page may have finished capturing the install prompt (or
+      // detected iOS) before the header was (re)rendered — reflect that
+      // here so the button shows immediately instead of waiting for the
+      // next beforeinstallprompt/appinstalled event to fire again.
+      if (canOfferInstall_()) installBtn.style.display = "inline-flex";
+    }
 
     wireSyncIndicator_();
     wireTooltips_(header);
@@ -904,6 +920,151 @@ const Shell = (() => {
     } catch (e) {
       showToast("Couldn't enable alerts. Try again.", { type: "error" });
     }
+  }
+
+  // ---- Install prompt (Add to Home Screen) -------------------------------
+  //
+  // Staff mostly use this on tablets, so getting it onto the home screen
+  // (full-screen standalone launch, no browser chrome, works offline) is a
+  // real usability win, not just a checkbox. Two entirely different paths:
+  //   - Chrome/Edge/Android: the browser fires `beforeinstallprompt`, which
+  //     we capture and replay later from our own themed button — the native
+  //     event only offers a generic browser-styled mini-infobar otherwise.
+  //   - iOS/iPadOS Safari (and any iOS browser, since all iOS browsers are
+  //     WebKit under Apple's rules): there is NO programmatic install API at
+  //     all — `beforeinstallprompt` never fires. The only way to install is
+  //     the person manually using Share -> Add to Home Screen, so the best
+  //     we can do is surface clear on-screen instructions for that.
+  // Either way, the button hides itself once the app is already running
+  // standalone (installed) — no point offering to install what's already
+  // installed and currently open.
+
+  function isStandalone_() {
+    return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+      window.navigator.standalone === true; // iOS Safari's own (non-standard) flag
+  }
+
+  function isIos_() {
+    // No feature-detectable API for "is this iOS" — UA sniffing is the only
+    // option here, same as every other PWA install-prompt implementation.
+    // navigator.standalone existing at all (regardless of its value) is
+    // itself an iOS-Safari-only signal, used as a secondary check on iPadOS
+    // 13+, which changed iPad's UA string to claim "Macintosh".
+    return /iphone|ipad|ipod/i.test(navigator.userAgent || "") ||
+      (typeof navigator.standalone !== "undefined");
+  }
+
+  let deferredInstallPrompt_ = null;
+
+  /** Whether the install button should be showing right now, independent of whether renderHeader() has run yet. */
+  function canOfferInstall_() {
+    if (isStandalone_()) return false;
+    return !!deferredInstallPrompt_ || isIos_();
+  }
+
+  function initInstallPrompt_() {
+    if (isStandalone_()) return; // already installed and running as the app — nothing to offer
+
+    window.addEventListener("beforeinstallprompt", (e) => {
+      e.preventDefault(); // suppress the browser's own generic mini-infobar
+      deferredInstallPrompt_ = e;
+      const btn = document.getElementById("pwa-install-btn");
+      if (btn) btn.style.display = "inline-flex";
+    });
+
+    window.addEventListener("appinstalled", () => {
+      // Covers installing via the browser's OWN native UI too (e.g. the
+      // address-bar icon), not just our button — either way, stop offering.
+      deferredInstallPrompt_ = null;
+      const btn = document.getElementById("pwa-install-btn");
+      if (btn) btn.style.display = "none";
+      showToast("App installed.", { type: "success" });
+    });
+
+    // iOS never fires beforeinstallprompt, so show the button immediately
+    // (this runs before renderHeader() below in init(), and renderHeader's
+    // own installBtn wiring already re-checks canOfferInstall_() for the
+    // case where the header was rendered first).
+    if (isIos_()) {
+      const btn = document.getElementById("pwa-install-btn");
+      if (btn) btn.style.display = "inline-flex";
+    }
+  }
+
+  async function promptInstall_() {
+    if (isIos_() && !deferredInstallPrompt_) {
+      showIosInstallInstructions_();
+      return;
+    }
+    if (!deferredInstallPrompt_) {
+      showToast("Installing isn't available on this browser right now.", { type: "error" });
+      return;
+    }
+    // A captured beforeinstallprompt event can only be prompted ONCE —
+    // consume it regardless of outcome so a second click doesn't silently
+    // no-op; if the browser offers another one later, the listener above
+    // replaces deferredInstallPrompt_ and re-shows the button.
+    const event = deferredInstallPrompt_;
+    deferredInstallPrompt_ = null;
+    event.prompt();
+    const { outcome } = await event.userChoice;
+    const btn = document.getElementById("pwa-install-btn");
+    if (outcome === "accepted") {
+      if (btn) btn.style.display = "none";
+      // appinstalled also fires and shows its own toast; no need to duplicate here.
+    } else if (btn) {
+      // Declined — offering again immediately would be pushy. It reappears
+      // if the browser fires a fresh beforeinstallprompt in a later session.
+      btn.style.display = "none";
+    }
+  }
+
+  function showIosInstallInstructions_() {
+    showInfoModal_({
+      title: "Install on this device",
+      // The exact icon/wording differs slightly between actual Safari
+      // (Share sheet) and Chrome-for-iOS (its own "..." menu), but both
+      // paths land on an "Add to Home Screen" action — this covers the
+      // common (Safari) case, which is what most staff will be using.
+      bodyHtml: `
+        <ol style="margin:0; padding-left: 1.25em; text-align:left; display:flex; flex-direction:column; gap: var(--space-2);">
+          <li>Tap the <strong>Share</strong> button (the square with an arrow, in Safari's toolbar).</li>
+          <li>Scroll down and tap <strong>Add to Home Screen</strong>.</li>
+          <li>Tap <strong>Add</strong> — the app icon appears on your home screen, opening full-screen with no browser bar.</li>
+        </ol>
+      `
+    });
+  }
+
+  // ---- Service worker update prompt ---------------------------------------
+  //
+  // service-worker.js calls self.skipWaiting() on install and clients.claim()
+  // on activate, so a new deploy takes over almost immediately rather than
+  // waiting for every tab to fully close first — but that means the CURRENT
+  // page's already-loaded JS/CSS can end up mismatched with whatever the now-
+  // active worker would serve on the next request. `controllerchange` fires
+  // the moment a new worker takes control; this asks before reloading (never
+  // silently) so a staffer isn't interrupted mid-scorecard, and only for a
+  // REAL update — the first-ever install of the service worker also fires
+  // this same event, which must NOT prompt (there's nothing to "update" yet).
+  function initUpdatePrompt_() {
+    if (!("serviceWorker" in navigator)) return;
+    const hadController = !!navigator.serviceWorker.controller;
+    let reloading = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (reloading || !hadController) return;
+      reloading = true;
+      confirmDialog({
+        title: "Update available",
+        message: "A new version of this app is ready. Refresh to use it? Any unsaved changes on this page won't be affected — writes are saved as you make them.",
+        confirmLabel: "Refresh",
+        cancelLabel: "Later",
+        danger: false
+      }).then((ok) => {
+        if (ok) window.location.reload();
+        else reloading = false; // let a LATER real update prompt again
+      });
+    });
   }
 
   function encampmentDayInfo() {
@@ -1929,6 +2090,44 @@ const Shell = (() => {
     });
   }
 
+  /**
+   * Single-button informational modal — for content that's purely "here's
+   * some information, acknowledge it" (e.g. the iOS install instructions),
+   * where Shell.confirm()'s yes/no framing (and boolean return value)
+   * wouldn't make sense. Reuses the same themed .modal-card/.modal-overlay
+   * as confirmDialog. bodyHtml is trusted markup from this file, not user
+   * input — callers must escape any dynamic values themselves before
+   * interpolating them in.
+   */
+  function showInfoModal_({ title = "", bodyHtml = "", closeLabel = "Got it" } = {}) {
+    const overlay = document.createElement("div");
+    overlay.className = "modal-overlay";
+    overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="info-modal-title">
+        <div class="modal-card__icon modal-card__icon--info">i</div>
+        <h3 id="info-modal-title">${title}</h3>
+        <div class="modal-card__body">${bodyHtml}</div>
+        <div class="modal-card__actions">
+          <button class="btn btn--primary" id="info-modal-close-btn">${closeLabel}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    const releaseFocus = trapFocus_(overlay);
+
+    const close = () => {
+      document.removeEventListener("keydown", onKeydown);
+      releaseFocus();
+      overlay.remove();
+    };
+    const onKeydown = (e) => { if (e.key === "Escape" || e.key === "Enter") close(); };
+    document.addEventListener("keydown", onKeydown);
+
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+    document.getElementById("info-modal-close-btn").addEventListener("click", close);
+    document.getElementById("info-modal-close-btn").focus();
+  }
+
   // ---- Blocking "new alert" popup (announcements / black flag) ---------
 
   let alertModalQueue_ = [];
@@ -2148,6 +2347,15 @@ const Shell = (() => {
     if (navRenderedForPage_ !== activePage) renderNav(activePage);
     renderHeader(activePage);
     wireTooltips_(document);
+    // Unconditional (not gated on requireAuth) since every page THAT CALLS
+    // Shell.init() should offer this, regardless of whether it also
+    // requires a session — but note gate.html doesn't load shell.js at all,
+    // and index.html loads it without ever calling init(), so neither of
+    // those two brief, transitional pre-auth screens gets this prompt. That's
+    // fine in practice: they're quick full-page-reload steps a person passes
+    // through on the way in, not somewhere a mid-session deploy would
+    // meaningfully interrupt anything.
+    initUpdatePrompt_();
     // Global search keyboard shortcut (⌘/Ctrl-K), available on every page.
     if (requireAuth) {
       document.addEventListener("keydown", (e) => {
@@ -2171,6 +2379,8 @@ const Shell = (() => {
       // Best-effort: reveal the "enable alerts" button if this device
       // supports push and the backend has it configured.
       initPush_();
+      // Same idea for the "Install app" button — see the section above.
+      initInstallPrompt_();
       // Keep the banner/badge reasonably fresh without a full reload —
       // but ONLY while this tab is actually visible. A backgrounded or
       // hidden tab left open all day would otherwise keep polling the
