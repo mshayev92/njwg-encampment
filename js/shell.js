@@ -256,28 +256,10 @@ const Shell = (() => {
       }
     }
 
-    const session = Auth.getSession();
-    const existingFooter = rail.querySelector(".nav-rail__footer");
-    if (existingFooter) existingFooter.remove();
-
-    if (session) {
-      const footer = document.createElement("div");
-      footer.className = "nav-rail__footer";
-      footer.innerHTML = `
-        <div class="nav-rail__footer-label">Signed in as</div>
-        <div class="nav-rail__footer-position">${escapeHtml_(session.Position || session.position || "Staff")}</div>
-        <button class="btn btn--ghost" id="logout-btn">Log out</button>
-      `;
-      linksContainer.insertAdjacentElement("afterend", footer);
-    }
-
     applyCollapsedState_(isNavCollapsed_());
 
     const crestBtn = document.getElementById("nav-rail-crest");
     if (crestBtn) crestBtn.addEventListener("click", toggleNavCollapsed_);
-
-    const logoutBtn = document.getElementById("logout-btn");
-    if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
   }
 
   function renderHeader(activePage) {
@@ -287,6 +269,8 @@ const Shell = (() => {
     const session = Auth.getSession();
     const navItem = (window.APP_CONFIG.NAV_ITEMS || []).find(i => i.id === activePage);
     const title = navItem ? navItem.label : window.APP_CONFIG.UNIT_NAME;
+
+    const positionLabel = session ? (session.Position || session.position || "Staff") : "";
 
     header.innerHTML = `
       <h1 class="app-header__title">${title}</h1>
@@ -300,24 +284,38 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (⌘/Ctrl-K)" aria-label="Search" style="padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.search}</span>
           </button>
-          <button class="btn btn--ghost" id="export-btn" data-tooltip="Export this page to CSV" aria-label="Export CSV" style="display:none; padding: var(--space-2);">
-            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.download}</span>
-          </button>
-          <button class="btn btn--ghost" id="pwa-install-btn" data-tooltip="Install this app on your device" aria-label="Install app" style="display:none; padding: var(--space-2);">
-            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.install}</span>
-          </button>
-          <button class="btn btn--ghost" id="push-enable-btn" data-tooltip="Enable alerts on this device" aria-label="Enable alerts" style="display:none; padding: var(--space-2);">
-            <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bellPlus}</span>
-          </button>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Notifications" aria-label="Notifications">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
             <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
           </button>
-          <button class="btn btn--ghost" id="hard-refresh-btn" data-tooltip="Refresh all data now" aria-label="Refresh">
-            <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
-            <span class="hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
-            <span id="hard-refresh-label">Refresh</span>
-          </button>
+          <div class="profile-menu-wrap">
+            <button class="btn btn--ghost profile-menu__trigger" id="profile-menu-btn" aria-haspopup="true" aria-expanded="false" data-tooltip="Account">
+              <span class="profile-menu__label">${escapeHtml_(positionLabel)}</span>
+            </button>
+            <div class="profile-menu" id="profile-menu" hidden>
+              <button class="profile-menu__item" id="hard-refresh-btn" data-tooltip="Refresh all data now">
+                <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
+                <span class="profile-menu__item-icon hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
+                <span id="hard-refresh-label">Refresh</span>
+              </button>
+              <button class="profile-menu__item" id="export-btn" style="display:none;">
+                <span class="profile-menu__item-icon">${ICONS.download}</span>
+                <span>Export CSV</span>
+              </button>
+              <button class="profile-menu__item" id="pwa-install-btn" style="display:none;">
+                <span class="profile-menu__item-icon">${ICONS.install}</span>
+                <span>Install app</span>
+              </button>
+              <button class="profile-menu__item" id="push-enable-btn" style="display:none;">
+                <span class="profile-menu__item-icon">${ICONS.bellPlus}</span>
+                <span>Enable alerts</span>
+              </button>
+              <div class="profile-menu__divider"></div>
+              <button class="profile-menu__item profile-menu__item--danger" id="logout-btn">
+                <span>Log out</span>
+              </button>
+            </div>
+          </div>
         ` : ""}
       </div>
     `;
@@ -336,7 +334,7 @@ const Shell = (() => {
 
     const hardRefreshBtn = document.getElementById("hard-refresh-btn");
     if (hardRefreshBtn) {
-      hardRefreshBtn.addEventListener("click", () => hardRefresh());
+      hardRefreshBtn.addEventListener("click", () => { closeProfileMenu_(); hardRefresh(); });
     }
 
     const searchBtn = document.getElementById("global-search-btn");
@@ -344,27 +342,82 @@ const Shell = (() => {
 
     const exportBtn = document.getElementById("export-btn");
     if (exportBtn) {
-      exportBtn.addEventListener("click", () => runExport_());
+      exportBtn.addEventListener("click", () => { closeProfileMenu_(); runExport_(); });
       // A page may have registered its export before the header was
       // (re)rendered — reflect that here so the button shows immediately.
-      if (exportConfig_) exportBtn.style.display = "inline-flex";
+      if (exportConfig_) exportBtn.style.display = "flex";
     }
 
     const pushBtn = document.getElementById("push-enable-btn");
-    if (pushBtn) pushBtn.addEventListener("click", () => enablePush_());
+    if (pushBtn) pushBtn.addEventListener("click", () => { closeProfileMenu_(); enablePush_(); });
 
     const installBtn = document.getElementById("pwa-install-btn");
     if (installBtn) {
-      installBtn.addEventListener("click", () => promptInstall_());
+      installBtn.addEventListener("click", () => { closeProfileMenu_(); promptInstall_(); });
       // A page may have finished capturing the install prompt (or
       // detected iOS) before the header was (re)rendered — reflect that
       // here so the button shows immediately instead of waiting for the
       // next beforeinstallprompt/appinstalled event to fire again.
-      if (canOfferInstall_()) installBtn.style.display = "inline-flex";
+      if (canOfferInstall_()) installBtn.style.display = "flex";
     }
 
+    const logoutBtn = document.getElementById("logout-btn");
+    if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
+
+    wireProfileMenu_();
     wireSyncIndicator_();
     wireTooltips_(header);
+  }
+
+  // ---- Profile menu (top-right — replaces the old nav-rail "signed in
+  // as" footer card). Holds Refresh/Export/Install/Enable-alerts/Log out
+  // behind the position-name button so the always-visible header row
+  // stays just the black flag pill, sync indicator, search, and
+  // notifications bell. ----
+
+  let profileMenuOutsideHandler_ = null;
+  let profileMenuKeyHandler_ = null;
+
+  function closeProfileMenu_() {
+    const menu = document.getElementById("profile-menu");
+    const btn = document.getElementById("profile-menu-btn");
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (profileMenuOutsideHandler_) {
+      document.removeEventListener("mousedown", profileMenuOutsideHandler_, true);
+      profileMenuOutsideHandler_ = null;
+    }
+    if (profileMenuKeyHandler_) {
+      document.removeEventListener("keydown", profileMenuKeyHandler_);
+      profileMenuKeyHandler_ = null;
+    }
+  }
+
+  function toggleProfileMenu_() {
+    const menu = document.getElementById("profile-menu");
+    const btn = document.getElementById("profile-menu-btn");
+    if (!menu || !btn) return;
+    if (!menu.hidden) { closeProfileMenu_(); return; }
+
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+
+    profileMenuOutsideHandler_ = (e) => {
+      if (menu.contains(e.target) || btn.contains(e.target)) return;
+      closeProfileMenu_();
+    };
+    profileMenuKeyHandler_ = (e) => { if (e.key === "Escape") closeProfileMenu_(); };
+    // Wire on the next tick so the same click that opened the menu (which
+    // bubbles to document) doesn't immediately close it again.
+    setTimeout(() => {
+      document.addEventListener("mousedown", profileMenuOutsideHandler_, true);
+      document.addEventListener("keydown", profileMenuKeyHandler_);
+    }, 0);
+  }
+
+  function wireProfileMenu_() {
+    const btn = document.getElementById("profile-menu-btn");
+    if (btn) btn.addEventListener("click", () => toggleProfileMenu_());
   }
 
   // ---- Sync status indicator (header) ----
