@@ -282,9 +282,22 @@
       const lat = window.APP_CONFIG.WEATHER_LAT;
       const lon = window.APP_CONFIG.WEATHER_LON;
       const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph`;
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Weather service unavailable.");
-      return response.json();
+      // A bare fetch() to a third-party service can hang indefinitely on a
+      // flaky connection or captive portal, and it never settles. Because
+      // the WHOLE page render is gated behind weatherLoaded (set only in
+      // fetchWeather's .finally below), a hang there would leave Overview —
+      // the default landing page — stuck on its loading spinner forever.
+      // Abort after 8s so the promise always settles and the page renders
+      // (weather simply shows "unavailable" if the call didn't come back).
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error("Weather service unavailable.");
+        return await response.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
     }
 
     /**

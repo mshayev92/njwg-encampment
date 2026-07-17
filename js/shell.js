@@ -2061,8 +2061,18 @@ const Shell = (() => {
       // Best-effort: reveal the "enable alerts" button if this device
       // supports push and the backend has it configured.
       initPush_();
-      // Keep the banner/badge reasonably fresh without a full reload.
-      setInterval(loadGlobalAlerts_, 2 * 60 * 1000);
+      // Keep the banner/badge reasonably fresh without a full reload —
+      // but ONLY while this tab is actually visible. A backgrounded or
+      // hidden tab left open all day would otherwise keep polling the
+      // Worker every couple of minutes for no one to see, which is pure
+      // wasted Worker invocations / bandwidth (and, at a few dozen
+      // always-open staff devices, the dominant steady-state cost). The
+      // visibilitychange handler below re-polls the instant the tab is
+      // refocused, so freshness on return is unaffected; Web Push covers
+      // the app-fully-closed case.
+      setInterval(() => {
+        if (document.visibilityState === "visible") loadGlobalAlerts_();
+      }, 2 * 60 * 1000);
       // Warm every sheet ANY page reads from, not just this one — so by
       // the time someone clicks to another page, its data is already
       // sitting in the persisted cache and renders instantly instead of
@@ -2070,9 +2080,19 @@ const Shell = (() => {
       // infrequent (backend enforces a 30 requests/minute-per-session
       // rate limit) — polling every 5 sheets too often was tipping
       // normal navigation + this background warming over that limit,
-      // surfacing as intermittent "Too many requests" errors.
+      // surfacing as intermittent "Too many requests" errors. Also gated
+      // on visibility, same reasoning as the alert poll above — a hidden
+      // tab isn't about to navigate anywhere, so there's nothing to warm.
       Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
-      setInterval(() => Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []), 3 * 60 * 1000);
+      setInterval(() => {
+        if (document.visibilityState === "visible") Api.warmCache(window.APP_CONFIG.PREFETCH_SHEETS || []);
+      }, 3 * 60 * 1000);
+      // Refresh alerts the moment the tab is refocused, so coming back to
+      // a tab that was hidden for a while shows current data immediately
+      // rather than waiting up to the poll interval above.
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") loadGlobalAlerts_();
+      });
     }
   }
 

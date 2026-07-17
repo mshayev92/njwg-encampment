@@ -1,6 +1,8 @@
 # NJWG Encampment App
 
-A responsive, installable (PWA) tool for encampment **staff** — schedule, roster, and future features — backed by a private Google Sheet with **no API key required**.
+A responsive, installable (PWA) tool for encampment **staff** — schedule, roster, and future features — backed by a private Google Sheet.
+
+> **Backend note (read first):** the live backend is the **Cloudflare Worker** in [`worker/`](./worker/) (deployed from `worker/src/`), which talks to the Google Sheet via the Sheets API using a service account. It is what `js/config.js`'s `APPS_SCRIPT_URL` points at. The older Google **Apps Script** backend in [`apps-script/Code.gs`](./apps-script/Code.gs) is a **legacy reference only — it is no longer deployed or used.** Some sections below still describe the Apps Script era; where they say "`Code.gs`" or "Apps Script" as the enforcement point, the real enforcement now lives in `worker/src/` (`worker/src/auth.js` for tokens/permissions/rate-limiting, `worker/src/index.js` for the request handlers). The security *model* (two signed tokens, per-position pages, plaintext CCT/Administrator passwords in the sheet) is unchanged; only the file that implements it moved.
 
 This app is **staff-only, and login is by position, not by person.** There are no individual accounts or CAP IDs used for login. Instead, at sign-in a user picks their **position** from a dropdown — a flight (e.g. `"Alpha Flight"`), a squadron (e.g. `"Squadron 1"`), the Cadet Command Team (`"CCT"`), or `"Administrator"` — and, for the two privileged positions (CCT, Administrator), enters a password. The `Roster` tab is a read-only display list of students for staff to view; it is never used for login.
 
@@ -10,7 +12,7 @@ This site is meant to be hosted on **public** GitHub Pages, which means:
 - Anyone can view page source and see `js/config.js`, including the Apps Script URL. That URL cannot be kept secret.
 - Anyone can call that URL directly with curl/Postman, bypassing every page entirely.
 
-Because of that, **no page in this app is the security boundary** — pages are just redirects for normal users. The real boundary is enforced **server-side, in `apps-script/Code.gs`**, in two layers:
+Because of that, **no page in this app is the security boundary** — pages are just redirects for normal users. The real boundary is enforced **server-side, in the Cloudflare Worker (`worker/src/`)**, in two layers:
 
 **Layer 1 — Device gate (passphrase).** A single long passphrase, given out to staff at check-in, unlocks a *device* — not a position. Entering it correctly gets a signed **device token**, stored in `localStorage` so the device stays unlocked without asking again:
 - On a **personal device**, the device token lasts the whole encampment (default ~2 weeks ceiling).
@@ -50,7 +52,7 @@ Unlike the device passphrase (hashed, never stored anywhere readable), the `CCT`
 
 What this means in practice:
 - **Anyone with view/edit access to the actual Google Sheet** (not the app — the underlying Sheet file in Google Drive) can read these passwords in the clear.
-- `StaffAccess` is deliberately **excluded** from the app's generic read/write API (`ALLOWED_SHEETS` in `Code.gs`), so no page and no direct call to the public `/exec` endpoint can ever retrieve this sheet's contents — only the login flow touches it, server-side, and the only thing ever returned to a browser from it is the list of position names (never passwords).
+- `StaffAccess` is deliberately **excluded** from the app's generic read/write API (`ALLOWED_SHEETS` in `worker/src/auth.js`), so no page and no direct call to the public Worker endpoint can ever retrieve this sheet's contents — only the login flow touches it, server-side, and the only thing ever returned to a browser from it is the list of position names (never passwords).
 - The security boundary for these two passwords is therefore **Google Sheet sharing permissions**, not anything in the app itself. Keep the Sheet's own share settings restricted to trusted staff, the same way you'd protect any spreadsheet containing secrets.
 - If you'd prefer these hashed instead of plaintext (closer to how the device passphrase works), that's a straightforward follow-up change — ask if you want it.
 
@@ -73,15 +75,22 @@ njwg-encampment/
 │   ├── tokens.css          # Universal design tokens (colors, type, spacing)
 │   └── app.css             # Universal layout, nav, components — used everywhere
 ├── js/
-│   ├── config.js           # ⚠️ EDIT THIS — Apps Script URL + app constants
-│   ├── api.js               # Universal API client (talks to Apps Script, attaches both tokens)
+│   ├── config.js           # ⚠️ EDIT THIS — Worker URL + app constants
+│   ├── api.js               # Universal API client (talks to the Worker, attaches both tokens)
 │   ├── auth.js              # Device gate + per-position session logic (two layers)
 │   └── shell.js             # Universal header/nav/duty-strip renderer + idle timeout + page access guard
-├── pages/
-│   ├── schedule.html        # Feature page (position must have "schedule" in its Pages list)
-│   └── roster.html          # Feature page (always visible to any signed-in position)
+├── pages/                   # Feature pages (schedule, roster, inspections, observations,
+│                            #   recommendations, notes, announcements, admin, overview)
+├── worker/                  # ★ THE LIVE BACKEND — Cloudflare Worker (deploy from here)
+│   ├── src/index.js        #   request router: read/write/delete/login/deviceLogin/listPositions/admin/push
+│   ├── src/auth.js         #   token issue+verify, rate limiting, sheet permission + page-write gates
+│   ├── src/sheets.js       #   Google Sheets API v4 wrapper
+│   ├── src/googleAuth.js   #   service-account OAuth (JWT → access token)
+│   ├── src/readCache.js    #   KV-backed short-TTL read cache
+│   ├── src/webPush.js      #   VAPID + RFC 8291 Web Push
+│   └── wrangler.toml       #   Worker config (KV binding; secrets set via `wrangler secret put`)
 ├── apps-script/
-│   └── Code.gs              # Reference copy of the backend (real copy lives IN the Sheet)
+│   └── Code.gs              # ⚠️ LEGACY reference only — the previous backend, no longer deployed
 └── icons/                   # App icons/favicons — generated from the NJ Wing patch:
     ├── icon-192.png          #   used as the nav-rail crest image too, not just PWA install
     ├── icon-512.png
