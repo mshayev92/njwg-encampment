@@ -788,7 +788,7 @@ const Shell = (() => {
       <div class="search-overlay__panel" role="dialog" aria-modal="true" aria-label="Search">
         <div class="search-overlay__bar">
           <span class="search-overlay__icon">${ICONS.search}</span>
-          <input type="text" id="search-overlay-input" class="search-overlay__input" placeholder="Search cadets, inspections, notes, announcements…" autocomplete="off" spellcheck="false">
+          <input type="text" id="search-overlay-input" class="search-overlay__input" aria-label="Search cadets, inspections, notes, and announcements" placeholder="Search cadets, inspections, notes, announcements…" autocomplete="off" spellcheck="false">
           <button type="button" class="search-overlay__close" aria-label="Close">&times;</button>
         </div>
         <div class="search-overlay__results" id="search-overlay-results">
@@ -1310,6 +1310,16 @@ const Shell = (() => {
     const toast = document.createElement("div");
     toast.className = `toast ${type ? `toast--${type}` : ""}`;
     toast.textContent = message;
+    // Announce to assistive tech: errors interrupt (assertive), everything
+    // else is polite. Without this, a screen-reader user gets no feedback
+    // that a save landed or a sync failed — the toast is purely visual.
+    if (type === "error") {
+      toast.setAttribute("role", "alert");
+      toast.setAttribute("aria-live", "assertive");
+    } else {
+      toast.setAttribute("role", "status");
+      toast.setAttribute("aria-live", "polite");
+    }
     document.body.appendChild(toast);
 
     setTimeout(() => toast.remove(), 4000);
@@ -1827,6 +1837,42 @@ const Shell = (() => {
   // ---- Custom modal (replaces native confirm()) -------------------------
 
   /**
+   * Keeps keyboard focus inside a modal (`container`) while it's open, and
+   * returns a release() that restores focus to whatever had it before the
+   * modal opened. Without this, Tab from inside a "blocking" dialog escapes
+   * to the page behind it — and closing the dialog leaves focus orphaned on
+   * a now-removed element instead of back on the control that opened it.
+   */
+  function getFocusable_(container) {
+    return Array.from(container.querySelectorAll(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )).filter((el) => el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+  }
+
+  function trapFocus_(container) {
+    const previouslyFocused = document.activeElement;
+    function onKeydown(e) {
+      if (e.key !== "Tab") return;
+      const focusable = getFocusable_(container);
+      if (!focusable.length) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus();
+      }
+    }
+    container.addEventListener("keydown", onKeydown);
+    return function release() {
+      container.removeEventListener("keydown", onKeydown);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function" && document.contains(previouslyFocused)) {
+        previouslyFocused.focus();
+      }
+    };
+  }
+
+  /**
    * Themed replacement for window.confirm(). Returns a Promise<boolean>
    * — true if the person confirmed, false if they cancelled or
    * dismissed. Usage: if (await Shell.confirm({ message: "..." })) { ... }
@@ -1847,10 +1893,12 @@ const Shell = (() => {
         </div>
       `;
       document.body.appendChild(overlay);
+      const releaseFocus = trapFocus_(overlay);
 
       const cleanup = (result) => {
-        overlay.remove();
         document.removeEventListener("keydown", onKeydown);
+        releaseFocus();
+        overlay.remove();
         resolve(result);
       };
 
@@ -1898,8 +1946,10 @@ const Shell = (() => {
       </div>
     `;
     document.body.appendChild(overlay);
+    const releaseFocus = trapFocus_(overlay);
 
     document.getElementById("alert-modal-dismiss-btn").addEventListener("click", () => {
+      releaseFocus();
       overlay.remove();
       showNextAlertModal_();
     });
@@ -2049,12 +2099,34 @@ const Shell = (() => {
   }
 
   /**
+   * Adds a "Skip to content" link as the first focusable element on the
+   * page (hidden off-screen until focused — see .skip-link in app.css) so
+   * a keyboard/screen-reader user can jump past the nav rail's 7-9 links
+   * straight to the page's main content. Targets the <main class="app-main">
+   * element, made programmatically focusable via tabindex="-1".
+   */
+  function injectSkipLink_() {
+    const main = document.querySelector(".app-main");
+    if (main && !main.id) {
+      main.id = "main-content";
+      main.setAttribute("tabindex", "-1");
+    }
+    if (document.querySelector(".skip-link")) return;
+    const link = document.createElement("a");
+    link.className = "skip-link";
+    link.href = "#main-content";
+    link.textContent = "Skip to content";
+    document.body.insertBefore(link, document.body.firstChild);
+  }
+
+  /**
    * Call once per page. Pass { activePage: 'schedule' | 'roster' | ... , requireAuth: true }
    */
   function init({ activePage = null, requireAuth = true } = {}) {
     activePage_ = activePage;
     if (requireAuth) Auth.requireSession();
     if (requireAuth && activePage) requirePageAccess(activePage);
+    injectSkipLink_();
     // Skip if Shell.renderNav(activePage) already ran earlier in this
     // same page load (see the inline script right after #nav-rail in
     // every page's markup) — otherwise the sidebar links get torn down

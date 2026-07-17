@@ -165,7 +165,7 @@
     .weather-card__temp {
       font-family: var(--font-display);
       font-size: var(--fs-3xl);
-      color: var(--navy-900);
+      color: var(--indigo-900);
     }
 
     .weather-card__details {
@@ -421,7 +421,7 @@
       const { current, next } = Shell.currentAndNextScheduleItems(scheduleRows, allowedFlights);
       return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Your Activity Today</h2>
+          <h2 class="card-title">Your Activity Today</h2>
           ${renderActivityRow("Now", current)}
           ${renderActivityRow("Next", next)}
         </div>
@@ -468,7 +468,7 @@
 
       return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Today's Inspections</h2>
+          <h2 class="card-title">Today's Inspections</h2>
           ${sections}
         </div>`;
     }
@@ -486,7 +486,7 @@
       if (!scoped.length) {
         return `
           <div class="card">
-            <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Observations This Week</h2>
+            <h2 class="card-title">Observations This Week</h2>
             <p style="color: var(--ink-600); margin:0;">No observations logged yet.</p>
           </div>`;
       }
@@ -500,7 +500,7 @@
 
       return `
         <div class="card">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">Observations This Week</h2>
+          <h2 class="card-title">Observations This Week</h2>
           <div style="display:flex; gap: var(--space-2); flex-wrap:wrap; margin-bottom: var(--space-4);">
             <span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">${thisWeek.length} logged</span>
             <span class="badge" style="background: var(--green-100); color: var(--green-600);">${positiveCount} positive</span>

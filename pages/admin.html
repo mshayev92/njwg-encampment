@@ -320,7 +320,7 @@
 
       return `
         <div class="card admin-form">
-          <h2 style="font-size: var(--fs-lg); color: var(--navy-900);">${isNew ? "Add position" : `Edit “${esc(editing)}”`}</h2>
+          <h2 class="card-title">${isNew ? "Add position" : `Edit “${esc(editing)}”`}</h2>
 
           <label class="field-label" for="pos-name">Position name</label>
           <input type="text" id="pos-name" value="${esc(editing)}" ${isNew ? "" : "disabled"} placeholder="e.g. Bravo Flight, CCT, Administrator">
