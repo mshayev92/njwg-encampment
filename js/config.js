@@ -117,6 +117,31 @@ window.APP_CONFIG = {
   // starts reading from one.
   PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations"],
 
+  // Which sheets each page actually reads. Used to warm ONLY the sheets a
+  // signed-in position could actually reach (see accessiblePrefetchSheets_
+  // in js/shell.js), instead of every sheet in PREFETCH_SHEETS — a flight
+  // position without the "recommendations" page never warms the Honor*
+  // sheets, cutting background reads/Worker invocations for that device.
+  // Keys are NAV_ITEMS ids; a page absent here contributes no sheets.
+  // When a new page starts reading a sheet, add it here too.
+  PAGE_SHEETS: {
+    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Observations", "BlackFlagStatus"],
+    schedule:        ["Schedule"],
+    roster:          ["Roster"],
+    inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods"],
+    observations:    ["Roster", "Observations"],
+    recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations"],
+    notes:           ["Roster", "Notes"],
+    announcements:   ["Announcements", "BlackFlagStatus"],
+    admin:           ["Roster"]
+  },
+
+  // Sheets the header's notification bell reads on EVERY page regardless of
+  // which pages a position is granted (Announcements + Black Flag + Notes
+  // addressed to me — see loadGlobalAlerts_ in js/shell.js), so they are
+  // always warmed even for a position whose Pages don't include them.
+  GLOBAL_SHEETS: ["Announcements", "BlackFlagStatus", "Notes"],
+
   // Squadrons have no cadets of their own — they're a grouping of
   // flights. There's no sheet/column anywhere that records this
   // membership, so it lives here: a Schedule item (or anything else)

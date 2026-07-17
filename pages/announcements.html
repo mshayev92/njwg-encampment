@@ -326,10 +326,8 @@
      * changed. Matches the pattern roster.html/schedule.html already
      * use for the same reason.
      */
-    async function toggleBlackFlag() {
+    function toggleBlackFlag() {
       const active = blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true");
-      const toggleBtn = document.getElementById("toggle-flag-btn");
-      toggleBtn.disabled = true;
 
       const newStatus = {
         RecordKey: "singleton",
@@ -338,29 +336,24 @@
         UpdatedAt: new Date().toISOString()
       };
 
-      try {
-        await Api.writeRow("BlackFlagStatus", newStatus, { matchColumn: "RecordKey" });
-        blackFlagStatus = newStatus;
-        Api.setCachedRows("BlackFlagStatus", [newStatus]);
-        render();
-        Shell.refreshGlobalAlerts();
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-        toggleBtn.disabled = false;
-      }
+      // Optimistic: flip local state and re-render instantly; the real
+      // write fires in the background and the header's sync indicator
+      // reflects whether it lands. Api.writeRow resolves before the network
+      // write returns, so there's no background failure to await/catch.
+      Api.writeRow("BlackFlagStatus", newStatus, { matchColumn: "RecordKey" });
+      blackFlagStatus = newStatus;
+      Api.setCachedRows("BlackFlagStatus", [newStatus]);
+      render();
+      Shell.refreshGlobalAlerts();
     }
 
-    async function postAnnouncement() {
+    function postAnnouncement() {
       const editor = document.getElementById("message-input");
       const message = RichText.sanitize(editor.innerHTML);
       if (RichText.isEmpty(message)) {
         Shell.showToast("Write a message before posting.", { type: "error" });
         return;
       }
-
-      const postBtn = document.getElementById("post-btn");
-      postBtn.disabled = true;
-      postBtn.textContent = editingAnnouncementId !== null ? "Saving…" : "Posting…";
 
       const editing = editingAnnouncementId !== null;
       const existing = editing ? announcements.find(a => String(a.Id) === String(editingAnnouncementId)) : null;
@@ -374,25 +367,23 @@
             Message: message
           };
 
-      try {
-        await Api.writeRow("Announcements", announcementRow, editing ? { matchColumns: ["Id"] } : {});
-        if (editing) {
-          const idx = announcements.findIndex(a => String(a.Id) === String(editingAnnouncementId));
-          if (idx >= 0) announcements[idx] = announcementRow; else announcements.unshift(announcementRow);
-          editingAnnouncementId = null;
-        } else {
-          announcements = [announcementRow, ...announcements];
-        }
-        Api.setCachedRows("Announcements", announcements);
-        render();
-        Shell.refreshGlobalAlerts();
-        Shell.showToast(editing ? "Announcement updated." : "Announcement posted.", { type: "success" });
-      } catch (err) {
-        Shell.showToast(err.message, { type: "error" });
-      } finally {
-        postBtn.disabled = false;
-        postBtn.textContent = editingAnnouncementId !== null ? "Save Changes" : "Post Announcement";
+      // Optimistic, same as every other write in the app: update local
+      // state and re-render instantly; the real write fires in the
+      // background and the header's sync indicator reflects whether it
+      // lands. Api.writeRow resolves BEFORE the network write returns, so
+      // there's no background failure to await/catch here.
+      Api.writeRow("Announcements", announcementRow, editing ? { matchColumns: ["Id"] } : {});
+      if (editing) {
+        const idx = announcements.findIndex(a => String(a.Id) === String(editingAnnouncementId));
+        if (idx >= 0) announcements[idx] = announcementRow; else announcements.unshift(announcementRow);
+        editingAnnouncementId = null;
+      } else {
+        announcements = [announcementRow, ...announcements];
       }
+      Api.setCachedRows("Announcements", announcements);
+      render();
+      Shell.refreshGlobalAlerts();
+      Shell.showToast(editing ? "Announcement updated." : "Announcement posted.", { type: "success" });
     }
 
     async function deleteAnnouncement(id) {

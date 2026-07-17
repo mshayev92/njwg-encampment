@@ -50,7 +50,7 @@ function colIndexToLetter(index) {
 const META_CACHE_KEY = "sheetmeta";
 const META_CACHE_TTL_SECONDS = 300;
 
-async function getSpreadsheetMeta(env) {
+export async function getSpreadsheetMeta(env) {
   const cached = await env.NJWG_KV.get(META_CACHE_KEY, "json");
   if (cached) return cached;
 
@@ -98,6 +98,29 @@ export async function ensureSheetExists(env, sheetName, headerColumns, extraRows
 export async function getAllValues(env, sheetName) {
   const data = await sheetsFetch(env, `/values/${encodeURIComponent(sheetName)}`);
   return data.values || [];
+}
+
+/**
+ * Reads several whole sheets in ONE Sheets API round-trip via
+ * values:batchGet, instead of one getAllValues() call per sheet. Returns
+ * { sheetName: values[][] } for every requested name (order-independent —
+ * keyed by name, not array position). Callers must pass only sheet names
+ * that actually EXIST — batchGet fails the whole request with a 400 if any
+ * range names a missing tab, so the caller (see getCachedSheetValuesBatch)
+ * filters against the cached spreadsheet metadata first.
+ */
+export async function batchGetValues(env, sheetNames) {
+  if (!sheetNames.length) return {};
+  const query = sheetNames
+    .map((n) => `ranges=${encodeURIComponent(n)}`)
+    .join("&");
+  const data = await sheetsFetch(env, `/values:batchGet?${query}`);
+  // valueRanges comes back aligned with the ranges we requested, in order.
+  const out = {};
+  (data.valueRanges || []).forEach((vr, i) => {
+    out[sheetNames[i]] = vr.values || [];
+  });
+  return out;
 }
 
 /** Just the header row (row 1). */

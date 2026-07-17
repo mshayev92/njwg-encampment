@@ -17,7 +17,7 @@ import {
   DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
-  assertPageWriteAccess,
+  assertPageWriteAccess, ALLOWED_SHEETS,
   getClientIp, assertNotLockedOut, checkAuthAttemptRate, recordAuthResult,
   MAX_REQUEST_BODY_BYTES, assertReasonableRowPayload, assertReasonableMatchColumns
 } from "./auth.js";
@@ -26,7 +26,7 @@ import {
   ensureSheetExists, getHeaderRow, getColumnValues, setRow, setHeaderCell, appendRow, deleteRow, getAllValues
 } from "./sheets.js";
 
-import { getCachedSheetValues, invalidateSheetCache } from "./readCache.js";
+import { getCachedSheetValues, getCachedSheetValuesBatch, invalidateSheetCache } from "./readCache.js";
 
 import { sendPush } from "./webPush.js";
 
@@ -38,7 +38,27 @@ const CORS_HEADERS = {
 
 function respond(obj) {
   return new Response(JSON.stringify(obj), {
-    headers: { "Content-Type": "application/json", ...CORS_HEADERS }
+    headers: {
+      "Content-Type": "application/json",
+      // Every response carries token-gated data (or is a login/token
+      // exchange) — no browser, proxy, or CDN should ever cache it. The
+      // service worker already refuses to cache this cross-origin API
+      // (see service-worker.js), and this is the belt-and-suspenders
+      // server-side counterpart against any intermediary.
+      "Cache-Control": "no-store",
+      ...CORS_HEADERS
+    }
+  });
+}
+
+/** Turns a raw sheet values grid (row 0 = headers) into an array of row objects. */
+function valuesToRows(values) {
+  if (!values || values.length === 0) return [];
+  const headers = values[0];
+  return values.slice(1).map((row) => {
+    const obj = {};
+    headers.forEach((header, i) => (obj[header] = row[i]));
+    return obj;
   });
 }
 
@@ -72,6 +92,15 @@ async function handleGet(request, env) {
     const session = await requireSession(env, params.token);
     await checkRateLimit(env, params.token);
     return respond(await handleRead(env, params));
+  }
+
+  if (action === "batchRead") {
+    await requireDeviceToken(env, params.deviceToken);
+    await requireSession(env, params.token);
+    // ONE rate-limit hit for the whole batch — the entire point is that
+    // warming N sheets costs one Worker invocation, not N.
+    await checkRateLimit(env, params.token);
+    return respond(await handleBatchRead(env, params));
   }
 
   if (action === "listPositions") {
@@ -624,11 +653,7 @@ async function handleRead(env, params) {
   if (values.length === 0) return { ok: true, rows: [] };
 
   const headers = values[0];
-  let rows = values.slice(1).map((row) => {
-    const obj = {};
-    headers.forEach((header, i) => (obj[header] = row[i]));
-    return obj;
-  });
+  let rows = valuesToRows(values);
 
   if (params.capId) {
     const target = String(params.capId).trim().toLowerCase();
@@ -643,6 +668,39 @@ async function handleRead(env, params) {
   });
 
   return { ok: true, rows };
+}
+
+/**
+ * Reads several whole sheets in a single request — the frontend's
+ * background cache-warmer (js/api.js warmCache) calls this once instead of
+ * firing a separate action=read per sheet. One Worker invocation, one
+ * rate-limit hit, one Sheets values:batchGet for whatever isn't already
+ * warm in KV (see getCachedSheetValuesBatch). Returns the same per-sheet
+ * shape a read does: { sheets: { Name: { rows: [...] } } }.
+ *
+ * Only whole sheets are returned (no per-row capId/column filtering like
+ * read supports) — warming is about populating the client cache with full
+ * sheets, and the client already filters by flight/column itself. Anything
+ * not in ALLOWED_SHEETS (e.g. StaffAccess) is silently dropped; a
+ * best-effort prefetch shouldn't hard-fail because one name was off-list.
+ */
+async function handleBatchRead(env, params) {
+  const requested = String(params.sheets || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  // De-dupe and keep only readable sheets. ALLOWED_SHEETS is the same
+  // boundary read/write enforce, so this can never reach StaffAccess.
+  const allowed = [...new Set(requested)].filter((s) => ALLOWED_SHEETS.includes(s));
+  if (!allowed.length) return { ok: true, sheets: {} };
+
+  const valuesBySheet = await getCachedSheetValuesBatch(env, allowed);
+
+  const sheets = {};
+  for (const name of allowed) {
+    sheets[name] = { rows: valuesToRows(valuesBySheet[name] || []) };
+  }
+  return { ok: true, sheets };
 }
 
 // ---- WRITE ---------------------------------------------------------------
