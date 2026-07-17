@@ -577,16 +577,23 @@ html.nav-rail-collapsed .nav-rail__crest {
   margin-bottom: var(--space-3);
 }
 
+/* Borderless — the footer card itself already reads as a bordered box
+   (see .nav-rail__footer above); giving the button its OWN border on top
+   of that produced a visible "box behind a box" (a smaller outlined
+   rectangle nested inside the card's outline), most obvious once the
+   tablet rail's compact footer leaves nothing else in the card but this
+   button. A plain hover/active fill is enough affordance here — keyboard
+   focus still gets the global :focus-visible ring. */
 .nav-rail__footer .btn--ghost {
   width: 100%;
-  border-color: var(--indigo-500);
+  border-color: transparent;
   color: var(--steel-100);
   padding: var(--space-2);
   font-size: var(--fs-xs);
 }
 .nav-rail__footer .btn--ghost:hover {
   background: var(--indigo-700);
-  border-color: var(--indigo-500);
+  border-color: transparent;
 }
 
 .nav-rail__link {
