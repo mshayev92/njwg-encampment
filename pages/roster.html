@@ -382,7 +382,7 @@
       const otherFlightNames = Object.keys(grouped).filter(f => !ownLower.has(f.toLowerCase())).sort();
 
       contentEl.innerHTML = `
-        ${actualOwnFlights.map(flight => `<div id="own-flight-section-${esc(flightDomId(flight))}"></div>`).join("")}
+        ${actualOwnFlights.map(flight => `<div id="own-flight-section-${esc(flightDomId(flight))}" style="margin-bottom: var(--space-6);"></div>`).join("")}
         ${otherFlightNames.length ? `
           <h3 style="margin-top: var(--space-6); margin-bottom: var(--space-3); font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600);">Other Flights</h3>
           <div class="flight-grid">
