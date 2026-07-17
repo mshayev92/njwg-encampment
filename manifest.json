@@ -2,15 +2,41 @@
   "name": "NJWG Encampment",
   "short_name": "NJWG Encampment",
   "description": "Cadre tool for NJWG Encampment — schedule, roster, and more.",
+  "lang": "en-US",
   "start_url": "./index.html",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#080a38",
   "theme_color": "#0d1250",
+  "categories": ["productivity", "utilities"],
+  "id": ".",
+  "scope": "./",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
     { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
     { "src": "icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Schedule",
+      "url": "./pages/schedule.html",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Roster",
+      "url": "./pages/roster.html",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Inspections",
+      "url": "./pages/inspections.html",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    },
+    {
+      "name": "Announcements",
+      "url": "./pages/announcements.html",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
+    }
   ]
 }

@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>You're Offline — NJWG Encampment</title>
+  <meta name="theme-color" content="#0d1250">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/favicon.ico" sizes="any">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+  <!--
+    Deliberately NOT loading js/config.js / api.js / auth.js / shell.js —
+    this is the service worker's last-resort fallback for a navigation that
+    isn't in the cache while offline (see the fetch handler in
+    service-worker.js), so it needs to render from cache alone with no
+    script that might itself try to reach the network or redirect through
+    the auth gates. Just a static, self-contained "try again" screen.
+
+    Also deliberately NOT loading the Google Fonts <link> every other page
+    uses — that request would simply fail while offline (harmless — the
+    page degrades to system fonts — but there's no point attempting a
+    network request on a page whose entire point is "you have no network").
+  -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/app.css">
+
+  <style>
+    .offline-screen {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: var(--space-5);
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(ellipse 800px 500px at 50% -10%, rgba(240, 180, 41, 0.14) 0%, transparent 60%),
+        var(--indigo-950);
+    }
+
+    .offline-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border-radius: var(--radius-lg);
+      padding: var(--space-7) var(--space-6);
+      box-shadow: var(--shadow-lg);
+      text-align: center;
+      position: relative;
+      z-index: 1;
+      border-top: 3px solid var(--gold-500);
+    }
+
+    .offline-card__mark {
+      width: 84px; height: 84px;
+      margin: 0 auto var(--space-4);
+      display: flex; align-items: center; justify-content: center;
+      opacity: 0.75;
+    }
+
+    .offline-card__mark img {
+      width: 100%; height: 100%;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 10px rgba(13, 18, 80, 0.25)) grayscale(0.4);
+    }
+
+    .offline-card__eyebrow {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      letter-spacing: var(--tracking-wider);
+      text-transform: uppercase;
+      color: var(--ink-600);
+    }
+
+    .offline-card h1 {
+      font-size: var(--fs-xl);
+      color: var(--indigo-900);
+      margin-bottom: var(--space-2);
+    }
+
+    .offline-card p {
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+      margin-bottom: var(--space-5);
+      line-height: var(--lh-normal);
+    }
+
+    .offline-card .btn { width: 100%; }
+  </style>
+</head>
+<body>
+
+  <div class="offline-screen">
+    <div class="offline-card">
+      <div class="offline-card__mark"><img src="icons/icon-192.png" alt="NJ Wing"></div>
+      <span class="offline-card__eyebrow">NJWG Encampment</span>
+      <h1>You're Offline</h1>
+      <p>
+        This page hasn't been saved for offline use yet, and there's no
+        connection right now. Pages you've already opened on this device
+        will keep working offline — reconnect and try again to load this one.
+      </p>
+      <button type="button" class="btn btn--primary" id="retry-btn">Try Again</button>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById("retry-btn").addEventListener("click", () => {
+      window.location.reload();
+    });
+
+    // If connectivity comes back while this page is sitting open, retry
+    // automatically rather than waiting for a manual tap.
+    window.addEventListener("online", () => window.location.reload());
+
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("service-worker.js");
+    }
+  </script>
+</body>
+</html>
