@@ -425,7 +425,7 @@
      * time?") — different question, so not shown at all when nothing is
      * scheduled today rather than repeating that page's own content.
      */
-    function renderInspectionProgressCard(rosterRows, uniformRows, roomRows, periods) {
+    function renderInspectionProgressCard(rosterRows, uniformRows, roomRows, ptRows, periods) {
       const todayStr = Shell.todayIso();
       const todaysPeriods = periods.filter(p => p.Date === todayStr);
       if (!todaysPeriods.length) return "";
@@ -433,14 +433,16 @@
       const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && (String(r.CapId || "").trim() || String(r.Name || "").trim()));
       if (!cadets.length) return "";
 
-      const rowsByCategory = { uniform: uniformRows, room: roomRows };
+      const rowsByCategory = { uniform: uniformRows, room: roomRows, pt: ptRows };
 
       const sections = todaysPeriods.map(period => {
         const rows = rowsByCategory[period.Category] || [];
         const inspectedCapIds = new Set(rows.filter(r => r.Date === todayStr).map(r => String(r.StudentCapId)));
         const inspectedCount = cadets.filter(c => inspectedCapIds.has(String(c.CapId))).length;
         const pct = Math.round((inspectedCount / cadets.length) * 100);
-        const label = period.Category === "room" ? "Room Inspection" : `Uniform — ${period.UniformType || "—"}`;
+        const label = period.Category === "room" ? "Room Inspection"
+          : period.Category === "pt" ? "Physical Training"
+          : `Uniform — ${period.UniformType || "—"}`;
         return `
           <div style="margin-bottom: var(--space-3);">
             <div class="progress__label-row">
@@ -512,6 +514,7 @@
     let lastScheduleRows = null;
     let lastUniformRows = null;
     let lastRoomRows = null;
+    let lastPtRows = null;
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
     let lastBlackFlagStatus = null;
@@ -528,12 +531,13 @@
     let weatherLoaded = false;
     let uniformLoaded = false;
     let roomLoaded = false;
+    let ptLoaded = false;
     let periodsLoaded = false;
     let observationsLoaded = false;
     let blackFlagLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -544,7 +548,7 @@
             ${renderWeatherCard(lastWeather, lastBlackFlagStatus)}
             ${renderActivityCard(lastScheduleRows)}
           </div>
-          ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastInspectionPeriods || [])}
+          ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
@@ -618,6 +622,16 @@
       if (roomHandle.data) { lastRoomRows = roomHandle.data.rows || []; roomLoaded = true; }
       roomHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
         roomLoaded = true;
+        renderAll();
+      });
+
+      const ptHandle = Api.getSheetCached("PTInspections", (fresh) => {
+        lastPtRows = fresh.rows || [];
+        renderAll();
+      });
+      if (ptHandle.data) { lastPtRows = ptHandle.data.rows || []; ptLoaded = true; }
+      ptHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
+        ptLoaded = true;
         renderAll();
       });
 

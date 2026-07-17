@@ -439,12 +439,17 @@
         return;
       }
 
-      // Only one flight to ever choose from — a tile grid with exactly
-      // one tile is a click that can only ever go one place, so skip
-      // straight to that flight's student list instead of requiring it.
-      if (flightNames.length === 1) {
-        selectedFlight = flightNames[0];
-        renderStudentList();
+      // A position scoped to one or more of its OWN flights (a Flight or
+      // Squadron Commander) sees every one of those flights' cadet lists
+      // directly, stacked, with no tile to click through first — same
+      // principle as Roster's own-flight sections (see roster.html).
+      // groupByFlight above already restricts such a position down to
+      // exactly its own allowed flights (see isFlightAllowed), so this
+      // never hides anything; it just skips a redundant "pick which of
+      // your own flight(s)" step. Only a position with NO owned flight
+      // (blank/"all" — CCT/Administrator) picks from the tile grid below.
+      if (allowedFlights.length) {
+        renderOwnFlightsDirect(grouped, flightNames);
         return;
       }
 
@@ -462,6 +467,57 @@
         tile.addEventListener("click", () => {
           selectedFlight = tile.dataset.flight;
           renderStudentList();
+        });
+      });
+      Shell.animateIn(contentEl);
+    }
+
+    /**
+     * Every one of this position's own flights, each as its own header +
+     * cadet list, stacked on one page — no flight tile to click through
+     * first (see the branch in renderFlightGrid above). A student row's
+     * flight is recorded in a data attribute since, unlike the single-
+     * selectedFlight tile-picked view, more than one flight's cadets can
+     * be on screen together here.
+     */
+    function renderOwnFlightsDirect(grouped, flightNames) {
+      const byStudent = observationsByStudent();
+      contentEl.innerHTML = flightNames.map(flight => {
+        const members = grouped[flight] || [];
+        return `
+          <div style="margin-bottom: var(--space-6);">
+            <div class="detail-header">
+              <h2>${esc(flight)}</h2>
+            </div>
+            ${members.length ? `
+              <div class="student-list">
+                ${members.map(m => {
+                  const count = (byStudent[String(m.CapId)] || []).length;
+                  return `
+                    <button class="student-row" data-flight="${esc(flight)}" data-capid="${esc(m.CapId)}">
+                      <div>
+                        <div class="student-row__name">${esc(m.Name) || "—"}</div>
+                        <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
+                      </div>
+                      <span class="student-row__count">${count} logged</span>
+                    </button>`;
+                }).join("")}
+              </div>
+            ` : `
+              <div class="state-message">
+                <div class="state-message__icon">⭐</div>
+                <p>No cadets in this flight.</p>
+              </div>
+            `}
+          </div>
+        `;
+      }).join("");
+
+      contentEl.querySelectorAll(".student-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedFlight = row.dataset.flight;
+          selectedStudent = (grouped[selectedFlight] || []).find(m => String(m.CapId) === row.dataset.capid);
+          renderStudentDetail();
         });
       });
       Shell.animateIn(contentEl);
@@ -591,7 +647,14 @@
 
       document.getElementById("back-to-students-btn").addEventListener("click", () => {
         selectedStudent = null;
-        renderStudentList();
+        // A position with owned flight(s) never went through the
+        // single-selectedFlight student list to get here (see
+        // renderFlightGrid's branch) — going back means re-showing every
+        // owned flight's list again, not just the one this student was
+        // in. Only CCT/Administrator (no owned flights) actually came
+        // from renderStudentList's tile-picked single-flight view.
+        if (allowedFlights.length) renderFlightGrid();
+        else renderStudentList();
       });
 
       wireChipHandlers();
