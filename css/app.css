@@ -577,16 +577,23 @@ html.nav-rail-collapsed .nav-rail__crest {
   margin-bottom: var(--space-3);
 }
 
+/* Borderless — the footer card itself already reads as a bordered box
+   (see .nav-rail__footer above); giving the button its OWN border on top
+   of that produced a visible "box behind a box" (a smaller outlined
+   rectangle nested inside the card's outline), most obvious once the
+   tablet rail's compact footer leaves nothing else in the card but this
+   button. A plain hover/active fill is enough affordance here — keyboard
+   focus still gets the global :focus-visible ring. */
 .nav-rail__footer .btn--ghost {
   width: 100%;
-  border-color: var(--indigo-500);
+  border-color: transparent;
   color: var(--steel-100);
   padding: var(--space-2);
   font-size: var(--fs-xs);
 }
 .nav-rail__footer .btn--ghost:hover {
   background: var(--indigo-700);
-  border-color: var(--indigo-500);
+  border-color: transparent;
 }
 
 .nav-rail__link {
@@ -1573,24 +1580,53 @@ button.date-field__day:hover {
 .hard-refresh-icon { display: none; }
 .hard-refresh-icon svg { width: 18px; height: 18px; }
 
-/* Tablet: nav rail narrows to icons only. Tablets are the primary staff
-   device, so the icon rail + a compact, still-reachable Log out. */
+/* Tablet: compact side rail with a small label stacked UNDER each icon.
+   Tablets are the primary staff device and can't hover, so the themed
+   data-tooltips never appear there — a stacked label keeps the nav
+   self-documenting without the full 248px desktop rail. The rail is a
+   touch wider than a pure icon strip (96px) so the longest labels
+   ("Announcements", "Observations") sit on one line. */
 @media (max-width: 1024px) {
-  .app-shell { grid-template-columns: 76px 1fr; }
-  .nav-rail__link-label,
+  .app-shell { grid-template-columns: 96px 1fr; }
+  .nav-rail { padding: var(--space-5) var(--space-2); }
+  /* Crest keeps just the mark — "NJWG Encampment" wouldn't fit at 96px. */
   .nav-rail__crest-text { display: none; }
-  .nav-rail__link { justify-content: center; }
   .nav-rail__crest { justify-content: center; }
 
-  /* The footer card is too wide for the 76px rail — drop the eyebrow and
-     position label, keep a compact centered Log out that still fits. */
+  .nav-rail__link {
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-1);
+    text-align: center;
+  }
+  .nav-rail__link-label {
+    display: block;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: normal;   /* allow a stubborn long label to wrap rather than clip */
+    overflow: visible;
+  }
+
+  /* The footer card is narrow at 96px — drop the eyebrow and position
+     label, keep a compact centered Log out (one line) that still fits. */
   .nav-rail__footer { padding: var(--space-3) var(--space-1) 0; text-align: center; }
   .nav-rail__footer-label,
   .nav-rail__footer-position { display: none; }
   .nav-rail__footer .btn--ghost {
     padding: var(--space-2) var(--space-1);
     font-size: var(--fs-2xs);
+    white-space: nowrap;
   }
+
+  /* Collapsing is a desktop affordance (toggle the wide rail to narrow);
+     the tablet rail is already compact, so a stray crest tap must NOT
+     blank the stacked labels / footer the way it does on desktop. These
+     override the base .app-shell--collapsed rules (same specificity, later
+     in source) to keep the tablet rail stable regardless of that class. */
+  .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
+  .app-shell--collapsed .nav-rail__footer { opacity: 1; pointer-events: auto; }
 
   .app-main { padding: var(--space-5); }
 }
@@ -1633,16 +1669,27 @@ button.date-field__day:hover {
     padding-bottom: env(safe-area-inset-bottom, 0);
   }
 
+  /* The bottom tab bar scrolls horizontally when there are more items than
+     fit (an Administrator has 9) — previously the extra items ("Announce-
+     ments", "Admin") overflowed and were clipped by body{overflow-x:hidden},
+     i.e. unreachable. flex:1 0 auto lets a few items fill the width evenly
+     while many items keep their size and scroll instead. Shell.renderNav
+     scrolls the active tab into view so the current page is never off-screen.
+     The scrollbar itself stays hidden (see the .nav-rail__links rule near
+     the top of this file). */
   .nav-rail__links {
     flex-direction: row;
-    overflow: visible;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
   }
 
   .nav-rail__crest,
   .nav-rail__footer { display: none; }
 
   .nav-rail__link {
-    flex: 1;
+    flex: 1 0 auto;
+    min-width: 4.25rem;
     flex-direction: column;
     justify-content: center;
     gap: 2px;
@@ -1704,6 +1751,10 @@ button.date-field__day:hover {
   }
   .app-header__title { font-size: var(--fs-md); }
   .nav-rail__link-label { display: none; } /* icons only when very narrow */
+  /* With labels hidden, the icon-only tabs pack small enough that all of
+     them fit without scrolling — drop the wider min-width the >380 bottom
+     bar uses so they don't needlessly overflow into a scroll here. */
+  .nav-rail__link { min-width: 0; flex: 1; }
 }
 
 /* ---- Touch devices (phones + tablets): larger hit targets ----

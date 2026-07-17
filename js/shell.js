@@ -239,6 +239,20 @@ const Shell = (() => {
 
     linksContainer.innerHTML = links;
 
+    // On the mobile bottom tab bar the links scroll horizontally when there
+    // are more than fit (see the max-width:720px rules in app.css). Make
+    // sure the CURRENT page's tab is scrolled into view so it's never sitting
+    // off the end of the bar. Guarded to the mobile bar so it never nudges
+    // the vertical desktop/tablet rail. `inline: "center"` scrolls only the
+    // links container (which is the horizontal scroll parent); "nearest"
+    // block avoids any vertical page jump.
+    if (typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 720px)").matches) {
+      const activeLink = linksContainer.querySelector('.nav-rail__link[aria-current="page"]');
+      if (activeLink && activeLink.scrollIntoView) {
+        activeLink.scrollIntoView({ inline: "center", block: "nearest" });
+      }
+    }
+
     const session = Auth.getSession();
     const existingFooter = rail.querySelector(".nav-rail__footer");
     if (existingFooter) existingFooter.remove();
