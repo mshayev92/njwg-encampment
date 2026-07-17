@@ -473,27 +473,23 @@ html.nav-rail-collapsed .nav-rail__crest {
   justify-content: center;
 }
 
-/* .nav-rail__crest-text, .nav-rail__link-label, and .nav-rail__footer
-   (the "signed in as" / log out card) all used a plain display:none
-   toggle tied to the SAME class that also drives .app-shell's
-   grid-template-columns WIDTH transition (see above) — instant on both
-   directions. Collapsing is fine instant (nothing to reveal), but
-   EXPANDING showed every one of these at full content width/opacity
-   the instant the class was removed, while the rail itself was still
+/* .nav-rail__crest-text and .nav-rail__link-label both used a plain
+   display:none toggle tied to the SAME class that also drives
+   .app-shell's grid-template-columns WIDTH transition (see above) —
+   instant on both directions. Collapsing is fine instant (nothing to
+   reveal), but EXPANDING showed both at full content width/opacity the
+   instant the class was removed, while the rail itself was still
    animating from its narrow collapsed width up to full width. Each
-   label/card briefly rendered squeezed into (or overflowing) a
-   still-too-narrow rail — most noticeably the LAST link's label,
-   sitting right above the footer, which read as a faint horizontal bar
-   flickering in and vanishing almost instantly. Fading opacity in/out
-   instead of an instant display snap, and delaying the fade-IN until
-   the width transition has had time to run, keeps all of them
-   invisible until the rail is actually wide enough. white-space:nowrap
-   + overflow:hidden keep a still-narrow rail from wrapping/reflowing
-   the text at all in the meantime (moot once actually invisible, but
-   keeps row heights stable through the transition regardless). */
+   label briefly rendered squeezed into (or overflowing) a
+   still-too-narrow rail. Fading opacity in/out instead of an instant
+   display snap, and delaying the fade-IN until the width transition has
+   had time to run, keeps both invisible until the rail is actually wide
+   enough. white-space:nowrap + overflow:hidden keep a still-narrow rail
+   from wrapping/reflowing the text at all in the meantime (moot once
+   actually invisible, but keeps row heights stable through the
+   transition regardless). */
 .nav-rail__crest-text,
-.nav-rail__link-label,
-.nav-rail__footer {
+.nav-rail__link-label {
   opacity: 1;
 }
 
@@ -503,8 +499,7 @@ html.nav-rail-collapsed .nav-rail__crest {
 }
 
 .app-shell--collapsed .nav-rail__crest-text,
-.app-shell--collapsed .nav-rail__link-label,
-.app-shell--collapsed .nav-rail__footer {
+.app-shell--collapsed .nav-rail__link-label {
   opacity: 0;
   pointer-events: none;
   /* Collapsing hides these INSTANTLY — nothing to visually protect
@@ -541,59 +536,12 @@ html.nav-rail-collapsed .nav-rail__crest {
 }
 
 .app-shell:not(.app-shell--collapsed) .nav-rail__crest-text,
-.app-shell:not(.app-shell--collapsed) .nav-rail__link-label,
-.app-shell:not(.app-shell--collapsed) .nav-rail__footer {
+.app-shell:not(.app-shell--collapsed) .nav-rail__link-label {
   /* Expanding fades IN instead, delayed until the width transition
      above has had time to finish, so none of these are visible while
      the rail is still narrow. */
   transition: opacity var(--duration-base) var(--ease-standard);
   transition-delay: var(--duration-base);
-}
-
-/* ---- Nav rail footer card (signed-in-as / log out) ----
-   A direct sibling of .nav-rail__links (not inside it), so it never
-   scrolls with the link list — see .nav-rail/.nav-rail__links above. */
-.nav-rail__footer {
-  flex-shrink: 0;
-  padding: var(--space-4) var(--space-3);
-  background: var(--indigo-900);
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(240, 180, 41, 0.15);
-}
-
-.nav-rail__footer-label {
-  font-family: var(--font-display);
-  font-size: 10px;
-  letter-spacing: var(--tracking-wider);
-  text-transform: uppercase;
-  color: var(--steel-300);
-  margin-bottom: var(--space-2);
-}
-
-.nav-rail__footer-position {
-  font-family: var(--font-mono);
-  font-size: var(--fs-sm);
-  color: var(--surface);
-  margin-bottom: var(--space-3);
-}
-
-/* Borderless — the footer card itself already reads as a bordered box
-   (see .nav-rail__footer above); giving the button its OWN border on top
-   of that produced a visible "box behind a box" (a smaller outlined
-   rectangle nested inside the card's outline), most obvious once the
-   tablet rail's compact footer leaves nothing else in the card but this
-   button. A plain hover/active fill is enough affordance here — keyboard
-   focus still gets the global :focus-visible ring. */
-.nav-rail__footer .btn--ghost {
-  width: 100%;
-  border-color: transparent;
-  color: var(--steel-100);
-  padding: var(--space-2);
-  font-size: var(--fs-xs);
-}
-.nav-rail__footer .btn--ghost:hover {
-  background: var(--indigo-700);
-  border-color: transparent;
 }
 
 .nav-rail__link {
@@ -1146,6 +1094,73 @@ html.nav-rail-collapsed .nav-rail__crest {
   text-align: center;
 }
 
+/* ---- Profile menu (header, top right) ----
+   Replaces the old nav-rail "signed in as" footer card — the position
+   name is now a button in the header's icon cluster, and Refresh/
+   Export/Install/Enable-alerts/Log out live in the dropdown beneath it. */
+.profile-menu-wrap {
+  position: relative;
+}
+
+.profile-menu__trigger {
+  font-family: var(--font-mono);
+}
+
+.profile-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 200px;
+  max-width: 90vw;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+  z-index: var(--z-overlay);
+  animation: overlay-in var(--duration-base) var(--ease-standard);
+}
+
+.profile-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.profile-menu__item:hover {
+  background: var(--surface-sunken);
+}
+
+.profile-menu__item-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--ink-600);
+}
+
+.profile-menu__item--danger {
+  color: var(--red-600);
+}
+.profile-menu__item--danger:hover {
+  background: var(--red-100);
+}
+
+.profile-menu__divider {
+  height: 1px;
+  background: var(--line);
+  margin: var(--space-2) var(--space-1);
+}
+
 /* ---- Custom dropdown (replaces native <select>) ---- */
 .dropdown {
   position: relative;
@@ -1575,10 +1590,6 @@ button.date-field__day:hover {
    RESPONSIVE
    ============================================================ */
 
-/* The header Refresh button carries both an icon and a text label; the
-   icon is hidden on wide screens (label shown) and swapped in on small
-   screens where space is tight (see the mobile block below). */
-.hard-refresh-icon { display: none; }
 .hard-refresh-icon svg { width: 18px; height: 18px; }
 
 /* Tablet: compact side rail with a small label stacked UNDER each icon.
@@ -1610,24 +1621,12 @@ button.date-field__day:hover {
     overflow: visible;
   }
 
-  /* The footer card is narrow at 96px — drop the eyebrow and position
-     label, keep a compact centered Log out (one line) that still fits. */
-  .nav-rail__footer { padding: var(--space-3) var(--space-1) 0; text-align: center; }
-  .nav-rail__footer-label,
-  .nav-rail__footer-position { display: none; }
-  .nav-rail__footer .btn--ghost {
-    padding: var(--space-2) var(--space-1);
-    font-size: var(--fs-2xs);
-    white-space: nowrap;
-  }
-
   /* Collapsing is a desktop affordance (toggle the wide rail to narrow);
      the tablet rail is already compact, so a stray crest tap must NOT
-     blank the stacked labels / footer the way it does on desktop. These
-     override the base .app-shell--collapsed rules (same specificity, later
-     in source) to keep the tablet rail stable regardless of that class. */
+     blank the stacked labels the way it does on desktop. This overrides
+     the base .app-shell--collapsed rule (same specificity, later in
+     source) to keep the tablet rail stable regardless of that class. */
   .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
-  .app-shell--collapsed .nav-rail__footer { opacity: 1; pointer-events: auto; }
 
   .app-main { padding: var(--space-5); }
 }
@@ -1648,12 +1647,6 @@ button.date-field__day:hover {
     gap: var(--space-3);
   }
   .app-header__title { font-size: var(--fs-lg); }
-
-  /* Refresh collapses to an icon-only button to save a whole row of
-     header width on phones. */
-  #hard-refresh-label { display: none; }
-  .hard-refresh-icon { display: inline-flex; }
-  #hard-refresh-btn { padding: var(--space-2); }
 
   .nav-rail {
     flex-direction: row;
@@ -1685,8 +1678,7 @@ button.date-field__day:hover {
     -webkit-overflow-scrolling: touch;
   }
 
-  .nav-rail__crest,
-  .nav-rail__footer { display: none; }
+  .nav-rail__crest { display: none; }
 
   .nav-rail__link {
     flex: 1 0 auto;
