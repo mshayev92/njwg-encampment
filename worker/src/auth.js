@@ -41,20 +41,20 @@ export const SHEET_PERMISSIONS = {
   // visibility (whether "observations" is in a position's Pages at
   // all) is the only real gate, same as every other page.
   Observations:       { read: "any", write: "any" },
-  // Unlike Observations, submitting a recommendation is gated by the
-  // edit-recommendations pencil — a position with view-only "recommendations"
-  // access gets the read-only submissions review instead (see
-  // pages/recommendations.html).
-  HonorCadetRecommendations:  { read: "any", write: "page" },
-  HonorFlightRecommendations: { read: "any", write: "page" }
+  // No separate edit-* pencil for Awards either — a Flight Commander can
+  // only ever write its own flight's Honor Cadet row and a Squadron
+  // Commander only its own Honor Flight row, which pages/recommendations.html
+  // already enforces by which form it shows (single flight vs several) —
+  // see submitterPosition/Flight in the row shape. Page-level visibility
+  // (whether "recommendations" is in a position's Pages) is the only gate.
+  HonorCadetRecommendations:  { read: "any", write: "any" },
+  HonorFlightRecommendations: { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
-  Roster:                     { viewPage: "roster",          editPage: "edit-roster" },
-  Schedule:                   { viewPage: "schedule",         editPage: "edit-schedule" },
-  InspectionPeriods:          { viewPage: "inspections",      editPage: "edit-inspections" },
-  HonorCadetRecommendations:  { viewPage: "recommendations",  editPage: "edit-recommendations" },
-  HonorFlightRecommendations: { viewPage: "recommendations",  editPage: "edit-recommendations" }
+  Roster:            { viewPage: "roster",        editPage: "edit-roster" },
+  Schedule:          { viewPage: "schedule",       editPage: "edit-schedule" },
+  InspectionPeriods: { viewPage: "inspections",    editPage: "edit-inspections" }
 };
 
 export const RATE_LIMIT_PER_MINUTE = 60;
