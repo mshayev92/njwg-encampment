@@ -1684,7 +1684,11 @@ const Shell = (() => {
 
     function syncLabel() {
       const opt = selectedOption();
-      label.textContent = opt ? opt.textContent : "Select…";
+      if (!opt) { label.textContent = "Select…"; return; }
+      // A middle dot reads as one label, not two clashing separators, when
+      // the option's own text already contains its own em dash (e.g. an
+      // inspection period's "Uniform — OCP/ABU") — see data-sublabel below.
+      label.textContent = opt.dataset.sublabel ? `${opt.textContent} · ${opt.dataset.sublabel}` : opt.textContent;
     }
 
     function close() {
@@ -1730,7 +1734,22 @@ const Shell = (() => {
       const row = document.createElement("div");
       row.className = "dropdown__option";
       row.setAttribute("role", "option");
-      row.textContent = opt.textContent;
+      // An option can carry a data-sublabel (e.g. a date) to show as its
+      // own smaller, muted line under the main text — instead of jamming
+      // both onto one line with a separator that reads oddly whenever the
+      // main text already has its own punctuation (see the Inspections
+      // Trends "Showing:" dropdown, which sets this to a period's date).
+      // Plain options (no sublabel) render exactly as before.
+      if (opt.dataset.sublabel) {
+        const primary = document.createElement("div");
+        primary.textContent = opt.textContent;
+        const sub = document.createElement("div");
+        sub.className = "dropdown__option-sub";
+        sub.textContent = opt.dataset.sublabel;
+        row.append(primary, sub);
+      } else {
+        row.textContent = opt.textContent;
+      }
       row.addEventListener("click", () => {
         selectEl.value = opt.value;
         selectEl.dispatchEvent(new Event("change", { bubbles: true }));

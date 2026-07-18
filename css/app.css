@@ -1222,6 +1222,17 @@ html.nav-rail-collapsed .nav-rail__crest {
   background: var(--surface-sunken);
 }
 
+/* Secondary line under an option's main text (see the data-sublabel
+   handling in Shell.enhanceSelect) — same treatment as .flight-tile__count
+   under a tile's name, for a consistent "name, then muted detail" look. */
+.dropdown__option-sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-600);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  margin-top: var(--space-1);
+}
+
 /* ---- Custom date/time fields (replace native <input type="date"/"time">) ----
    The browser's own date/time picker chrome is OS-styled and can't be
    restyled at all — these give date and time inputs the same themed
