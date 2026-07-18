@@ -94,6 +94,96 @@
       padding: 0 0 0 var(--space-2);
     }
     .rec-history-row__delete:hover { color: var(--red-600); }
+
+    /* ---- Weekly standings (aggregated top contenders) ---- */
+    .rec-mode-tabs { margin-bottom: var(--space-5); }
+
+    .weights-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: var(--space-4) var(--space-5);
+      margin-top: var(--space-4);
+    }
+    .weight-field { display: flex; flex-direction: column; gap: var(--space-2); }
+    .weight-field__head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: var(--space-2);
+    }
+    .weight-field__label { font-size: var(--fs-sm); font-weight: 600; color: var(--indigo-900); }
+    .weight-field__value { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-900); }
+    .weight-field__dir {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+    }
+    .weight-field__dir--neg { color: var(--red-600); }
+    .weight-field input[type="range"] {
+      width: 100%;
+      accent-color: var(--gold-500);
+      cursor: pointer;
+    }
+
+    .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
+    .standings-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+    }
+    .standings-row--top { border-color: var(--gold-500); box-shadow: inset 3px 0 0 var(--gold-500); }
+    .standings-row__rank {
+      flex-shrink: 0;
+      width: 2rem;
+      height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--surface-sunken);
+      font-family: var(--font-display);
+      font-weight: 700;
+      color: var(--indigo-900);
+    }
+    .standings-row--top .standings-row__rank { background: var(--gold-100); color: var(--gold-600); }
+    .standings-row__body { flex: 1; min-width: 0; }
+    .standings-row__name { font-weight: 600; color: var(--indigo-900); }
+    .standings-row__breakdown {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-1) var(--space-2);
+      margin-top: var(--space-2);
+    }
+    .standings-chip {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+    }
+    .standings-chip--neg { color: var(--red-600); }
+    .standings-row__score {
+      flex-shrink: 0;
+      text-align: right;
+      font-family: var(--font-mono);
+      font-size: var(--fs-lg);
+      font-weight: 700;
+      color: var(--indigo-900);
+    }
+    .standings-row__score small {
+      display: block;
+      font-family: var(--font-body);
+      font-size: var(--fs-2xs);
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+    }
   </style>
 </head>
 <body>
@@ -121,6 +211,14 @@
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
+      <!-- Top-level Daily/Weekly switch. Kept as its own persistent node
+           (not rebuilt inside #rec-content) so its sliding indicator has a
+           previous position to animate from when toggling modes, the same
+           reason Schedule keeps its day-tabs bar alive across renders.
+           Hidden until the first render reveals it, so it appears together
+           with the rest of the page rather than before content loads. -->
+      <div class="tabs rec-mode-tabs" id="rec-mode-tabs" style="display:none;"></div>
+
       <div id="rec-content">
         <div class="state-message">
           <div class="spinner"></div>
@@ -159,8 +257,22 @@
     let rosterRows = [];
     let honorCadetRows = [];
     let honorFlightRows = [];
+    // Extra data points the Weekly standings view aggregates. Unused by the
+    // Daily view (the recommendation forms/review), so they're loaded but
+    // never block the Daily render.
+    let uniformRows = [];
+    let roomRows = [];
+    let ptRows = [];
+    let observationRows = [];
     let hcAttested = false;
     let hfAttested = false;
+
+    // Daily = the per-day recommendation forms/review (below); Weekly = the
+    // aggregated standings that rank top contenders across every data point.
+    let activeMode = "daily"; // "daily" | "weekly"
+    let modeTabsIndicator = null;
+    let activeStandingsTab = "hc"; // "hc" (Honor Cadet) | "hf" (Honor Flight)
+    let standingsTabsIndicator = null;
 
     function groupByFlight(rows) {
       return rows
@@ -562,7 +674,44 @@
 
     // ---- Page assembly -----------------------------------------------------
 
-    function render() {
+    const modeTabsBarEl = document.getElementById("rec-mode-tabs");
+
+    /**
+     * Reveals and wires the persistent Daily/Weekly switch once (its
+     * buttons never change, so unlike Schedule's day tabs it's built a
+     * single time and only its active state toggles afterward). Switching
+     * modes re-renders #rec-content only, leaving this bar — and its
+     * sliding indicator — in place to animate between the two tabs.
+     */
+    function ensureModeTabs() {
+      if (modeTabsBarEl.dataset.wired) return;
+      modeTabsBarEl.dataset.wired = "true";
+      modeTabsBarEl.style.display = "";
+      modeTabsBarEl.setAttribute("role", "tablist");
+      modeTabsBarEl.innerHTML = `
+        <button class="tabs__tab ${activeMode === "daily" ? "is-active" : ""}" data-mode="daily">Daily</button>
+        <button class="tabs__tab ${activeMode === "weekly" ? "is-active" : ""}" data-mode="weekly">Weekly</button>
+      `;
+      modeTabsIndicator = Shell.enhanceTabs(modeTabsBarEl);
+      modeTabsBarEl.querySelectorAll("[data-mode]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.mode === activeMode) return;
+          activeMode = btn.dataset.mode;
+          modeTabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+          if (modeTabsIndicator) modeTabsIndicator.move();
+          renderContent();
+        });
+      });
+    }
+
+    /** Dispatches to the Daily or Weekly view; called on every (re)render. */
+    function renderContent() {
+      ensureModeTabs();
+      if (activeMode === "weekly") renderWeekly();
+      else renderDaily();
+    }
+
+    function renderDaily() {
       if (isUnscoped) {
         contentEl.innerHTML = renderSubmissionsReview();
         wireSubmissionsReview();
@@ -590,21 +739,316 @@
       Shell.animateIn(contentEl);
     }
 
+    // ---- Weekly standings (aggregated top contenders) ---------------------
+    //
+    // The Daily view captures ONE recommendation per day; the Weekly view
+    // steps back and ranks who's actually leading across every quantitative
+    // data point the app collects — uniform/room/PT inspection scores,
+    // positive vs. concern observations, and the recommendations themselves.
+    // Honor Cadet ranks individual cadets; Honor Flight ranks each flight by
+    // its cadets' combined (per-cadet average) data, which is what "honor
+    // flight of the week" means here. Weights let a reviewer tune how much
+    // each data point matters; they're a personal, per-device knob (there's
+    // no shared config sheet for them), stored in localStorage.
+
+    const WEIGHT_STORAGE_KEY = "njwg_award_weights";
+    const UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
+    const ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
+
+    // dir: +1 raises the score, -1 lowers it (a bad signal). scope: which
+    // ranking(s) a metric feeds — "both", "cadet" (Honor Cadet only), or
+    // "flight" (Honor Flight only). def: default weight.
+    const METRICS = [
+      { id: "uniform",    label: "Uniform Inspections",     dir: 1,  scope: "both",   def: 1 },
+      { id: "room",       label: "Room Inspections",        dir: 1,  scope: "both",   def: 1 },
+      { id: "pt",         label: "Physical Training",       dir: 1,  scope: "both",   def: 1 },
+      { id: "posObs",     label: "Positive Observations",   dir: 1,  scope: "both",   def: 1 },
+      { id: "concernObs", label: "Concern Observations",    dir: -1, scope: "both",   def: 1 },
+      { id: "hcRecs",     label: "Honor Cadet Nominations", dir: 1,  scope: "cadet",  def: 2 },
+      { id: "hfRecs",     label: "Honor Flight Nominations",dir: 1,  scope: "flight", def: 2 }
+    ];
+
+    function defaultWeights() {
+      return Object.fromEntries(METRICS.map(m => [m.id, m.def]));
+    }
+
+    function loadWeights() {
+      const w = defaultWeights();
+      try {
+        const stored = JSON.parse(localStorage.getItem(WEIGHT_STORAGE_KEY) || "{}");
+        METRICS.forEach(m => {
+          if (typeof stored[m.id] === "number" && isFinite(stored[m.id])) w[m.id] = stored[m.id];
+        });
+      } catch (e) { /* corrupt/absent — fall back to defaults */ }
+      return w;
+    }
+
+    let weights = loadWeights();
+
+    function saveWeights() {
+      try { localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(weights)); } catch (e) { /* storage full/blocked */ }
+    }
+
+    function flightVisible(flight) {
+      // Empty sessionFlightList (CCT/Administrator) sees every flight; a
+      // flight/squadron position sees only its own — same visibility rule
+      // the rest of the app uses (Shell.flightMatchesAudience).
+      return Shell.flightMatchesAudience(sessionFlightList, flight);
+    }
+
+    function num(v) { return Number(v) || 0; }
+    function mean(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
+
+    /**
+     * Per-cadet raw metric values (before normalization/weighting), one
+     * entry per roster cadet in a visible flight. A metric is null when the
+     * cadet has no data for it (no inspections of that type, etc.) — null
+     * contributes nothing rather than counting as a zero score.
+     */
+    function cadetRawMetrics() {
+      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight));
+      const byCap = {};
+      cadets.forEach(c => {
+        byCap[String(c.CapId)] = { uniform: [], room: [], ptPassed: 0, ptAttempted: 0, posObs: 0, concernObs: 0, hcRecs: 0 };
+      });
+
+      uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
+      roomRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.room.push(num(r.TotalPoints) / ROOM_ITEM_COUNT); });
+      ptRows.forEach(r => {
+        const e = byCap[String(r.StudentCapId)];
+        if (e) { e.ptPassed += num(r.TotalPoints); e.ptAttempted += num(r.ItemsAttempted); }
+      });
+      observationRows.forEach(r => {
+        const e = byCap[String(r.StudentCapId)];
+        if (!e) return;
+        const s = String(r.Sentiment).toLowerCase();
+        if (s === "positive") e.posObs++;
+        else if (s === "concern") e.concernObs++;
+      });
+      honorCadetRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.hcRecs++; });
+
+      return cadets.map(c => {
+        const e = byCap[String(c.CapId)];
+        return {
+          name: c.Name || c.CapId || "—",
+          flight: c.Flight || "Unassigned",
+          metrics: {
+            uniform: mean(e.uniform),
+            room: mean(e.room),
+            pt: e.ptAttempted ? e.ptPassed / e.ptAttempted : null,
+            posObs: e.posObs,
+            concernObs: e.concernObs,
+            hcRecs: e.hcRecs
+          }
+        };
+      });
+    }
+
+    /**
+     * Per-flight raw metrics: each shared metric is the mean across the
+     * flight's cadets (skipping cadets with no data for it), so flight size
+     * doesn't bias the ranking, plus a count of Honor Flight nominations for
+     * that flight.
+     */
+    function flightRawMetrics() {
+      const cadetData = cadetRawMetrics();
+      const byFlight = {};
+      cadetData.forEach(cd => { (byFlight[cd.flight] = byFlight[cd.flight] || []).push(cd.metrics); });
+
+      const hfByFlight = {};
+      honorFlightRows.forEach(r => {
+        if (!flightVisible(r.Flight)) return;
+        const f = r.Flight || "Unassigned";
+        hfByFlight[f] = (hfByFlight[f] || 0) + 1;
+      });
+
+      return Object.keys(byFlight).sort().map(f => {
+        const list = byFlight[f];
+        const agg = {};
+        ["uniform", "room", "pt", "posObs", "concernObs"].forEach(k => {
+          const vals = list.map(m => m[k]).filter(v => v !== null && v !== undefined);
+          agg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+        });
+        agg.hfRecs = hfByFlight[f] || 0;
+        return { name: f, cadetCount: list.length, metrics: agg };
+      });
+    }
+
+    function fmtWeight(w) { return Number.isInteger(w) ? String(w) : w.toFixed(1); }
+
+    function fmtMetric(id, v) {
+      if (v === null || v === undefined) return "—";
+      if (id === "uniform" || id === "room" || id === "pt") return `${Math.round(num(v) * 100)}%`;
+      return String(Math.round(num(v) * 10) / 10);
+    }
+
+    function weightFieldHtml(m) {
+      const ctx = m.scope === "cadet" ? "Honor Cadet only" : m.scope === "flight" ? "Honor Flight only" : "";
+      const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
+      return `
+        <div class="weight-field">
+          <div class="weight-field__head">
+            <span class="weight-field__label">${esc(m.label)}</span>
+            <span class="weight-field__value" id="w-val-${m.id}">${fmtWeight(weights[m.id])}</span>
+          </div>
+          <input type="range" min="0" max="5" step="0.5" value="${weights[m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} weight">
+          <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}${ctx ? ` · ${ctx}` : ""}</span>
+        </div>`;
+    }
+
+    function renderWeekly() {
+      contentEl.innerHTML = `
+        <div class="card" style="margin-bottom: var(--space-6);">
+          <h3 class="section-label">Scoring Weights</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: 0;">
+            Tune how much each data point counts toward the standings below. Saved on this device.
+          </p>
+          <div class="weights-grid">${METRICS.map(weightFieldHtml).join("")}</div>
+          <div style="margin-top: var(--space-5);">
+            <button class="btn btn--ghost" id="weights-reset-btn">Reset to defaults</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 class="section-label">Top Contenders</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+            Ranked across every data point logged so far. Index is relative — the leader is 100.
+          </p>
+          <div class="tabs rec-tabs" id="standings-tabs-bar">
+            <button class="tabs__tab ${activeStandingsTab === "hc" ? "is-active" : ""}" data-standings="hc">Honor Cadet</button>
+            <button class="tabs__tab ${activeStandingsTab === "hf" ? "is-active" : ""}" data-standings="hf">Honor Flight</button>
+          </div>
+          <div class="standings-list" id="standings-list"></div>
+        </div>
+      `;
+      wireWeekly();
+      renderStandingsList();
+      Shell.animateIn(contentEl);
+    }
+
+    function wireWeekly() {
+      contentEl.querySelectorAll("input[data-weight]").forEach(input => {
+        input.addEventListener("input", () => {
+          const id = input.dataset.weight;
+          weights[id] = Number(input.value);
+          const valEl = document.getElementById(`w-val-${id}`);
+          if (valEl) valEl.textContent = fmtWeight(weights[id]);
+          saveWeights();
+          renderStandingsList();
+        });
+      });
+
+      const resetBtn = document.getElementById("weights-reset-btn");
+      if (resetBtn) resetBtn.addEventListener("click", () => {
+        weights = defaultWeights();
+        saveWeights();
+        renderWeekly();
+      });
+
+      const tabsBarEl = document.getElementById("standings-tabs-bar");
+      if (tabsBarEl) {
+        standingsTabsIndicator = Shell.enhanceTabs(tabsBarEl);
+        tabsBarEl.querySelectorAll("[data-standings]").forEach(btn => {
+          btn.addEventListener("click", () => {
+            if (btn.dataset.standings === activeStandingsTab) return;
+            activeStandingsTab = btn.dataset.standings;
+            tabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+            if (standingsTabsIndicator) standingsTabsIndicator.move();
+            renderStandingsList();
+          });
+        });
+      }
+    }
+
+    function renderStandingsList() {
+      const listEl = document.getElementById("standings-list");
+      if (!listEl) return;
+
+      const isCadet = activeStandingsTab === "hc";
+      const applicable = METRICS.filter(m => m.scope === "both" || m.scope === (isCadet ? "cadet" : "flight"));
+
+      const contenders = isCadet
+        ? cadetRawMetrics().map(cd => ({ name: cd.name, sub: cd.flight, metrics: cd.metrics }))
+        : flightRawMetrics().map(f => ({ name: f.name, sub: `${f.cadetCount} cadet${f.cadetCount === 1 ? "" : "s"}`, metrics: f.metrics }));
+
+      if (!contenders.length) {
+        listEl.innerHTML = `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${isCadet ? "cadets" : "flights"} with data yet.</p>`;
+        return;
+      }
+
+      // Normalize each metric against the cohort's max so every axis lands
+      // on a comparable 0-1 scale before weighting (a cadet with no data on
+      // an axis just scores 0 there).
+      const maxByMetric = {};
+      applicable.forEach(m => {
+        maxByMetric[m.id] = Math.max(0, ...contenders.map(c => num(c.metrics[m.id])));
+      });
+
+      const scored = contenders.map(c => {
+        let raw = 0;
+        const parts = [];
+        applicable.forEach(m => {
+          const w = weights[m.id];
+          const norm = maxByMetric[m.id] > 0 ? num(c.metrics[m.id]) / maxByMetric[m.id] : 0;
+          raw += m.dir * w * norm;
+          if (w > 0) parts.push({ m, rawVal: c.metrics[m.id] });
+        });
+        return { name: c.name, sub: c.sub, raw, parts };
+      }).sort((a, b) => b.raw - a.raw);
+
+      const top = Math.max(0, ...scored.map(s => s.raw));
+
+      listEl.innerHTML = scored.map((s, i) => {
+        const index = top > 0 ? Math.round(100 * Math.max(0, s.raw) / top) : 0;
+        return `
+          <div class="standings-row ${i === 0 && s.raw > 0 ? "standings-row--top" : ""}">
+            <div class="standings-row__rank">${i + 1}</div>
+            <div class="standings-row__body">
+              <div class="standings-row__name">${esc(s.name)}${s.sub ? ` <span style="font-weight:400; color:var(--ink-600); font-size:var(--fs-xs);">${esc(s.sub)}</span>` : ""}</div>
+              <div class="standings-row__breakdown">
+                ${s.parts.map(p => `<span class="standings-chip ${p.m.dir < 0 ? "standings-chip--neg" : ""}">${esc(p.m.label)}: ${fmtMetric(p.m.id, p.rawVal)}</span>`).join("")}
+              </div>
+            </div>
+            <div class="standings-row__score">${index}<small>Index</small></div>
+          </div>`;
+      }).join("");
+    }
+
+    function refreshWeeklyIfActive() {
+      if (activeMode === "weekly" && document.getElementById("standings-list")) renderStandingsList();
+    }
+
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = fresh.rows || [];
-        render();
+        renderContent();
       });
       const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
         honorCadetRows = fresh.rows || [];
         if (document.getElementById("hc-history-list")) renderHonorCadetHistory();
         if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
+        refreshWeeklyIfActive();
       });
       const hfHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
         honorFlightRows = fresh.rows || [];
         if (document.getElementById("hf-history-list")) renderHonorFlightHistory();
         if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
+        refreshWeeklyIfActive();
       });
+
+      // Extra sheets used only by the Weekly standings. They never gate the
+      // first render (the Daily view doesn't need them): each seeds its array
+      // from whatever's already warm in cache so a switch to Weekly renders
+      // immediately, and refreshes the standings in place if the Weekly view
+      // is already up when fresher data lands.
+      const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => { uniformRows = fresh.rows || []; refreshWeeklyIfActive(); });
+      const roomHandle = Api.getSheetCached("RoomInspections",    (fresh) => { roomRows = fresh.rows || []; refreshWeeklyIfActive(); });
+      const ptHandle = Api.getSheetCached("PTInspections",      (fresh) => { ptRows = fresh.rows || []; refreshWeeklyIfActive(); });
+      const obsHandle = Api.getSheetCached("Observations",       (fresh) => { observationRows = fresh.rows || []; refreshWeeklyIfActive(); });
+      uniformRows = (uniformHandle.data && uniformHandle.data.rows) || [];
+      roomRows = (roomHandle.data && roomHandle.data.rows) || [];
+      ptRows = (ptHandle.data && ptHandle.data.rows) || [];
+      observationRows = (obsHandle.data && obsHandle.data.rows) || [];
 
       const allCachedNow = !!(rosterHandle.data && hcHandle.data && hfHandle.data);
 
@@ -612,7 +1056,7 @@
         rosterRows = rosterHandle.data.rows || [];
         honorCadetRows = hcHandle.data.rows || [];
         honorFlightRows = hfHandle.data.rows || [];
-        render();
+        renderContent();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
@@ -622,7 +1066,7 @@
           rosterRows = rosterData.rows || [];
           honorCadetRows = hcData.rows || [];
           honorFlightRows = hfData.rows || [];
-          if (!allCachedNow) render();
+          if (!allCachedNow) renderContent();
         })
         .catch((err) => {
           if (!allCachedNow) {
