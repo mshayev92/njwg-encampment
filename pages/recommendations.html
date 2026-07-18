@@ -825,14 +825,14 @@
     // no shared config sheet for them), stored in localStorage.
 
     // Scoring is out of 100%: each ranking mode (Honor Cadet / Honor Flight)
-    // has its OWN set of components, each an editable share of that mode's
-    // 100% total — the two modes don't share one weight configuration,
-    // since a component meaningful to one (a cadet's own nominations) isn't
-    // meaningful to the other. A component's slider holds a raw relative
-    // share; the displayed/used PERCENT is that share divided by the sum of
-    // all of this mode's raw shares, so the set always sums to 100% no
-    // matter what's typed — dragging one slider live-rebalances the rest
-    // instead of requiring the person to manually make everything add up.
+    // has its OWN set of components, each an editable percent of that
+    // mode's 100% total — the two modes don't share one weight
+    // configuration, since a component meaningful to one (a cadet's own
+    // nominations) isn't meaningful to the other. Each component's slider
+    // IS its literal percent — moving one does NOT change any other, on
+    // purpose, so the person can adjust every component independently;
+    // Save only enables once the mode's percentages actually add up to
+    // 100 (see weightsTotal/updateWeightsPanelState).
     const WEIGHT_STORAGE_KEY = "njwg_award_weights_v2";
     const UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
     const ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
@@ -894,16 +894,6 @@
 
     function saveWeights() {
       try { localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(weights)); } catch (e) { /* storage full/blocked */ }
-    }
-
-    /** `metrics`' raw shares (from either `weights[mode]` or `draftWeights[mode]`) as a percent of their 100% total — always sums to 100. */
-    function normalizedPercents(metrics, raw) {
-      const total = metrics.reduce((sum, m) => sum + Math.max(0, num(raw[m.id])), 0);
-      const pct = {};
-      metrics.forEach(m => {
-        pct[m.id] = total > 0 ? (100 * Math.max(0, num(raw[m.id])) / total) : (100 / metrics.length);
-      });
-      return pct;
     }
 
     /** Whether `mode`'s draft differs from its last-saved weights — gates the Save button. */
@@ -1004,15 +994,15 @@
       return String(Math.round(num(v) * 10) / 10);
     }
 
-    function weightFieldHtml(m, mode, pct) {
+    function weightFieldHtml(m, mode) {
       const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
         <div class="weight-field">
           <div class="weight-field__head">
             <span class="weight-field__label">${esc(m.label)}</span>
-            <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(pct[m.id])}</span>
+            <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(draftWeights[mode][m.id])}</span>
           </div>
-          <input type="range" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} share">
+          <input type="range" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
           <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
@@ -1027,12 +1017,13 @@
         <div class="card" style="margin-bottom: var(--space-6);">
           <h3 class="section-label" id="weights-title">Scoring Weights</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: 0;">
-            Each component's share of the 100% total — drag one and the others rebalance automatically. Nothing below changes until you click Save.
+            Each component is its own percent of the total — moving one does not change the others. Adjust until they add up to 100%, then Save.
           </p>
           <div class="weights-grid" id="weights-grid"></div>
-          <div style="margin-top: var(--space-5); display:flex; align-items:center; gap: var(--space-3);">
+          <div style="margin-top: var(--space-5); display:flex; align-items:center; gap: var(--space-3); flex-wrap:wrap;">
             <button class="btn btn--primary" id="weights-save-btn" disabled>Save Weights</button>
             <button class="btn btn--ghost" id="weights-reset-btn">Reset to defaults</button>
+            <span id="weights-total" style="font-size: var(--fs-sm); font-weight:600;"></span>
             <span id="weights-dirty-note" style="display:none; font-size: var(--fs-xs); color: var(--ink-600);">Unsaved changes</span>
           </div>
         </div>
@@ -1073,14 +1064,36 @@
       });
     }
 
-    /** Enables/disables the Save button and shows/hides the "Unsaved changes" note for the currently-active mode. */
-    function updateWeightsSaveState() {
+    /** Sum of `mode`'s draft percentages — must read exactly 100 to allow saving. */
+    function weightsTotal(mode) {
+      return RANKING_METRICS[mode].reduce((sum, m) => sum + Math.max(0, num(draftWeights[mode][m.id])), 0);
+    }
+
+    /** Updates the running total, the Save button's enabled state, and the unsaved-changes note for the currently-active mode. */
+    function updateWeightsPanelState() {
       const mode = activeStandingsTab;
+      const total = weightsTotal(mode);
+      const isValidTotal = total === 100;
       const dirty = weightsAreDirty(mode);
+
+      const totalEl = document.getElementById("weights-total");
+      if (totalEl) {
+        totalEl.textContent = `Total: ${total}%`;
+        totalEl.style.color = isValidTotal ? "var(--green-600)" : "var(--red-600)";
+      }
+
       const saveBtn = document.getElementById("weights-save-btn");
-      if (saveBtn) saveBtn.disabled = !dirty;
+      if (saveBtn) saveBtn.disabled = !(dirty && isValidTotal);
+
       const note = document.getElementById("weights-dirty-note");
-      if (note) note.style.display = dirty ? "" : "none";
+      if (note) {
+        if (!dirty) {
+          note.style.display = "none";
+        } else {
+          note.style.display = "";
+          note.textContent = isValidTotal ? "Unsaved changes" : "Must add up to 100% before saving";
+        }
+      }
     }
 
     /**
@@ -1093,28 +1106,27 @@
     function renderWeightsPanel() {
       const mode = activeStandingsTab;
       const metrics = RANKING_METRICS[mode];
-      const pct = normalizedPercents(metrics, draftWeights[mode]);
 
       const titleEl = document.getElementById("weights-title");
       if (titleEl) titleEl.textContent = `Scoring Weights — ${mode === "hc" ? "Honor Cadet" : "Honor Flight"}`;
 
       const gridEl = document.getElementById("weights-grid");
       if (!gridEl) return;
-      gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode, pct)).join("");
+      gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode)).join("");
 
-      // Dragging only edits the draft and live-previews the rebalanced
-      // percentages here — it deliberately does NOT touch `weights`,
-      // save to localStorage, or re-score the standings below. That only
-      // happens when "Save Weights" is clicked (see saveBtn below).
+      // Each slider is independent — moving one does NOT rebalance the
+      // others (unlike an earlier version of this panel). The person
+      // manually adjusts every component until the running total below
+      // reads 100%, which — together with an actual change — is what
+      // enables Save. Dragging only edits the draft; it deliberately does
+      // NOT touch `weights`, save to localStorage, or re-score the
+      // standings below. That only happens when "Save Weights" is clicked.
       gridEl.querySelectorAll("input[data-weight]").forEach(input => {
         input.addEventListener("input", () => {
           draftWeights[mode][input.dataset.weight] = Number(input.value);
-          const freshPct = normalizedPercents(metrics, draftWeights[mode]);
-          metrics.forEach(m => {
-            const valEl = document.getElementById(`w-val-${mode}-${m.id}`);
-            if (valEl) valEl.textContent = fmtPercent(freshPct[m.id]);
-          });
-          updateWeightsSaveState();
+          const valEl = document.getElementById(`w-val-${mode}-${input.dataset.weight}`);
+          if (valEl) valEl.textContent = fmtPercent(Number(input.value));
+          updateWeightsPanelState();
         });
       });
 
@@ -1123,7 +1135,7 @@
         saveBtn.onclick = () => {
           weights[mode] = { ...draftWeights[mode] };
           saveWeights();
-          updateWeightsSaveState();
+          updateWeightsPanelState();
           renderStandingsList();
           Shell.showToast("Weights saved.", { type: "success" });
         };
@@ -1140,7 +1152,7 @@
         };
       }
 
-      updateWeightsSaveState();
+      updateWeightsPanelState();
     }
 
     function renderStandingsList() {
@@ -1149,7 +1161,6 @@
 
       const mode = activeStandingsTab;
       const metrics = RANKING_METRICS[mode];
-      const pct = normalizedPercents(metrics, weights[mode]);
 
       const contenders = mode === "hc"
         ? cadetRawMetrics().map(cd => ({ name: cd.name, sub: cd.flight, metrics: cd.metrics }))
@@ -1177,7 +1188,7 @@
         const parts = [];
         metrics.forEach(m => {
           const norm = maxByMetric[m.id] > 0 ? num(c.metrics[m.id]) / maxByMetric[m.id] : 0;
-          score += m.dir * pct[m.id] * norm;
+          score += m.dir * num(weights[mode][m.id]) * norm;
           parts.push({ m, rawVal: c.metrics[m.id] });
         });
         return { name: c.name, sub: c.sub, score, parts };
