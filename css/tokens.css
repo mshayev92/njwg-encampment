@@ -39,6 +39,30 @@
   --ink-400:         #969ab8;   /* placeholder / disabled text */
   --line:            #d9dcef;   /* standard hairline border */
 
+  /* Card/section titles, throughout the app, are set in brand indigo
+     rather than plain --ink-900 — a deliberate light-mode flourish
+     (titles read as "branded," body copy as neutral). That flourish
+     depends on the indigo being dark text on a light --surface; on a
+     dark --surface the exact same indigo-900 literal is nearly
+     invisible (dark-on-dark), so this is its own token — equal to
+     --indigo-900 in light mode, remapped to plain --ink-900 in dark
+     mode (see :root[data-theme="dark"] below), rather than every
+     heading/title rule hardcoding --indigo-900 directly. */
+  --heading:         var(--indigo-900);
+
+  /* Fixed white, regardless of theme — for text/icons sitting on a
+     surface that's ALWAYS dark (the nav rail, primary buttons, toasts,
+     tooltips, selected-date pills: all painted with --indigo-900/-700/
+     -950, which never change with the light/dark toggle). Several of
+     these reused --surface for this before dark mode existed, which
+     only worked by coincidence because --surface happened to be white
+     in the one theme that existed — now that --surface itself changes
+     per theme, that reuse would silently break, so this is its own
+     token instead. */
+  --on-brand:        #ffffff;
+
+  color-scheme: light;
+
   /* Backward-compatible aliases (older component CSS references
      --navy-*; keep these pointed at the new indigo scale so nothing
      silently breaks while every file migrates). */
@@ -112,6 +136,73 @@
   --z-modal: 400;
   --z-toast: 500;
   --z-tooltip: 600;
+}
+
+/* ============================================================
+   DARK THEME
+   Not a literal inversion of the light palette — the app's brand
+   colors (--indigo-950/-900/-700/-500, --steel-300/-100, --gold-*,
+   --garnet-*) are the same actual patch artwork sampled colors in
+   BOTH themes and stay untouched here; only the tokens that define
+   which of those brand colors plays which UI ROLE change.
+   --------------------------------------------------------------
+   The nav rail has always been painted --indigo-950 regardless of
+   theme (it was never "light mode UI"), so dark mode's --bg reuses
+   that exact same value — the content area and the rail become one
+   continuous dark field with no visible seam, rather than a content
+   area that merely got darker next to a rail that didn't change.
+   --surface/--surface-sunken then step UP in lightness from that
+   floor (elevated indigo panels), the reverse of light mode where
+   they step DOWN in lightness from a bright --bg.
+   --------------------------------------------------------------
+   The semantic tint pairs (--gold-100, --garnet-100, --red-100,
+   --green-100, --amber-100) are opaque pastels in light mode — that
+   only reads as a soft tint because it's a LIGHT color on a light
+   card. The same hex values on a dark card would look like an
+   unrelated bright sticker, so these become low-alpha overlays of
+   their own accent color instead (mixes with whatever's under it,
+   same way a light pastel tint mixes with white) — and every -600
+   "ink" pair brightens a step so it still clears contrast against a
+   dark card instead of the deep, near-black shade that worked for
+   light mode's white cards.
+   --------------------------------------------------------------
+   Elevation can't lean on a plain drop shadow the way light mode
+   does — a soft dark shadow is invisible against an already-dark
+   page. Dark --shadow-* pairs a stronger black drop with a faint
+   inset highlight along the top edge instead, the standard "light
+   grazing a raised edge" trick real dark UIs use for depth, rather
+   than just cranking up a black shadow's opacity.
+   ============================================================ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg:              #080a38;   /* = --indigo-950 — unifies with the nav rail, which was always this color */
+  --surface:         #141a52;   /* elevated indigo panel — cards, popovers, menus */
+  --surface-sunken:  #0d1140;   /* recessed indigo — inputs, table stripes, sits BELOW --surface */
+
+  --ink-900:         #f2f3fb;   /* primary text — cool off-white, not pure white (softer on a dark field) */
+  --ink-600:         #aab0d9;   /* secondary text — same family as --steel-300 */
+  --ink-400:         #6a70a0;   /* placeholder / disabled text */
+  --line:            #262c66;   /* hairline border, visible against --surface */
+  --heading:         var(--ink-900); /* the indigo-tinted-heading flourish drops out here — the underlying indigo-900 literal is illegible on a dark --surface, so headings match body text instead */
+
+  --gold-600:        #ffcf5c;   /* hover/active gold BRIGHTENS here (light mode darkens it for contrast on white; dark mode needs the opposite move) */
+  --gold-100:        rgba(240, 180, 41, 0.16);
+
+  --garnet-600:      #e2495f;
+  --garnet-100:      rgba(226, 73, 95, 0.16);
+
+  --red-600:         #ff6b61;
+  --red-100:         rgba(255, 107, 97, 0.16);
+  --green-600:       #4fd382;
+  --green-100:       rgba(79, 211, 130, 0.16);
+  --amber-600:       #f2a93d;
+  --amber-100:       rgba(242, 169, 61, 0.16);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --shadow-gold-glow: 0 0 0 1px rgba(240, 180, 41, 0.45), 0 4px 20px rgba(240, 180, 41, 0.25);
 }
 
 /* Reduced motion: respected globally */

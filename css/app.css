@@ -175,7 +175,7 @@ h1, h2, h3, h4 {
   z-index: var(--z-tooltip);
   padding: var(--space-2) var(--space-4);
   background: var(--indigo-900);
-  color: var(--surface);
+  color: var(--on-brand);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-md);
   font-family: var(--font-display);
@@ -270,7 +270,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   font-family: var(--font-display);
   font-size: var(--fs-xl);
   font-weight: 600;
-  color: var(--indigo-900);
+  color: var(--heading);
   margin: 0;
   min-width: 0;
   overflow-wrap: break-word;
@@ -581,12 +581,12 @@ html.nav-rail-collapsed .nav-rail__crest {
 
 .nav-rail__link:hover {
   background: var(--indigo-700);
-  color: var(--surface);
+  color: var(--on-brand);
 }
 
 .nav-rail__link[aria-current="page"] {
   background: var(--indigo-700);
-  color: var(--surface);
+  color: var(--on-brand);
   box-shadow: inset 3px 0 0 rgba(255, 255, 255, 0.65);
 }
 
@@ -632,7 +632,7 @@ html.nav-rail-collapsed .nav-rail__crest {
 
 .page-header h1 {
   font-size: var(--fs-2xl);
-  color: var(--indigo-900);
+  color: var(--heading);
 }
 
 /* ---- Section label ----
@@ -657,7 +657,7 @@ html.nav-rail-collapsed .nav-rail__crest {
    rule above, so this only pins the size and color those inline styles set. */
 .card-title {
   font-size: var(--fs-lg);
-  color: var(--indigo-900);
+  color: var(--heading);
 }
 
 /* ---- Card ----
@@ -713,7 +713,7 @@ html.nav-rail-collapsed .nav-rail__crest {
 
 .btn--primary {
   background: var(--indigo-900);
-  color: var(--surface);
+  color: var(--on-brand);
 }
 .btn--primary:hover { background: var(--indigo-700); }
 
@@ -899,7 +899,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   left: 50%;
   transform: translateX(-50%);
   background: var(--indigo-950);
-  color: var(--surface);
+  color: var(--on-brand);
   padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -995,7 +995,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   position: fixed;
   z-index: var(--z-tooltip);
   background: var(--indigo-950);
-  color: var(--surface);
+  color: var(--on-brand);
   font-size: var(--fs-2xs);
   font-weight: 500;
   letter-spacing: var(--tracking-wide);
@@ -1044,7 +1044,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   font-family: var(--font-display);
   font-size: var(--fs-sm);
   font-weight: 600;
-  color: var(--indigo-900);
+  color: var(--heading);
 }
 
 .announcements-popover__close {
@@ -1159,6 +1159,75 @@ html.nav-rail-collapsed .nav-rail__crest {
   height: 1px;
   background: var(--line);
   margin: var(--space-2) var(--space-1);
+}
+
+/* ---- Theme menu (header, between search and the bell) ----
+   Same visual language as the profile menu just above (same wrap/
+   trigger/panel/item shapes), plus a checkmark that only shows on
+   whichever of Light/Dark/System is currently selected. */
+.theme-menu-wrap {
+  position: relative;
+}
+
+.theme-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  min-width: 160px;
+  max-width: 90vw;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-2);
+  z-index: var(--z-overlay);
+  animation: overlay-in var(--duration-base) var(--ease-standard);
+}
+
+.theme-menu__item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--ink-900);
+  text-align: left;
+  cursor: pointer;
+}
+.theme-menu__item:hover {
+  background: var(--surface-sunken);
+}
+
+.theme-menu__item-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--ink-600);
+}
+
+.theme-menu__item-check {
+  width: 16px;
+  height: 16px;
+  display: none;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--gold-600);
+}
+.theme-menu__item.is-active .theme-menu__item-check {
+  display: inline-flex;
+}
+.theme-menu__item.is-active {
+  color: var(--heading);
+  font-weight: 600;
+}
+:root[data-theme="dark"] .theme-menu__item.is-active {
+  color: var(--ink-900);
 }
 
 /* ---- Custom dropdown (replaces native <select>) ---- */
@@ -1297,7 +1366,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   margin-bottom: var(--space-2);
   font-family: var(--font-display);
   font-size: var(--fs-sm);
-  color: var(--indigo-900);
+  color: var(--heading);
 }
 
 .date-field__nav-btn {
@@ -1355,7 +1424,7 @@ button.date-field__day:hover {
 }
 .date-field__day.is-selected {
   background: var(--indigo-900);
-  color: var(--surface);
+  color: var(--on-brand);
 }
 
 .date-field__footer {
@@ -1368,7 +1437,7 @@ button.date-field__day:hover {
 .date-field__footer button {
   background: none;
   border: none;
-  color: var(--indigo-700);
+  color: var(--heading);
   font-size: var(--fs-xs);
   font-weight: 600;
   cursor: pointer;
@@ -1399,7 +1468,7 @@ button.date-field__day:hover {
 }
 .time-field__option.is-selected {
   background: var(--surface-sunken);
-  color: var(--indigo-900);
+  color: var(--heading);
   font-weight: 600;
 }
 
@@ -1460,7 +1529,7 @@ button.date-field__day:hover {
 }
 
 .tabs__tab.is-active {
-  color: var(--indigo-900);
+  color: var(--heading);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
@@ -1540,7 +1609,7 @@ button.date-field__day:hover {
   border-color: var(--indigo-900);
 }
 
-.checkbox svg { width: 12px; height: 12px; color: var(--surface); }
+.checkbox svg { width: 12px; height: 12px; color: var(--on-brand); }
 
 .radio {
   width: 18px; height: 18px;
@@ -1887,7 +1956,7 @@ button.date-field__day:hover {
 
 .search-overlay__result-title {
   font-weight: 600;
-  color: var(--indigo-900);
+  color: var(--heading);
   font-size: var(--fs-sm);
 }
 

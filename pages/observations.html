@@ -7,11 +7,25 @@
     // renders at its collapsed width immediately instead of flashing
     // open at the default width for a frame and visibly animating shut
     // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    // The theme read right after does the same job for dark mode:
+    // resolve njwg_theme (light/dark/system) and set data-theme on <html>
+    // BEFORE tokens.css is even requested, so a dark-mode device never
+    // flashes the light palette for a frame first (see the
+    // :root[data-theme="dark"] block in css/tokens.css, and
+    // initThemeWatcher_ in js/shell.js for what keeps this in sync for
+    // the rest of the page's life, including a live OS theme change).
     try {
       if (localStorage.getItem("njwg_nav_collapsed") === "true") {
         document.documentElement.classList.add("nav-rail-collapsed");
       }
     } catch (e) { /* storage unavailable — falls back to expanded */ }
+    try {
+      var njwgThemePref = localStorage.getItem("njwg_theme") || "system";
+      var njwgThemeResolved = njwgThemePref === "system"
+        ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : njwgThemePref;
+      document.documentElement.setAttribute("data-theme", njwgThemeResolved);
+    } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Observations — NJWG Encampment</title>
@@ -58,7 +72,7 @@
       display: block;
       font-family: var(--font-display);
       font-size: var(--fs-md);
-      color: var(--indigo-900);
+      color: var(--heading);
       margin-bottom: var(--space-2);
     }
     .flight-tile__count {
@@ -87,7 +101,7 @@
       width: 100%;
     }
     .student-row:hover { border-color: var(--gold-500); }
-    .student-row__name { font-weight: 600; color: var(--indigo-900); }
+    .student-row__name { font-weight: 600; color: var(--heading); }
     .student-row__meta { font-size: var(--fs-xs); color: var(--ink-600); font-family: var(--font-mono); }
     .student-row__count {
       font-size: var(--fs-2xs);
@@ -107,7 +121,7 @@
       margin-bottom: var(--space-4);
       flex-wrap: wrap;
     }
-    .detail-header h2 { font-size: var(--fs-lg); color: var(--indigo-900); margin: 0; }
+    .detail-header h2 { font-size: var(--fs-lg); color: var(--heading); margin: 0; }
 
     .obs-summary {
       display: grid;
@@ -133,7 +147,7 @@
     .obs-category__label {
       font-size: var(--fs-sm);
       font-weight: 600;
-      color: var(--indigo-900);
+      color: var(--heading);
       margin-bottom: var(--space-2);
     }
     .obs-chip-row {
@@ -253,12 +267,12 @@
     .obs-volume-card__name {
       font-family: var(--font-display);
       font-size: var(--fs-sm);
-      color: var(--indigo-900);
+      color: var(--heading);
       text-transform: uppercase;
       letter-spacing: var(--tracking-wide);
       margin-bottom: var(--space-2);
     }
-    .obs-volume-card__value { font-family: var(--font-display); font-size: var(--fs-2xl); color: var(--indigo-900); line-height: 1; }
+    .obs-volume-card__value { font-family: var(--font-display); font-size: var(--fs-2xl); color: var(--heading); line-height: 1; }
     .obs-volume-card__value span { font-size: var(--fs-md); color: var(--ink-600); }
     .obs-volume-card__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-2); }
 
@@ -271,7 +285,7 @@
       margin-bottom: var(--space-3);
     }
     .obs-student-card__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
-    .obs-student-card__name { font-weight: 600; color: var(--indigo-900); }
+    .obs-student-card__name { font-weight: 600; color: var(--heading); }
     .obs-student-card__meta { font-size: var(--fs-xs); color: var(--ink-600); font-family: var(--font-mono); }
     .obs-student-card__counts { display: flex; gap: var(--space-2); flex-wrap: wrap; }
     .obs-category-chip {
