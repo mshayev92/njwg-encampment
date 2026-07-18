@@ -611,6 +611,18 @@ html.nav-rail-collapsed .nav-rail__crest {
   min-width: 0;
 }
 
+/* Attribution/contact note appended to every page by Shell.init() — see
+   renderFooterNote_ in js/shell.js. Sits below whatever content the page
+   itself renders, so it stays put across that content's own re-renders. */
+.app-footer-note {
+  margin-top: var(--space-8);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-xs);
+  color: var(--ink-600);
+  text-align: center;
+}
+
 .page-header {
   display: flex;
   align-items: baseline;
