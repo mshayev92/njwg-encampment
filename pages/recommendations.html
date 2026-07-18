@@ -883,22 +883,32 @@
       return w;
     }
 
-    let weights = loadWeights(); // { hc: { metricId: rawShare }, hf: { metricId: rawShare } }
+    let weights = loadWeights(); // { hc: { metricId: rawShare }, hf: { metricId: rawShare } } — the last SAVED/applied weights, what the standings are actually scored against.
+
+    // The sliders edit a separate DRAFT copy, not `weights` directly — the
+    // standings only re-score once "Save Weights" is clicked, rather than
+    // on every drag. Draft starts equal to the saved weights (nothing
+    // pending) and is keyed per mode too, so switching the Honor Cadet/
+    // Honor Flight tab never loses whichever mode's in-progress edit.
+    let draftWeights = { hc: { ...weights.hc }, hf: { ...weights.hf } };
 
     function saveWeights() {
       try { localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(weights)); } catch (e) { /* storage full/blocked */ }
     }
 
-    /** Each of `mode`'s components as a live percent of that mode's 100% total — always sums to 100. */
-    function normalizedPercents(mode) {
-      const metrics = RANKING_METRICS[mode];
-      const raw = weights[mode];
+    /** `metrics`' raw shares (from either `weights[mode]` or `draftWeights[mode]`) as a percent of their 100% total — always sums to 100. */
+    function normalizedPercents(metrics, raw) {
       const total = metrics.reduce((sum, m) => sum + Math.max(0, num(raw[m.id])), 0);
       const pct = {};
       metrics.forEach(m => {
         pct[m.id] = total > 0 ? (100 * Math.max(0, num(raw[m.id])) / total) : (100 / metrics.length);
       });
       return pct;
+    }
+
+    /** Whether `mode`'s draft differs from its last-saved weights — gates the Save button. */
+    function weightsAreDirty(mode) {
+      return RANKING_METRICS[mode].some(m => Number(draftWeights[mode][m.id]) !== Number(weights[mode][m.id]));
     }
 
     function flightVisible(flight) {
@@ -1002,7 +1012,7 @@
             <span class="weight-field__label">${esc(m.label)}</span>
             <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(pct[m.id])}</span>
           </div>
-          <input type="range" min="0" max="100" step="1" value="${weights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} share">
+          <input type="range" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} share">
           <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
@@ -1017,11 +1027,13 @@
         <div class="card" style="margin-bottom: var(--space-6);">
           <h3 class="section-label" id="weights-title">Scoring Weights</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: 0;">
-            Each component's share of the 100% total — drag one and the others rebalance automatically. Saved on this device.
+            Each component's share of the 100% total — drag one and the others rebalance automatically. Nothing below changes until you click Save.
           </p>
           <div class="weights-grid" id="weights-grid"></div>
-          <div style="margin-top: var(--space-5);">
+          <div style="margin-top: var(--space-5); display:flex; align-items:center; gap: var(--space-3);">
+            <button class="btn btn--primary" id="weights-save-btn" disabled>Save Weights</button>
             <button class="btn btn--ghost" id="weights-reset-btn">Reset to defaults</button>
+            <span id="weights-dirty-note" style="display:none; font-size: var(--fs-xs); color: var(--ink-600);">Unsaved changes</span>
           </div>
         </div>
 
@@ -1052,10 +1064,23 @@
           // The Scoring Weights panel is mode-specific (Honor Cadet and
           // Honor Flight each have their own 100% component set), so
           // switching modes has to rebuild it too, not just the standings.
+          // The OTHER mode's own draft/dirty state (if any) is untouched —
+          // draftWeights is keyed per mode, so switching back later picks
+          // up right where that mode's edit was left.
           renderWeightsPanel();
           renderStandingsList();
         });
       });
+    }
+
+    /** Enables/disables the Save button and shows/hides the "Unsaved changes" note for the currently-active mode. */
+    function updateWeightsSaveState() {
+      const mode = activeStandingsTab;
+      const dirty = weightsAreDirty(mode);
+      const saveBtn = document.getElementById("weights-save-btn");
+      if (saveBtn) saveBtn.disabled = !dirty;
+      const note = document.getElementById("weights-dirty-note");
+      if (note) note.style.display = dirty ? "" : "none";
     }
 
     /**
@@ -1068,7 +1093,7 @@
     function renderWeightsPanel() {
       const mode = activeStandingsTab;
       const metrics = RANKING_METRICS[mode];
-      const pct = normalizedPercents(mode);
+      const pct = normalizedPercents(metrics, draftWeights[mode]);
 
       const titleEl = document.getElementById("weights-title");
       if (titleEl) titleEl.textContent = `Scoring Weights — ${mode === "hc" ? "Honor Cadet" : "Honor Flight"}`;
@@ -1077,28 +1102,45 @@
       if (!gridEl) return;
       gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode, pct)).join("");
 
+      // Dragging only edits the draft and live-previews the rebalanced
+      // percentages here — it deliberately does NOT touch `weights`,
+      // save to localStorage, or re-score the standings below. That only
+      // happens when "Save Weights" is clicked (see saveBtn below).
       gridEl.querySelectorAll("input[data-weight]").forEach(input => {
         input.addEventListener("input", () => {
-          weights[mode][input.dataset.weight] = Number(input.value);
-          saveWeights();
-          const freshPct = normalizedPercents(mode);
+          draftWeights[mode][input.dataset.weight] = Number(input.value);
+          const freshPct = normalizedPercents(metrics, draftWeights[mode]);
           metrics.forEach(m => {
             const valEl = document.getElementById(`w-val-${mode}-${m.id}`);
             if (valEl) valEl.textContent = fmtPercent(freshPct[m.id]);
           });
-          renderStandingsList();
+          updateWeightsSaveState();
         });
       });
+
+      const saveBtn = document.getElementById("weights-save-btn");
+      if (saveBtn) {
+        saveBtn.onclick = () => {
+          weights[mode] = { ...draftWeights[mode] };
+          saveWeights();
+          updateWeightsSaveState();
+          renderStandingsList();
+          Shell.showToast("Weights saved.", { type: "success" });
+        };
+      }
 
       const resetBtn = document.getElementById("weights-reset-btn");
       if (resetBtn) {
         resetBtn.onclick = () => {
-          weights[mode] = defaultWeightsFor(mode);
-          saveWeights();
+          // Resets the DRAFT only — same Save-gated flow as any other
+          // slider change, so reverting to defaults doesn't silently
+          // re-score the standings without an explicit Save too.
+          draftWeights[mode] = defaultWeightsFor(mode);
           renderWeightsPanel();
-          renderStandingsList();
         };
       }
+
+      updateWeightsSaveState();
     }
 
     function renderStandingsList() {
@@ -1107,7 +1149,7 @@
 
       const mode = activeStandingsTab;
       const metrics = RANKING_METRICS[mode];
-      const pct = normalizedPercents(mode);
+      const pct = normalizedPercents(metrics, weights[mode]);
 
       const contenders = mode === "hc"
         ? cadetRawMetrics().map(cd => ({ name: cd.name, sub: cd.flight, metrics: cd.metrics }))
