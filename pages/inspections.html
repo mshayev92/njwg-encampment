@@ -1954,7 +1954,7 @@
           <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
           <select id="trends-basis-select">
             <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
-            ${periodsForType.map(p => `<option value="${esc(p.Id)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))} — ${esc(p.Date)}</option>`).join("")}
+            ${periodsForType.map(p => `<option value="${esc(p.Id)}" data-sublabel="${esc(p.Date)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))}</option>`).join("")}
           </select>
         </div>
 
