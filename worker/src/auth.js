@@ -58,7 +58,26 @@ export const PAGE_WRITE_GATES = {
 };
 
 export const RATE_LIMIT_PER_MINUTE = 60;
-export const READ_CACHE_TTL_SECONDS = 20;
+
+// Backend (KV) read-cache lifetime. This is the single biggest driver of
+// KV WRITE volume: every time a sheet's cache entry expires and is then
+// read, the Worker re-fetches it from Sheets and re-`put`s it into KV, so
+// under continuous polling from open devices the write rate is ~ (number
+// of sheets) / TTL. It used to be 20s (floored to KV's 60s minimum), i.e.
+// each warm sheet repopulated ~every 60s.
+//
+// Raising it does NOT make app-driven changes stale: EVERY write/delete
+// calls invalidateSheetCache (readCache.js), deleting the affected sheet's
+// entry so the very next read misses and re-fetches fresh — a second
+// device sees another device's write within its own client freshness
+// window (js/api.js FRESH_TTL_MS, 20s), independent of this value. The
+// ONLY thing this TTL bounds is how long an edit made DIRECTLY in the
+// Google Sheet (bypassing the app entirely, e.g. an admin hand-editing a
+// tab) can take to appear — a rare escape hatch, since Roster/Schedule/
+// StaffAccess all have in-app editors that invalidate on save. Five
+// minutes trades a ~5x reduction in repopulation writes for that rare
+// case; raise it further if direct-sheet edits are never used.
+export const READ_CACHE_TTL_SECONDS = 300;
 
 // InspectionPeriodId ties a scored entry back to the InspectionPeriods row
 // it was filed under (blank for an ad-hoc entry logged with nothing

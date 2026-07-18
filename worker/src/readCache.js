@@ -31,16 +31,11 @@ export async function getCachedSheetValues(env, sheetName) {
   // app deals with, so unlike the old 100KB CacheService limit this
   // essentially never needs a fallback path.
   //
-  // Workers KV rejects any expirationTtl under 60 seconds ("Invalid
-  // expiration_ttl... must be at least 60"), so the backend cache here
-  // can't go as low as READ_CACHE_TTL_SECONDS (20s, inherited from the
-  // old Code.gs/CacheService value) — floor it at KV's minimum instead.
-  // This isn't a regression: the frontend (js/api.js FRESH_TTL_MS) still
-  // gates its OWN network calls at 20s, so a person never waits longer
-  // than that for their own actions to show up; this just means a
-  // second person's read of the same sheet can be up to 60s stale
-  // instead of 20s, which writes still bypass immediately via
-  // invalidateSheetCache below.
+  // TTL comes from READ_CACHE_TTL_SECONDS (see the long note on it in
+  // auth.js for why it's deliberately minutes, not seconds — writes
+  // invalidate immediately, so this only bounds direct-sheet-edit
+  // visibility, and its length is the main lever on KV write volume).
+  // readCacheTtl() still floors it at KV's 60s minimum as a safety net.
   await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: readCacheTtl() });
 
   return values;
