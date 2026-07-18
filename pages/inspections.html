@@ -395,6 +395,59 @@
       letter-spacing: var(--tracking-wide);
     }
 
+    /* ---- Period detail: a flight/squadron's own flight(s), cadets shown
+       directly (no click needed) — see renderPeriodDetail. ---- */
+    .flight-avg-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-4);
+      margin-bottom: var(--space-6);
+    }
+
+    /* Reset button chrome so an unscoped viewer's flight-avg-card can be a
+       real <button> (click-to-expand its cadets) without losing the card
+       look — same "make an interactive element look like the static
+       card" trick as .student-row. */
+    .flight-avg-card--clickable {
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+      width: 100%;
+      display: block;
+    }
+    .flight-avg-card--clickable:hover {
+      border-color: var(--gold-500);
+    }
+
+    .period-cadet-list {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+      margin-top: var(--space-4);
+      padding-top: var(--space-4);
+      border-top: 1px solid var(--line);
+    }
+
+    .period-cadet-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-3);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+    }
+    .period-cadet-row__name {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--indigo-900);
+    }
+    .period-cadet-row__score {
+      font-size: var(--fs-xs);
+      font-family: var(--font-mono);
+      color: var(--ink-600);
+    }
+
     .trend-item-breakdown {
       display: flex;
       flex-direction: column;
@@ -1017,13 +1070,40 @@
       Shell.animateIn(contentEl);
     }
 
+    /** Scores one set of rows the same way for a flight and for a single cadet — PT as a pass rate, uniform/room as an average out of the scorecard's item count. */
+    function scorePeriodRows(type, rows) {
+      if (type === "pt") {
+        const totals = rows.reduce((acc, r) => {
+          acc.passed += Number(r.TotalPoints) || 0;
+          acc.attempted += Number(r.ItemsAttempted) || 0;
+          return acc;
+        }, { passed: 0, attempted: 0 });
+        return {
+          count: rows.length,
+          pct: totals.attempted ? Math.round((totals.passed / totals.attempted) * 100) : null,
+          label: totals.attempted ? `${totals.passed} / ${totals.attempted} passed` : null
+        };
+      }
+
+      const items = INSPECTION_TYPES[type].items;
+      const avg = rows.length ? rows.reduce((sum, r) => sum + (Number(r.TotalPoints) || 0), 0) / rows.length : null;
+      return {
+        count: rows.length,
+        pct: avg !== null ? Math.round((avg / items.length) * 100) : null,
+        label: avg !== null ? `${avg.toFixed(1)} / ${items.length}` : null
+      };
+    }
+
     /**
-     * Per-flight scores for ONE period, matched purely by
-     * InspectionPeriodId — not "latest" or "all-time" like the Trends
-     * averages, just whatever was actually scored under this specific
-     * scheduled period. PT periods are summarized as a pass rate
-     * (passed/attempted events); uniform/room as an average score out of
-     * the scorecard's item count, same denominator Trends uses.
+     * Per-flight (and, within each flight, per-cadet) scores for ONE
+     * period, matched purely by InspectionPeriodId — not "latest" or
+     * "all-time" like the Trends averages, just whatever was actually
+     * scored under this specific scheduled period. groupByFlight already
+     * restricts a flight/squadron-scoped position down to its own allowed
+     * flights (see isFlightAllowed), so this naturally returns only their
+     * own flight(s) for them, and every flight for an unscoped (CCT/
+     * Administrator) position — see renderPeriodDetail for how the two
+     * consume this differently.
      */
     function computePeriodFlightScores(period) {
       const type = period.Category;
@@ -1033,35 +1113,56 @@
       const periodRows = (bucket.all || []).filter(r => String(r.InspectionPeriodId) === String(period.Id));
 
       return flightNames.map(flight => {
-        const capIds = new Set((grouped[flight] || []).map(m => String(m.CapId)));
+        const members = (grouped[flight] || []).slice().sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
+        const capIds = new Set(members.map(m => String(m.CapId)));
         const rows = periodRows.filter(r => capIds.has(String(r.StudentCapId)));
 
-        if (type === "pt") {
-          const totals = rows.reduce((acc, r) => {
-            acc.passed += Number(r.TotalPoints) || 0;
-            acc.attempted += Number(r.ItemsAttempted) || 0;
-            return acc;
-          }, { passed: 0, attempted: 0 });
-          return {
-            flight, count: rows.length,
-            pct: totals.attempted ? Math.round((totals.passed / totals.attempted) * 100) : null,
-            label: totals.attempted ? `${totals.passed} / ${totals.attempted} passed` : null
-          };
-        }
+        const cadets = members.map(m => {
+          const cadetRows = periodRows.filter(r => String(r.StudentCapId) === String(m.CapId));
+          return { capId: m.CapId, name: m.Name, ...scorePeriodRows(type, cadetRows) };
+        });
 
-        const items = INSPECTION_TYPES[type].items;
-        const avg = rows.length ? rows.reduce((sum, r) => sum + (Number(r.TotalPoints) || 0), 0) / rows.length : null;
-        return {
-          flight, count: rows.length,
-          pct: avg !== null ? Math.round((avg / items.length) * 100) : null,
-          label: avg !== null ? `${avg.toFixed(1)} / ${items.length}` : null
-        };
+        return { flight, cadets, ...scorePeriodRows(type, rows) };
       });
     }
 
+    function flightAvgSummaryHtml(s) {
+      return s.label ? `
+        <div class="flight-avg-card__value">${esc(s.label)}</div>
+        <div class="flight-avg-card__bar-track">
+          <div class="flight-avg-card__bar-fill" style="width:${s.pct ?? 0}%;"></div>
+        </div>
+        <div class="flight-avg-card__count">${s.count} cadet${s.count === 1 ? "" : "s"} scored</div>
+      ` : `
+        <div class="flight-avg-card__count" style="margin-top: var(--space-2);">No scores yet</div>
+      `;
+    }
+
+    function periodCadetListHtml(cadets) {
+      return cadets.length
+        ? `<div class="period-cadet-list">${cadets.map(c => `
+            <div class="period-cadet-row">
+              <span class="period-cadet-row__name">${esc(c.name) || "—"}</span>
+              <span class="period-cadet-row__score">${c.label ? esc(c.label) : "Not scored"}</span>
+            </div>
+          `).join("")}</div>`
+        : `<p class="period-cadet-list" style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--line);">No cadets in this flight.</p>`;
+    }
+
+    /**
+     * Renders a period's per-flight scores: a flight/squadron-scoped
+     * position (allowedFlights.length > 0 — computePeriodFlightScores
+     * already narrowed `scores` down to just its own flight(s)) sees each
+     * flight's average with its cadets' individual scores right below,
+     * no click needed. An unscoped (CCT/Administrator) position instead
+     * sees every flight's average only, click-to-expand each one's cadets
+     * — same collapsed-by-default review flow as the rest of the app's
+     * flight grids.
+     */
     function renderPeriodDetail(period) {
       currentView = "period-detail";
       const scores = computePeriodFlightScores(period);
+      const showCadetsDirect = allowedFlights.length > 0;
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -1069,20 +1170,19 @@
           <h2>${esc(periodLabel(period))} · ${esc(period.Date)}</h2>
         </div>
 
-        <div class="flight-avg-grid">
-          ${scores.map(s => `
+        <div class="${showCadetsDirect ? "flight-avg-list" : "flight-avg-grid"}">
+          ${scores.map(s => showCadetsDirect ? `
             <div class="flight-avg-card">
               <div class="flight-avg-card__name">${esc(s.flight)}</div>
-              ${s.label ? `
-                <div class="flight-avg-card__value">${esc(s.label)}</div>
-                <div class="flight-avg-card__bar-track">
-                  <div class="flight-avg-card__bar-fill" style="width:${s.pct ?? 0}%;"></div>
-                </div>
-                <div class="flight-avg-card__count">${s.count} cadet${s.count === 1 ? "" : "s"} scored</div>
-              ` : `
-                <div class="flight-avg-card__count" style="margin-top: var(--space-2);">No scores yet</div>
-              `}
+              ${flightAvgSummaryHtml(s)}
+              ${periodCadetListHtml(s.cadets)}
             </div>
+          ` : `
+            <button type="button" class="flight-avg-card flight-avg-card--clickable" data-toggle-flight="${esc(s.flight)}" aria-expanded="false">
+              <div class="flight-avg-card__name">${esc(s.flight)}</div>
+              ${flightAvgSummaryHtml(s)}
+              <div hidden>${periodCadetListHtml(s.cadets)}</div>
+            </button>
           `).join("")}
         </div>
       `;
@@ -1091,6 +1191,18 @@
         selectedPeriod = null;
         renderPeriodsTab();
       });
+
+      if (!showCadetsDirect) {
+        contentEl.querySelectorAll("[data-toggle-flight]").forEach(card => {
+          card.addEventListener("click", () => {
+            const wrapper = card.lastElementChild; // the hidden cadet-list wrapper, always the last child
+            const expanded = card.getAttribute("aria-expanded") === "true";
+            card.setAttribute("aria-expanded", String(!expanded));
+            if (wrapper) wrapper.hidden = expanded;
+          });
+        });
+      }
+
       Shell.animateIn(contentEl);
     }
 
