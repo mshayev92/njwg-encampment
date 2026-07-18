@@ -153,6 +153,75 @@
     .welcome-card--night { background: linear-gradient(180deg, #0d1250 0%, #1a2470 100%); color: #f4f4fb; }
     .welcome-card--night .welcome-card__orb { width: 52px; height: 52px; right: 56px; top: 24px; background: #eef1fb; box-shadow: 0 0 30px 8px rgba(230, 235, 255, 0.5); }
 
+    /* ---- Weather overlay effects ----
+       The gradient/orb above answer "what time is it"; these answer
+       "what's it doing outside" — layered on top of whichever
+       time-of-day scene is active, not a replacement for it, so the
+       card always reads as both "when" and "what." welcome-card--wx-clear
+       (clear/mainly-clear skies, OR no weather data at all — see
+       weatherConditionBucket) adds nothing on top, so a device that
+       can't reach the weather API just sees the original
+       time-of-day-only card exactly as before. */
+    .welcome-card__overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+    .welcome-card--wx-clouds .welcome-card__overlay,
+    .welcome-card--wx-rain .welcome-card__overlay { background: rgba(40, 46, 70, 0.28); }
+    .welcome-card--wx-fog .welcome-card__overlay { background: rgba(210, 215, 225, 0.45); backdrop-filter: blur(1px); }
+    .welcome-card--wx-storm .welcome-card__overlay { background: rgba(10, 12, 30, 0.45); }
+    .welcome-card--wx-snow .welcome-card__overlay { background: rgba(255, 255, 255, 0.12); }
+
+    /* Denser cloud cover for overcast/foggy/rainy/stormy conditions —
+       layered on top of the two base clouds every non-night scene
+       already draws, rather than replacing them. */
+    .welcome-card__cloud--dense { width: 120px; height: 36px; opacity: 0.82; }
+
+    /* Rain (also used, alongside the flash below, for storms) */
+    .welcome-card__rain { position: absolute; inset: 0; overflow: hidden; }
+    .welcome-card__raindrop {
+      position: absolute;
+      top: -12%;
+      width: 2px;
+      height: 16px;
+      background: linear-gradient(180deg, transparent, rgba(210, 230, 255, 0.8));
+      animation: welcome-rain-fall linear infinite;
+    }
+    @keyframes welcome-rain-fall {
+      from { transform: translateY(0); }
+      to { transform: translateY(170%); }
+    }
+
+    /* Snow */
+    .welcome-card__snow { position: absolute; inset: 0; overflow: hidden; }
+    .welcome-card__snowflake {
+      position: absolute;
+      top: -10%;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.9);
+      animation: welcome-snow-fall linear infinite;
+    }
+    @keyframes welcome-snow-fall {
+      from { transform: translate(0, 0); opacity: 0.9; }
+      to { transform: translate(12px, 170%); opacity: 0.4; }
+    }
+
+    /* Storm: an occasional lightning flash instead of a continuous
+       effect — brightens the whole scene (clouds, overlay, rain)
+       together since they share one filter, rather than each layer
+       needing its own flash animation. */
+    .welcome-card--wx-storm .welcome-card__scene {
+      animation: welcome-storm-flash 7s ease-in-out infinite;
+    }
+    @keyframes welcome-storm-flash {
+      0%, 92%, 100% { filter: brightness(1); }
+      93% { filter: brightness(1.9); }
+      94% { filter: brightness(1); }
+      95.5% { filter: brightness(1.6); }
+      96% { filter: brightness(1); }
+    }
+
     .weather-card {
       display: flex;
       flex-direction: column;
@@ -376,27 +445,97 @@
     }
 
     /**
-     * "Welcome, {Position}" — its own box at the top of the page, with a
-     * purely-CSS time-of-day scene (gradient sky + sun/moon/stars/
-     * clouds) behind the text, like the "different illustration per
-     * time of day" greeting some apps show. Recomputed on the same 60s
-     * interval as Now/Next (see setInterval below), so it transitions on
-     * its own as real time passes while the tab stays open — no images,
-     * no network calls, so it never has anything to fail or load.
+     * Buckets an Open-Meteo WMO weather_code (see WEATHER_CODE_LABELS
+     * above) down to one of the six .welcome-card--wx-* visual variants.
+     * No weather data yet/at all (fetchWeather failed, or hasn't
+     * resolved) reads the same as a clear sky — the welcome card is
+     * meant to enhance the time-of-day scene with current conditions,
+     * never to block or degrade it when weather is unavailable.
      */
-    function renderWelcomeCard() {
+    function weatherConditionBucket(weather) {
+      const code = weather && weather.current ? weather.current.weather_code : null;
+      if (code === null || code === undefined) return "clear";
+      if (code === 45 || code === 48) return "fog";
+      if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return "rain";
+      if ([71, 73, 75].includes(code)) return "snow";
+      if ([95, 96, 99].includes(code)) return "storm";
+      if (code === 2 || code === 3) return "clouds";
+      return "clear"; // 0 (clear sky), 1 (mainly clear)
+    }
+
+    // Staggered left-offset/timing per raindrop/snowflake so the fall
+    // reads as natural rain/snow rather than a uniform grid — same
+    // "explicit, hand-placed" approach the two base clouds already use
+    // (see renderWelcomeCard) rather than generating positions at
+    // render time for what's a fixed decorative effect.
+    const WELCOME_RAINDROPS = [
+      { left: "4%",  delay: "0s",    duration: "0.5s" },
+      { left: "14%", delay: "0.18s", duration: "0.6s" },
+      { left: "24%", delay: "0.35s", duration: "0.45s" },
+      { left: "34%", delay: "0.08s", duration: "0.55s" },
+      { left: "44%", delay: "0.42s", duration: "0.5s" },
+      { left: "54%", delay: "0.22s", duration: "0.65s" },
+      { left: "64%", delay: "0s",    duration: "0.48s" },
+      { left: "74%", delay: "0.3s",  duration: "0.58s" },
+      { left: "84%", delay: "0.12s", duration: "0.52s" },
+      { left: "94%", delay: "0.38s", duration: "0.6s" }
+    ];
+    const WELCOME_SNOWFLAKES = [
+      { left: "2%",  size: "4px", delay: "0s",   duration: "4.2s" },
+      { left: "12%", size: "3px", delay: "0.6s", duration: "5s" },
+      { left: "22%", size: "5px", delay: "1.4s", duration: "3.8s" },
+      { left: "32%", size: "3px", delay: "0.2s", duration: "4.6s" },
+      { left: "42%", size: "6px", delay: "2s",   duration: "5.4s" },
+      { left: "52%", size: "4px", delay: "0.9s", duration: "4s" },
+      { left: "62%", size: "3px", delay: "1.7s", duration: "5.2s" },
+      { left: "72%", size: "5px", delay: "0.4s", duration: "4.4s" },
+      { left: "82%", size: "4px", delay: "1.1s", duration: "3.6s" },
+      { left: "92%", size: "3px", delay: "1.9s", duration: "5.6s" }
+    ];
+
+    /**
+     * "Welcome, {Position}" — its own box at the top of the page, with a
+     * purely-CSS scene behind the text: a time-of-day gradient sky
+     * (sun/moon/stars/clouds, unchanged from before) layered with the
+     * CURRENT weather condition (extra cloud cover, fog haze, rain,
+     * snow, or storm flash — see the .welcome-card--wx-* rules above),
+     * so the card reflects both "when" and "what's it doing outside"
+     * instead of the clock alone. Recomputed on the same 60s interval
+     * as Now/Next AND whenever fresh weather data lands (see load()
+     * below), so it transitions on its own as real time/weather change
+     * while the tab stays open.
+     */
+    function renderWelcomeCard(weather) {
       const scene = timeOfDayScene();
+      const condition = weatherConditionBucket(weather);
       const position = (session && (session.Position || session.position)) || "Staff";
       const hasClouds = scene !== "night";
+      const denseClouds = condition === "clouds" || condition === "fog" || condition === "rain" || condition === "snow" || condition === "storm";
       return `
-        <div class="card welcome-card welcome-card--${scene}">
+        <div class="card welcome-card welcome-card--${scene} welcome-card--wx-${condition}">
           <div class="welcome-card__scene">
-            ${scene === "night" ? `<div class="welcome-card__stars"></div>` : ""}
+            ${scene === "night" && condition === "clear" ? `<div class="welcome-card__stars"></div>` : ""}
             ${hasClouds ? `
               <div class="welcome-card__cloud" style="width:70px; height:24px; left:12%; top:32%;"></div>
               <div class="welcome-card__cloud" style="width:48px; height:18px; left:55%; top:58%;"></div>
             ` : ""}
+            ${denseClouds ? `
+              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:-4%; top:10%;"></div>
+              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:38%; top:46%;"></div>
+              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:72%; top:12%;"></div>
+            ` : ""}
             <div class="welcome-card__orb"></div>
+            <div class="welcome-card__overlay"></div>
+            ${condition === "rain" || condition === "storm" ? `
+              <div class="welcome-card__rain">
+                ${WELCOME_RAINDROPS.map(d => `<div class="welcome-card__raindrop" style="left:${d.left}; animation-delay:${d.delay}; animation-duration:${d.duration};"></div>`).join("")}
+              </div>
+            ` : ""}
+            ${condition === "snow" ? `
+              <div class="welcome-card__snow">
+                ${WELCOME_SNOWFLAKES.map(f => `<div class="welcome-card__snowflake" style="left:${f.left}; width:${f.size}; height:${f.size}; animation-delay:${f.delay}; animation-duration:${f.duration};"></div>`).join("")}
+              </div>
+            ` : ""}
           </div>
           <div class="welcome-card__content">
             <div class="welcome-card__greeting">Welcome</div>
@@ -574,7 +713,7 @@
       }
       contentEl.innerHTML = `
         <div class="overview-stack">
-          ${renderWelcomeCard()}
+          ${renderWelcomeCard(lastWeather)}
           <div class="overview-grid">
             ${renderWeatherCard(lastWeather, lastBlackFlagStatus)}
             ${renderActivityCard(lastScheduleRows)}
