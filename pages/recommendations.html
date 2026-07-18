@@ -482,8 +482,14 @@
     //
     // Neither BE Form 60-13 part applies to a position with no single
     // flight/squadron of its own, so instead of the forms it gets a
-    // read-only, combined feed of every Honor Cadet + Honor Flight
-    // submission, most recent DAY first (ties broken by submission time).
+    // read-only review — a Schedule-style sliding tab bar (see
+    // Shell.enhanceTabs) to cycle between the Honor Cadet and Honor Flight
+    // submissions, each sorted most recent DAY first (ties broken by
+    // submission time), rather than one form-less page trying to show both
+    // recommendation types stacked or merged together.
+
+    let activeSubmissionsTab = "hc"; // "hc" | "hf" — which recommendation type is showing
+    let submissionsTabsIndicator = null;
 
     function submissionReviewRowHtml(r, kind) {
       const title = kind === "hc"
@@ -492,7 +498,7 @@
       return `
         <div class="rec-history-row">
           <div class="rec-history-row__body">
-            <div class="rec-history-row__title">${kind === "hc" ? "Honor Cadet" : "Honor Flight"} — ${title}</div>
+            <div class="rec-history-row__title">${title}</div>
             <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
             ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
             ${r.AcademicsKnowledge ? `<div class="rec-history-row__note"><strong>Academics:</strong> ${esc(r.AcademicsKnowledge)}</div>` : ""}
@@ -502,34 +508,56 @@
         </div>`;
     }
 
+    function sortedByDay(rows) {
+      return rows.slice().sort((a, b) => {
+        const dayDiff = String(b.Date || "").localeCompare(String(a.Date || ""));
+        if (dayDiff !== 0) return dayDiff;
+        return new Date(b.Timestamp) - new Date(a.Timestamp);
+      });
+    }
+
     function renderSubmissionsReview() {
       return `
         <div class="card">
           <h3 class="section-label">Award Recommendation Submissions</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
-            Read-only review of every Honor Cadet and Honor Flight recommendation submitted, most recent day first.
+            Read-only review of every submission, most recent day first.
           </p>
+          <div class="tabs rec-tabs" id="submissions-tabs-bar">
+            <button class="tabs__tab ${activeSubmissionsTab === "hc" ? "is-active" : ""}" data-tab="hc">Honor Cadet</button>
+            <button class="tabs__tab ${activeSubmissionsTab === "hf" ? "is-active" : ""}" data-tab="hf">Honor Flight</button>
+          </div>
           <div class="rec-history-list" id="submissions-review-list"></div>
         </div>
       `;
+    }
+
+    function wireSubmissionsReview() {
+      const tabsBarEl = document.getElementById("submissions-tabs-bar");
+      if (!tabsBarEl) return;
+      submissionsTabsIndicator = Shell.enhanceTabs(tabsBarEl);
+
+      tabsBarEl.querySelectorAll("[data-tab]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.tab === activeSubmissionsTab) return;
+          activeSubmissionsTab = btn.dataset.tab;
+          tabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+          if (submissionsTabsIndicator) submissionsTabsIndicator.move();
+          renderSubmissionsReviewList();
+        });
+      });
     }
 
     function renderSubmissionsReviewList() {
       const listEl = document.getElementById("submissions-review-list");
       if (!listEl) return;
 
-      const combined = [
-        ...honorCadetRows.map(row => ({ row, kind: "hc" })),
-        ...honorFlightRows.map(row => ({ row, kind: "hf" }))
-      ].sort((a, b) => {
-        const dayDiff = String(b.row.Date || "").localeCompare(String(a.row.Date || ""));
-        if (dayDiff !== 0) return dayDiff;
-        return new Date(b.row.Timestamp) - new Date(a.row.Timestamp);
-      });
+      const kind = activeSubmissionsTab;
+      const rows = sortedByDay(kind === "hc" ? honorCadetRows : honorFlightRows);
 
-      listEl.innerHTML = combined.length
-        ? combined.map(({ row, kind }) => submissionReviewRowHtml(row, kind)).join("")
-        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No recommendations submitted yet.</p>`;
+      listEl.innerHTML = rows.length
+        ? rows.map(row => submissionReviewRowHtml(row, kind)).join("")
+        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${kind === "hc" ? "Honor Cadet" : "Honor Flight"} recommendations submitted yet.</p>`;
     }
 
     // ---- Page assembly -----------------------------------------------------
@@ -537,6 +565,7 @@
     function render() {
       if (isUnscoped) {
         contentEl.innerHTML = renderSubmissionsReview();
+        wireSubmissionsReview();
         renderSubmissionsReviewList();
         Shell.animateIn(contentEl);
         return;
