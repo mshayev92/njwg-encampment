@@ -120,19 +120,6 @@
       font-family: var(--font-mono);
     }
 
-    .student-row__status {
-      font-size: var(--fs-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      padding: var(--space-1) var(--space-2);
-      border-radius: 999px;
-    }
-
-    .student-row__status--done {
-      background: var(--green-100);
-      color: var(--green-600);
-    }
-
     .detail-header {
       display: flex;
       align-items: center;
@@ -529,9 +516,8 @@
            and flight grid below it were still loading, instead of
            everything on the page appearing together. -->
       <div class="inspection-tabs tabs" id="inspection-tabs-bar" style="display:none;">
-        <button class="tabs__tab is-active" data-tab="uniform">Uniform</button>
-        <button class="tabs__tab" data-tab="room">Room</button>
-        <button class="tabs__tab" data-tab="pt">Physical Training</button>
+        <button class="tabs__tab is-active" data-tab="inspect">Inspect</button>
+        <button class="tabs__tab" data-tab="periods">Periods</button>
         <button class="tabs__tab" data-tab="trends">Trends</button>
       </div>
 
@@ -701,9 +687,20 @@
     let selectedStudent = null;
     let selectedInspectionDate = null; // null = new inspection; a Date string = editing/viewing that day's entry
     let currentScores = {};
+    // Which scheduled period (if any) the scorecard about to open should be
+    // filed under — set right before renderScorecard()/renderPtScorecard()
+    // by whichever button opened it (a specific period button, one of the
+    // ad-hoc type buttons, or a raw history-row click). "" means no period
+    // (an ad-hoc entry). currentPeriodId is the value actually used on
+    // save — see renderScorecard/renderPtScorecard, which resolve it from
+    // either the entry ALREADY being edited (preserves its original
+    // association) or this pending value (a brand-new entry).
+    let pendingPeriodId = "";
+    let currentPeriodId = "";
+    let selectedPeriod = null; // the InspectionPeriods row currently drilled into on the Periods tab
     // Explicit view-mode flag so a background refresh can re-render
     // whatever's on screen without guessing from the DOM. One of:
-    // "flights" | "students" | "history" | "scorecard"
+    // "flights" | "students" | "history" | "scorecard" | "periods-tiles" | "period-detail" | "trends"
     let currentView = "flights";
 
     function activeItems() { return INSPECTION_TYPES[activeType].items; }
@@ -780,9 +777,9 @@
       return `Uniform — ${p.UniformType || "—"}`;
     }
 
-    /** The period (if any) scheduled for `dateStr` in the currently active tab's category. */
-    function periodForActiveType(dateStr) {
-      return inspectionPeriods.find(p => p.Date === dateStr && p.Category === activeType) || null;
+    /** Every period (any category) scheduled for `dateStr` — the Inspect tab no longer has a single "active type" to filter by, so callers that used to check one category now check all of them. */
+    function periodsForDate(dateStr) {
+      return inspectionPeriods.filter(p => p.Date === dateStr);
     }
 
     function renderPeriodsSection() {
@@ -956,17 +953,152 @@
       Api.deleteRow("InspectionPeriods", { Id: id }, { matchColumns: ["Id"] });
       inspectionPeriods = inspectionPeriods.filter(p => String(p.Id) !== String(id));
       if (String(editingPeriodId) === String(id)) editingPeriodId = null;
+      // A deleted period disappears from the Periods tab immediately —
+      // the scores already recorded under it are untouched (they live in
+      // the UniformInspections/RoomInspections/PTInspections sheets, keyed
+      // by InspectionPeriodId, not in InspectionPeriods itself), so if its
+      // detail view happens to be open, back out to the tile grid rather
+      // than showing a detail page for a period that no longer exists.
+      if (selectedPeriod && String(selectedPeriod.Id) === String(id)) {
+        selectedPeriod = null;
+        if (currentView === "period-detail") currentView = "periods-tiles";
+      }
       Api.setCachedRows("InspectionPeriods", inspectionPeriods);
       Shell.showToast("Period deleted.", { type: "success" });
       renderPeriodsSection();
-      if (currentView === "flights" || currentView === "history") renderActiveView();
+      if (currentView === "flights" || currentView === "history" || currentView === "periods-tiles" || currentView === "period-detail") renderActiveView();
+    }
+
+    // ---- Periods tab (tiles of scheduled periods -> per-flight scores) ----
+    //
+    // Distinct from the "Inspection Periods" summary box above (which only
+    // shows what's upcoming, for scheduling) — this tab is for REVIEWING
+    // periods that have already happened (or are happening today), each as
+    // a tappable tile, the same "cube" pattern as the flight grid. Tapping
+    // one shows what each flight actually scored under it, computed only
+    // from rows tagged with that exact period's Id.
+
+    function periodsForReview() {
+      const todayStr = Shell.todayIso();
+      return inspectionPeriods
+        .filter(p => p.Date <= todayStr)
+        .sort((a, b) => (a.Date < b.Date ? 1 : a.Date > b.Date ? -1 : 0)); // most recent first
+    }
+
+    function renderPeriodsTab() {
+      currentView = "periods-tiles";
+      const periods = periodsForReview();
+
+      if (!periods.length) {
+        contentEl.innerHTML = `
+          <div class="state-message">
+            <div class="state-message__icon">📋</div>
+            <p>No inspection periods have happened yet.</p>
+          </div>`;
+        return;
+      }
+
+      contentEl.innerHTML = `
+        <div class="flight-grid">
+          ${periods.map(p => `
+            <button class="flight-tile" data-period-id="${esc(p.Id)}">
+              <span class="flight-tile__name">${esc(periodLabel(p))}</span>
+              <span class="flight-tile__count">${esc(p.Date)}${p.Date === Shell.todayIso() ? " · Today" : ""}</span>
+            </button>
+          `).join("")}
+        </div>`;
+
+      contentEl.querySelectorAll("[data-period-id]").forEach(tile => {
+        tile.addEventListener("click", () => {
+          selectedPeriod = inspectionPeriods.find(p => String(p.Id) === tile.dataset.periodId) || null;
+          if (selectedPeriod) renderPeriodDetail(selectedPeriod);
+        });
+      });
+      Shell.animateIn(contentEl);
+    }
+
+    /**
+     * Per-flight scores for ONE period, matched purely by
+     * InspectionPeriodId — not "latest" or "all-time" like the Trends
+     * averages, just whatever was actually scored under this specific
+     * scheduled period. PT periods are summarized as a pass rate
+     * (passed/attempted events); uniform/room as an average score out of
+     * the scorecard's item count, same denominator Trends uses.
+     */
+    function computePeriodFlightScores(period) {
+      const type = period.Category;
+      const bucket = inspectionsByType[type];
+      const grouped = groupByFlight(rosterRows);
+      const flightNames = orderFlightNames(Object.keys(grouped));
+      const periodRows = (bucket.all || []).filter(r => String(r.InspectionPeriodId) === String(period.Id));
+
+      return flightNames.map(flight => {
+        const capIds = new Set((grouped[flight] || []).map(m => String(m.CapId)));
+        const rows = periodRows.filter(r => capIds.has(String(r.StudentCapId)));
+
+        if (type === "pt") {
+          const totals = rows.reduce((acc, r) => {
+            acc.passed += Number(r.TotalPoints) || 0;
+            acc.attempted += Number(r.ItemsAttempted) || 0;
+            return acc;
+          }, { passed: 0, attempted: 0 });
+          return {
+            flight, count: rows.length,
+            pct: totals.attempted ? Math.round((totals.passed / totals.attempted) * 100) : null,
+            label: totals.attempted ? `${totals.passed} / ${totals.attempted} passed` : null
+          };
+        }
+
+        const items = INSPECTION_TYPES[type].items;
+        const avg = rows.length ? rows.reduce((sum, r) => sum + (Number(r.TotalPoints) || 0), 0) / rows.length : null;
+        return {
+          flight, count: rows.length,
+          pct: avg !== null ? Math.round((avg / items.length) * 100) : null,
+          label: avg !== null ? `${avg.toFixed(1)} / ${items.length}` : null
+        };
+      });
+    }
+
+    function renderPeriodDetail(period) {
+      currentView = "period-detail";
+      const scores = computePeriodFlightScores(period);
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-periods-btn">← Back</button>
+          <h2>${esc(periodLabel(period))} · ${esc(period.Date)}</h2>
+        </div>
+
+        <div class="flight-avg-grid">
+          ${scores.map(s => `
+            <div class="flight-avg-card">
+              <div class="flight-avg-card__name">${esc(s.flight)}</div>
+              ${s.label ? `
+                <div class="flight-avg-card__value">${esc(s.label)}</div>
+                <div class="flight-avg-card__bar-track">
+                  <div class="flight-avg-card__bar-fill" style="width:${s.pct ?? 0}%;"></div>
+                </div>
+                <div class="flight-avg-card__count">${s.count} cadet${s.count === 1 ? "" : "s"} scored</div>
+              ` : `
+                <div class="flight-avg-card__count" style="margin-top: var(--space-2);">No scores yet</div>
+              `}
+            </div>
+          `).join("")}
+        </div>
+      `;
+
+      document.getElementById("back-to-periods-btn").addEventListener("click", () => {
+        selectedPeriod = null;
+        renderPeriodsTab();
+      });
+      Shell.animateIn(contentEl);
     }
 
     function renderFlightGrid() {
       currentView = "flights";
       const grouped = groupByFlight(rosterRows);
       const flightNames = orderFlightNames(Object.keys(grouped));
-      const todaysPeriod = periodForActiveType(new Date().toLocaleDateString("en-CA"));
+      const todaysPeriods = periodsForDate(new Date().toLocaleDateString("en-CA"));
 
       if (!flightNames.length) {
         contentEl.innerHTML = `
@@ -987,12 +1119,12 @@
       // your own flight(s)" step. Only a position with NO owned flight
       // (blank/"all" — CCT/Administrator) picks from the tile grid below.
       if (allowedFlights.length) {
-        renderOwnFlightsDirect(grouped, flightNames, todaysPeriod);
+        renderOwnFlightsDirect(grouped, flightNames, todaysPeriods);
         return;
       }
 
       contentEl.innerHTML = `
-        ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
+        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
         <div class="flight-grid">
           ${flightNames.map(flight => `
             <button class="flight-tile" data-flight="${esc(flight)}">
@@ -1019,9 +1151,9 @@
      * selectedFlight tile-picked view, more than one flight's cadets can
      * be on screen together here.
      */
-    function renderOwnFlightsDirect(grouped, flightNames, todaysPeriod) {
+    function renderOwnFlightsDirect(grouped, flightNames, todaysPeriods) {
       contentEl.innerHTML = `
-        ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
+        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
         ${flightNames.map(flight => {
           const members = grouped[flight] || [];
           return `
@@ -1031,18 +1163,14 @@
               </div>
               ${members.length ? `
                 <div class="student-list">
-                  ${members.map(m => {
-                    const history = activeInspectionsByStudent()[String(m.CapId)] || [];
-                    const latest = history[0]; // sorted newest first
-                    return `
-                      <button class="student-row" data-flight="${esc(flight)}" data-capid="${esc(m.CapId)}">
-                        <div>
-                          <div class="student-row__name">${esc(m.Name) || "—"}</div>
-                          <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
-                        </div>
-                        ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${INSPECTION_TYPES[activeType].isPt ? esc(latest.ItemsAttempted || 0) : activeItems().length}</span>` : ""}
-                      </button>`;
-                  }).join("")}
+                  ${members.map(m => `
+                    <button class="student-row" data-flight="${esc(flight)}" data-capid="${esc(m.CapId)}">
+                      <div>
+                        <div class="student-row__name">${esc(m.Name) || "—"}</div>
+                        <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
+                      </div>
+                    </button>`
+                  ).join("")}
                 </div>
               ` : `
                 <div class="state-message">
@@ -1081,18 +1209,14 @@
         </div>
         ${members.length ? `
           <div class="student-list">
-            ${members.map(m => {
-              const history = activeInspectionsByStudent()[String(m.CapId)] || [];
-              const latest = history[0]; // sorted newest first
-              return `
-                <button class="student-row" data-capid="${esc(m.CapId)}">
-                  <div>
-                    <div class="student-row__name">${esc(m.Name) || "—"}</div>
-                    <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
-                  </div>
-                  ${latest ? `<span class="student-row__status student-row__status--done">${history.length > 1 ? `${history.length}x · ` : ""}Latest ${esc(latest.TotalPoints)}/${INSPECTION_TYPES[activeType].isPt ? esc(latest.ItemsAttempted || 0) : activeItems().length}</span>` : ""}
-                </button>`;
-            }).join("")}
+            ${members.map(m => `
+              <button class="student-row" data-capid="${esc(m.CapId)}">
+                <div>
+                  <div class="student-row__name">${esc(m.Name) || "—"}</div>
+                  <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
+                </div>
+              </button>`
+            ).join("")}
           </div>
         ` : `
           <div class="state-message">
@@ -1119,38 +1243,59 @@
       Shell.animateIn(contentEl);
     }
 
+    const TYPE_LABELS = { uniform: "Uniform", room: "Room", pt: "Physical Training" };
+
     /**
-     * Shows this student's past inspections (newest first) with a
-     * "New inspection" button. Clicking a past entry opens the
-     * scorecard pre-filled with that day's scores for viewing/editing;
-     * "New inspection" opens a blank scorecard for today (or updates
-     * today's entry in place if one already exists for today).
+     * This student's Uniform + Room + PT inspections, merged into one
+     * newest-first list — the Inspect tab has no per-type tab anymore, so
+     * a cadet's history has to show every kind of inspection together.
+     * Each entry is tagged with __type so the row can label itself and
+     * route back into the right scorecard when clicked.
+     */
+    function mergedHistoryForStudent(capId) {
+      const capIdStr = String(capId);
+      const entries = [];
+      Object.keys(inspectionsByType).forEach(type => {
+        (inspectionsByType[type].byStudent[capIdStr] || []).forEach(row => entries.push({ ...row, __type: type }));
+      });
+      entries.sort((a, b) => (a.Date < b.Date ? 1 : a.Date > b.Date ? -1 : 0));
+      return entries;
+    }
+
+    /**
+     * Shows this student's past inspections (newest first, every type
+     * merged together) with buttons to start today's inspection(s).
+     * Clicking a past entry opens the scorecard pre-filled with that
+     * day's scores for viewing/editing; each button below opens a blank
+     * scorecard for today (or updates today's entry in place if one
+     * already exists).
      */
     function renderHistory() {
       currentView = "history";
-      const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
+      const history = mergedHistoryForStudent(selectedStudent.CapId);
       const todayStr = new Date().toLocaleDateString("en-CA");
-      const hasToday = history.some(h => h.Date === todayStr);
-      const todaysPeriod = periodForActiveType(todayStr);
 
-      // What's actually scheduled TODAY, across BOTH categories — not
-      // just whichever tab happens to be active. A generic "New
-      // Inspection" button used to give no clue which of possibly
-      // several scheduled periods it would file under; now each
+      // What's actually scheduled TODAY, across every category — each
       // scheduled period gets its own explicit button (e.g. "Room
-      // Inspection", "Uniform — OCP/ABU"), and clicking one switches to
-      // that period's tab/category automatically so the entry can only
-      // land in the period it names. Falls back to a single generic
-      // button (today's ad-hoc entry in the currently active tab) when
-      // nothing at all is scheduled for today.
+      // Inspection", "Uniform — OCP/ABU"), naming exactly which period the
+      // entry will be filed under (see pendingPeriodId/currentPeriodId).
+      // With nothing scheduled, one ad-hoc button per inspection type
+      // lets the person pick what they're logging instead.
       const scheduledToday = inspectionPeriods.filter(p => p.Date === todayStr);
 
       function inspectionButtonsHtml() {
         if (!scheduledToday.length) {
           return `
-            <button class="btn btn--primary" id="new-inspection-btn" style="margin-bottom: var(--space-5);">
-              ${hasToday ? "Update Today's Inspection" : "New Inspection"}
-            </button>
+            <div style="display:flex; flex-wrap:wrap; gap: var(--space-2); margin-bottom: var(--space-5);">
+              ${Object.keys(INSPECTION_TYPES).map(type => {
+                const doneToday = (inspectionsByType[type].byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
+                return `
+                  <button class="btn btn--primary" data-adhoc-type="${type}">
+                    ${doneToday ? "Update: " : "New "}${TYPE_LABELS[type]} Inspection
+                  </button>
+                `;
+              }).join("")}
+            </div>
           `;
         }
         return `
@@ -1179,21 +1324,24 @@
           <div class="scorecard-meta__item"><span>Total Inspections</span>${history.length}</div>
         </div>
 
-        ${todaysPeriod ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${esc(periodLabel(todaysPeriod))}</strong></div>` : ""}
-
         ${inspectionButtonsHtml()}
 
         ${history.length ? `
           <div class="history-list">
-            ${history.map(h => `
-              <div class="history-row" data-date="${esc(h.Date)}" style="cursor:pointer;">
-                <div>
-                  <div class="history-row__date">${esc(h.Date)}</div>
-                  <div class="history-row__meta">${esc(h.InspectingPosition) || "—"}${h.Notes ? " · has notes" : ""}</div>
+            ${history.map(h => {
+              const scoreLabel = INSPECTION_TYPES[h.__type].isPt
+                ? `${h.TotalPoints ?? 0} / ${h.ItemsAttempted || 0} passed`
+                : `${h.TotalPoints ?? "—"} / ${INSPECTION_TYPES[h.__type].items.length}`;
+              return `
+                <div class="history-row" data-date="${esc(h.Date)}" data-type="${esc(h.__type)}" style="cursor:pointer;">
+                  <div>
+                    <div class="history-row__date">${esc(h.Date)}</div>
+                    <div class="history-row__meta">${TYPE_LABELS[h.__type]} · ${esc(h.InspectingPosition) || "—"}${h.Notes ? " · has notes" : ""}</div>
+                  </div>
+                  <div class="history-row__score">${scoreLabel}</div>
                 </div>
-                <div class="history-row__score">${h.TotalPoints ?? "—"} / ${INSPECTION_TYPES[activeType].isPt ? (h.ItemsAttempted || 0) : activeItems().length}</div>
-              </div>
-            `).join("")}
+              `;
+            }).join("")}
           </div>
         ` : `
           <div class="state-message">
@@ -1215,21 +1363,24 @@
         else renderStudentList();
       });
 
-      const newInspectionBtn = document.getElementById("new-inspection-btn");
-      if (newInspectionBtn) {
-        newInspectionBtn.addEventListener("click", () => {
-          selectedInspectionDate = hasToday ? todayStr : null;
+      contentEl.querySelectorAll("[data-adhoc-type]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          activeType = btn.dataset.adhocType;
+          pendingPeriodId = ""; // no scheduled period — an ad-hoc entry
+          const doneToday = (inspectionsByType[activeType].byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
+          selectedInspectionDate = doneToday ? todayStr : null;
           renderScorecard();
         });
-      }
+      });
 
       contentEl.querySelectorAll("[data-period-btn]").forEach(btn => {
         btn.addEventListener("click", () => {
           // Land the entry in the exact period it was scheduled under —
-          // switch to that period's category/tab first (so activeType,
-          // and everything derived from it, matches the period BEFORE
-          // the scorecard opens), then open today's entry for it.
-          activateTab(btn.dataset.periodCategory);
+          // set activeType to that period's category BEFORE the scorecard
+          // opens, and remember the period's own Id so the saved row
+          // carries it (see currentPeriodId in renderScorecard).
+          activeType = btn.dataset.periodCategory;
+          pendingPeriodId = btn.dataset.periodBtn;
           selectedInspectionDate = todayStr;
           renderScorecard();
         });
@@ -1237,6 +1388,11 @@
 
       contentEl.querySelectorAll(".history-row").forEach(row => {
         row.addEventListener("click", () => {
+          activeType = row.dataset.type;
+          // No pending selection here — renderScorecard falls back to the
+          // clicked entry's OWN InspectionPeriodId (via `existing`), which
+          // is the correct association for something already saved.
+          pendingPeriodId = "";
           selectedInspectionDate = row.dataset.date;
           renderScorecard();
         });
@@ -1254,6 +1410,12 @@
       const existing = selectedInspectionDate
         ? (history.find(h => h.Date === selectedInspectionDate) || {})
         : {};
+      // A row already being edited keeps its OWN period association;
+      // only a genuinely new entry (existing = {}) takes whatever period
+      // was just selected on the history screen. See pendingPeriodId.
+      currentPeriodId = (existing.InspectionPeriodId != null && existing.InspectionPeriodId !== "")
+        ? existing.InspectionPeriodId
+        : (pendingPeriodId || "");
 
       currentScores = {};
       items.forEach(item => {
@@ -1358,6 +1520,10 @@
       const existing = selectedInspectionDate
         ? (history.find(h => h.Date === selectedInspectionDate) || {})
         : {};
+      // See the matching comment in renderScorecard() above.
+      currentPeriodId = (existing.InspectionPeriodId != null && existing.InspectionPeriodId !== "")
+        ? existing.InspectionPeriodId
+        : (pendingPeriodId || "");
 
       const age = selectedStudent.Age || existing.Age || "";
       const sex = selectedStudent.Sex || existing.Sex || "";
@@ -1513,6 +1679,7 @@
         InspectingPosition: session.Position,
         Date: dateStr,
         Timestamp: timestampStr,
+        InspectionPeriodId: currentPeriodId,
         Notes: document.getElementById("notes-input").value.trim()
       };
       items.forEach(item => { row[item.key] = currentScores[item.key]; });
@@ -1568,6 +1735,7 @@
         InspectingPosition: session.Position,
         Date: dateStr,
         Timestamp: timestampStr,
+        InspectionPeriodId: currentPeriodId,
         Age: age,
         Sex: sex,
         Notes: document.getElementById("notes-input").value.trim(),
@@ -1600,15 +1768,21 @@
     }
 
     /**
-     * Flight-vs-flight averages. Uses each cadet's MOST RECENT
-     * inspection only (not every historical entry) so a flight that
-     * was scored low once early on isn't dragged down forever — this
-     * shows "how is this flight doing right now," not a lifetime
-     * average. A "count basis" toggle lets you switch to all-time if
-     * you want the fuller picture instead.
+     * Flight-vs-flight averages. `basis` is either "all" (every historical
+     * entry, all-time) or a specific InspectionPeriods Id — scoping the
+     * averages to just that ONE scheduled period's results, the same
+     * per-period slice the Periods tab's own detail view shows (see
+     * computePeriodFlightScores), just aggregated across every period
+     * matching `type` here instead of computed fresh per period.
      */
-    let trendsBasis = "latest"; // "latest" | "all"
+    let trendsBasis = "all"; // "all" | an InspectionPeriods Id
     let trendsType = "uniform"; // "uniform" | "room" — which inspection's trends are on screen
+
+    /** The rows a basis of "all" or a specific period Id resolves to, out of one cadet's full history. */
+    function historyForBasis(history, basis) {
+      if (basis === "all") return history;
+      return history.filter(r => String(r.InspectionPeriodId) === String(basis));
+    }
 
     function computeFlightTrends(type, basis) {
       const items = INSPECTION_TYPES[type].items;
@@ -1621,9 +1795,7 @@
         const relevantRows = [];
         members.forEach(m => {
           const history = byStudent[String(m.CapId)] || [];
-          if (!history.length) return;
-          if (basis === "latest") relevantRows.push(history[0]);
-          else relevantRows.push(...history);
+          relevantRows.push(...historyForBasis(history, basis));
         });
 
         const itemAverages = {};
@@ -1744,6 +1916,21 @@
 
     function renderTrends() {
       currentView = "trends";
+
+      // Periods matching the currently-toggled type, for the "Showing:"
+      // dropdown — most recent first, same ordering as the Periods tab.
+      const periodsForType = inspectionPeriods
+        .filter(p => p.Category === trendsType)
+        .sort((a, b) => (a.Date < b.Date ? 1 : a.Date > b.Date ? -1 : 0));
+
+      // A previously-selected period can stop applying — it belonged to
+      // the OTHER category (the type toggle below was just switched) or
+      // it was deleted outright — in which case fall back to "all" rather
+      // than silently filtering on an Id that matches nothing.
+      if (trendsBasis !== "all" && !periodsForType.some(p => String(p.Id) === String(trendsBasis))) {
+        trendsBasis = "all";
+      }
+
       const items = INSPECTION_TYPES[trendsType].items;
       const byStudent = inspectionsByType[trendsType].byStudent;
       const data = computeFlightTrends(trendsType, trendsBasis);
@@ -1766,8 +1953,8 @@
           </div>
           <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
           <select id="trends-basis-select">
-            <option value="latest" ${trendsBasis === "latest" ? "selected" : ""}>Each cadet's latest inspection</option>
             <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
+            ${periodsForType.map(p => `<option value="${esc(p.Id)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))} — ${esc(p.Date)}</option>`).join("")}
           </select>
         </div>
 
@@ -1802,7 +1989,7 @@
                 let scored = 0, passed = 0;
                 Object.entries(byStudent).forEach(([capId, history]) => {
                   if (!allowedCapIds.has(capId)) return;
-                  const rows = trendsBasis === "latest" ? history.slice(0, 1) : history;
+                  const rows = historyForBasis(history, trendsBasis);
                   rows.forEach(r => {
                     const v = r[item.key];
                     if (v === 1 || v === 0 || v === "1" || v === "0") {
@@ -1887,6 +2074,8 @@
       if (currentView === "scorecard") return; // don't clobber in-progress scoring
       if (currentView === "history" && selectedStudent) return renderHistory();
       if (currentView === "students" && selectedFlight) return renderStudentList();
+      if (currentView === "period-detail" && selectedPeriod) return renderPeriodDetail(selectedPeriod);
+      if (currentView === "periods-tiles") return renderPeriodsTab();
       return renderFlightGrid();
     }
 
@@ -1927,6 +2116,13 @@
       });
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
         inspectionPeriods = fresh.rows || [];
+        // Same "period vanished" handling as deletePeriod() — covers a
+        // period deleted from a DIFFERENT device/session while this one
+        // still has its detail view open.
+        if (selectedPeriod && !inspectionPeriods.some(p => String(p.Id) === String(selectedPeriod.Id))) {
+          selectedPeriod = null;
+          if (currentView === "period-detail") currentView = "periods-tiles";
+        }
         renderPeriodsSection();
         renderActiveView();
       });
@@ -1991,31 +2187,19 @@
 
     const inspectionTabsIndicator = Shell.enhanceTabs(document.querySelector(".inspection-tabs"));
 
-    /**
-     * Switches the top uniform/room/trends tab, both from a direct tab
-     * click and programmatically (a period button in renderHistory needs
-     * to land on the right tab BEFORE opening that period's scorecard —
-     * see the period-button handling there).
-     */
+    /** Switches the top Inspect/Periods/Trends tab. */
     function activateTab(tab) {
       tabButtons.forEach(b => b.classList.toggle("is-active", b.dataset.tab === tab));
       inspectionTabsIndicator.move();
-      if (tab === "trends") {
-        renderTrends();
-      } else {
-        activeType = (tab === "room" || tab === "pt") ? tab : "uniform";
-      }
+      if (tab === "trends") renderTrends();
+      else if (tab === "periods") { selectedPeriod = null; renderPeriodsTab(); }
+      else { selectedFlight = null; selectedStudent = null; renderFlightGrid(); }
     }
 
     tabButtons.forEach(btn => {
       btn.addEventListener("click", () => {
         if (btn.disabled) return;
         activateTab(btn.dataset.tab);
-        if (btn.dataset.tab !== "trends") {
-          selectedFlight = null;
-          selectedStudent = null;
-          renderFlightGrid();
-        }
       });
     });
 
@@ -2027,9 +2211,9 @@
       const items = INSPECTION_TYPES[activeType].items;
       const isPt = !!INSPECTION_TYPES[activeType].isPt;
       const columns = isPt
-        ? ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp", "Age", "Sex",
+        ? ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp", "InspectionPeriodId", "Age", "Sex",
            ...items.flatMap(i => [i.key, `${i.key}Pass`]), "TotalPoints", "ItemsAttempted", "Notes"]
-        : ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp",
+        : ["StudentCapId", "StudentName", "Flight", "InspectingPosition", "Date", "Timestamp", "InspectionPeriodId",
            ...items.map(i => i.key), "TotalPoints", "Notes"];
       const rows = (inspectionsByType[activeType].all || []).filter(r => isFlightAllowed(r.Flight));
       return { filename: `inspections-${activeType}-${new Date().toISOString().slice(0, 10)}.csv`, columns, rows };
