@@ -27,8 +27,11 @@ export const SHEET_PERMISSIONS = {
   RoomInspections:    { read: "any", write: "any" },
   PTInspections:      { read: "any", write: "any" },
   InspectionPeriods:  { read: "any", write: "page" },
-  Announcements:      { read: "any", write: "page" },
-  BlackFlagStatus:    { read: "any", write: "page" },
+  // Announcements/BlackFlagStatus have no separate edit-* pencil — page
+  // access (the "announcements" token) already implies edit access, same
+  // shape as Notes/Observations below.
+  Announcements:      { read: "any", write: "any" },
+  BlackFlagStatus:    { read: "any", write: "any" },
   Notes:              { read: "any", write: "any" },
   // Same shape as UniformInspections/Notes: any signed-in position that
   // can reach the Observations page can log an entry for a student —
@@ -38,18 +41,20 @@ export const SHEET_PERMISSIONS = {
   // visibility (whether "observations" is in a position's Pages at
   // all) is the only real gate, same as every other page.
   Observations:       { read: "any", write: "any" },
-  // Same shape as Observations: gated purely by whether "recommendations"
-  // is in a position's Pages, not a separate edit-recommendations grant.
-  HonorCadetRecommendations:  { read: "any", write: "any" },
-  HonorFlightRecommendations: { read: "any", write: "any" }
+  // Unlike Observations, submitting a recommendation is gated by the
+  // edit-recommendations pencil — a position with view-only "recommendations"
+  // access gets the read-only submissions review instead (see
+  // pages/recommendations.html).
+  HonorCadetRecommendations:  { read: "any", write: "page" },
+  HonorFlightRecommendations: { read: "any", write: "page" }
 };
 
 export const PAGE_WRITE_GATES = {
-  Roster:            { viewPage: "roster",        editPage: "edit-roster" },
-  Schedule:          { viewPage: "schedule",       editPage: "edit-schedule" },
-  InspectionPeriods: { viewPage: "inspections",    editPage: "edit-inspections" },
-  Announcements:     { viewPage: "announcements",  editPage: "edit-announcements" },
-  BlackFlagStatus:   { viewPage: "announcements",  editPage: "edit-announcements" }
+  Roster:                     { viewPage: "roster",          editPage: "edit-roster" },
+  Schedule:                   { viewPage: "schedule",         editPage: "edit-schedule" },
+  InspectionPeriods:          { viewPage: "inspections",      editPage: "edit-inspections" },
+  HonorCadetRecommendations:  { viewPage: "recommendations",  editPage: "edit-recommendations" },
+  HonorFlightRecommendations: { viewPage: "recommendations",  editPage: "edit-recommendations" }
 };
 
 export const RATE_LIMIT_PER_MINUTE = 60;

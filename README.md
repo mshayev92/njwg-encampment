@@ -32,15 +32,15 @@ Other protections layered on top:
 - Basic rate limiting slows down brute-force passphrase/password guessing and URL scraping.
 - Every login attempt (device gate and per-position) is logged to a `LoginLog` tab, auto-created on first use, for after-action review.
 
-### Writable sheets: Roster, Schedule, Announcements, BlackFlagStatus
+### Writable sheets requiring a separate edit grant: Roster, Schedule, InspectionPeriods, HonorCadetRecommendations, HonorFlightRecommendations
 
-Roster and Schedule are editable from the app (not just read-only). Writing to any of these four requires **both**:
-- the normal view page id in that position's `Pages` column (`roster`, `schedule`, or `announcements` — the same id that controls nav visibility), **and**
-- a separate **edit id**: `edit-roster`, `edit-schedule`, or `edit-announcements`.
+Writing to any of these requires **both**:
+- the normal view page id in that position's `Pages` column (`roster`, `schedule`, `inspections`, or `recommendations` — the same id that controls nav visibility), **and**
+- a separate **edit id**: `edit-roster`, `edit-schedule`, `edit-inspections`, or `edit-recommendations`.
 
-Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The three edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule stays view-only for that position.
+Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule/Inspections stay view-only for that position. On the Awards page, a position without `edit-recommendations` gets a read-only review of every submission instead of the recommendation forms (see `pages/recommendations.html`).
 
-`UniformInspections`, `RoomInspections`, and `Notes` stay writable by any signed-in position — any position that can reach Inspections needs to be able to submit scorecards, and any position that can reach Notes needs to be able to jot one down; there's no `edit-inspections` or `edit-notes` id.
+`UniformInspections`, `RoomInspections`, `Notes`, `Observations`, `Announcements`, and `BlackFlagStatus` stay writable by any signed-in position that can reach their page — no separate edit id for those; view access implies edit access.
 
 Roster deletes go through a `delete` action in `worker/src/index.js` (`handleDelete`), gated by the same edit-id check as writing to that sheet.
 
@@ -107,7 +107,7 @@ Every page follows the same pattern: load `config.js` → `api.js` → `auth.js`
 Create tabs named exactly:
 - **StaffAccess** — columns: `Position, Pages, Password`.
   - `Position` — the exact dropdown label, e.g. `Alpha Flight`, `Bravo Flight`, `Squadron 1`, `Squadron 2`, `CCT`, `Administrator`. Each row is one dropdown option — add or remove a row to add or remove an option, no code changes needed.
-  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, or Announcements, additionally include `edit-roster`, `edit-schedule`, or `edit-announcements` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
+  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, Inspections, or Awards, additionally include `edit-roster`, `edit-schedule`, `edit-inspections`, or `edit-recommendations` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
   - `Password` — **plaintext**. Leave blank for ordinary flights/squadrons. Fill in a real password for the `CCT` and `Administrator` rows specifically (matched case-insensitively) — those two positions cannot sign in without it. This entire sheet is never exposed through the app's generic read API — see the security tradeoff section above — but is visible to anyone with Sheet access, so restrict Sheet sharing accordingly.
 - **Roster** — columns: `CapId, Name, Rank, Flight, Age, Sex`. Purely a display list of students for staff to browse — **never used for login**. `Age`/`Sex` feed the Physical Training inspection's chart lookup (see below); both are optional per cadet.
 - **Schedule** — columns: `Day, Time, Activity, Location, Flight`
