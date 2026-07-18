@@ -95,26 +95,6 @@
       border: 1px solid var(--line);
     }
 
-    .richtext-toolbar {
-      display: flex;
-      gap: var(--space-1);
-      margin-bottom: var(--space-2);
-    }
-
-    .richtext-toolbar button {
-      padding: var(--space-2) var(--space-3);
-      font-size: var(--fs-sm);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-sm);
-      background: var(--surface);
-      color: var(--ink-900);
-      cursor: pointer;
-    }
-
-    .richtext-toolbar button:hover {
-      border-color: var(--gold-500);
-    }
-
     .richtext-editor {
       width: 100%;
       min-height: 90px;
@@ -255,7 +235,6 @@
       return `
         <div class="card post-form">
           <h2 class="card-title">${editing ? "Edit Announcement" : "Post an Announcement"}</h2>
-          ${RichText.TOOLBAR_HTML}
           <div class="richtext-editor" id="message-input" contenteditable="true" data-placeholder="Write an announcement for all staff…"></div>
           <div style="display:flex; gap: var(--space-3);">
             <button class="btn btn--primary" id="post-btn">${editing ? "Save Changes" : "Post Announcement"}</button>
@@ -305,10 +284,6 @@
       if (postBtn) postBtn.addEventListener("click", postAnnouncement);
       const cancelEditBtn = document.getElementById("cancel-edit-btn");
       if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEditAnnouncement);
-
-      const toolbar = contentEl.querySelector(".richtext-toolbar");
-      const editor = document.getElementById("message-input");
-      if (toolbar && editor) RichText.attach(toolbar, editor);
 
       contentEl.querySelectorAll("[data-edit-id]").forEach(btn => {
         btn.addEventListener("click", () => startEditAnnouncement(btn.dataset.editId));

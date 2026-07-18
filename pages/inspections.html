@@ -784,6 +784,18 @@
     // Roster/Schedule (see PAGE_WRITE_GATES in worker/src/auth.js).
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditInspections = sessionPages.includes("edit-inspections");
+
+    // Flights/squadrons can score inspections as they happen, but once a
+    // day has passed that scorecard is history — reopening it and editing
+    // the scores would silently rewrite the record. Only positions with
+    // edit-inspections (the IAT Department) can go back and change a past
+    // day's entry; everyone else gets a locked, read-only scorecard with a
+    // pointer to file the change through IAT instead.
+    function isPastDateLocked(dateStr) {
+      return !canEditInspections && dateStr < Shell.todayIso();
+    }
+    const PAST_DATE_LOCK_MESSAGE = "This inspection is from a previous day and can no longer be edited here. Submit a change request to the IAT Department.";
+
     let inspectionPeriods = [];
     let editingPeriodId = null; // Id of the period being edited, or null; periods form is closed unless this or showPeriodForm is set
     let showPeriodForm = false;
@@ -1588,6 +1600,7 @@
       const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA"); // YYYY-MM-DD
       const timestampStr = now.toISOString();
       const isEditingPast = !!selectedInspectionDate;
+      const locked = isPastDateLocked(dateStr);
 
       // Uniform has one flat section; Room groups items under the
       // printed scorecard's "Bunk"/"Locker" headers instead.
@@ -1612,6 +1625,8 @@
           <div class="scorecard-meta__item"><span>Date</span>${esc(dateStr)}${isEditingPast ? " (editing existing entry)" : ""}</div>
         </div>
 
+        ${locked ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">🔒 ${esc(PAST_DATE_LOCK_MESSAGE)}</div>` : ""}
+
         ${sections.map(sec => `
           <div class="scorecard-section">
             <h3>${esc(sec.title)}</h3>
@@ -1619,8 +1634,8 @@
               <div class="scorecard-item">
                 <span class="scorecard-item__label">${item.label}</span>
                 <div class="scorecard-toggle" data-key="${item.key}">
-                  <button type="button" class="score-btn value-0" data-value="0">0</button>
-                  <button type="button" class="score-btn value-1" data-value="1">1</button>
+                  <button type="button" class="score-btn value-0" data-value="0" ${locked ? "disabled" : ""}>0</button>
+                  <button type="button" class="score-btn value-1" data-value="1" ${locked ? "disabled" : ""}>1</button>
                 </div>
               </div>
             `).join("")}
@@ -1634,10 +1649,12 @@
 
         <div class="scorecard-section scorecard-notes">
           <h3>Notes</h3>
-          <textarea id="notes-input" placeholder="Optional notes…">${esc(existing.Notes || "")}</textarea>
+          <textarea id="notes-input" placeholder="Optional notes…" ${locked ? "disabled" : ""}>${esc(existing.Notes || "")}</textarea>
         </div>
 
-        <button class="btn btn--primary" id="submit-scorecard-btn">Save Inspection</button>
+        ${locked
+          ? `<button class="btn btn--primary" id="submit-scorecard-btn" disabled>Locked — contact IAT Department</button>`
+          : `<button class="btn btn--primary" id="submit-scorecard-btn">Save Inspection</button>`}
       `;
 
       document.getElementById("back-to-history-btn").addEventListener("click", () => {
@@ -1647,25 +1664,27 @@
 
       items.forEach(item => updateToggleUI(item.key));
 
-      contentEl.querySelectorAll(".scorecard-toggle").forEach(toggle => {
-        const key = toggle.dataset.key;
-        toggle.querySelectorAll(".score-btn").forEach(btn => {
-          btn.addEventListener("click", () => {
-            currentScores[key] = Number(btn.dataset.value);
-            updateToggleUI(key);
-            const totalEl = document.getElementById("total-points-display");
-            totalEl.textContent = `${computeTotal()} / ${items.length}`;
-            // Retriggerable pulse — same remove/reflow/add dance as
-            // Shell.animateIn, so scoring several items in a row pulses
-            // every time instead of only the first.
-            totalEl.classList.remove("total-pulse");
-            void totalEl.offsetWidth;
-            totalEl.classList.add("total-pulse");
+      if (!locked) {
+        contentEl.querySelectorAll(".scorecard-toggle").forEach(toggle => {
+          const key = toggle.dataset.key;
+          toggle.querySelectorAll(".score-btn").forEach(btn => {
+            btn.addEventListener("click", () => {
+              currentScores[key] = Number(btn.dataset.value);
+              updateToggleUI(key);
+              const totalEl = document.getElementById("total-points-display");
+              totalEl.textContent = `${computeTotal()} / ${items.length}`;
+              // Retriggerable pulse — same remove/reflow/add dance as
+              // Shell.animateIn, so scoring several items in a row pulses
+              // every time instead of only the first.
+              totalEl.classList.remove("total-pulse");
+              void totalEl.offsetWidth;
+              totalEl.classList.add("total-pulse");
+            });
           });
         });
-      });
 
-      document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitScorecard(dateStr, timestampStr));
+        document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitScorecard(dateStr, timestampStr));
+      }
       Shell.animateIn(contentEl);
     }
 
@@ -1697,6 +1716,7 @@
       const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA");
       const timestampStr = now.toISOString();
       const isEditingPast = !!selectedInspectionDate;
+      const locked = isPastDateLocked(dateStr);
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -1711,6 +1731,8 @@
           <div class="scorecard-meta__item"><span>Date</span>${esc(dateStr)}${isEditingPast ? " (editing existing entry)" : ""}</div>
         </div>
 
+        ${locked ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">🔒 ${esc(PAST_DATE_LOCK_MESSAGE)}</div>` : ""}
+
         ${!standard ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">⚠ This cadet has no Age/Sex on file in the Roster — raw scores can still be recorded, but pass/fail can't be computed until Age and Sex are added.</div>` : ""}
 
         <div class="scorecard-section">
@@ -1722,7 +1744,7 @@
               <div class="scorecard-item" data-pt-key="${item.key}">
                 <span class="scorecard-item__label">${item.label} <span style="color: var(--ink-600); font-weight: 400;">(${item.unit}${threshold !== null ? ` · standard ${esc(thresholdLabel)}` : ""})</span></span>
                 <div style="display:flex; align-items:center; gap: var(--space-2);">
-                  <input type="text" inputmode="${item.type === "time" ? "numeric" : "decimal"}" class="pt-input" data-key="${item.key}" placeholder="${item.type === "time" ? "mm:ss" : item.unit}" value="${esc(currentScores[item.key])}" style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+                  <input type="text" inputmode="${item.type === "time" ? "numeric" : "decimal"}" class="pt-input" data-key="${item.key}" placeholder="${item.type === "time" ? "mm:ss" : item.unit}" value="${esc(currentScores[item.key])}" ${locked ? "disabled" : ""} style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
                   <span class="badge pt-pass-badge" data-pt-badge="${item.key}" style="background: var(--surface-sunken); color: var(--ink-600);">—</span>
                 </div>
               </div>`;
@@ -1736,10 +1758,12 @@
 
         <div class="scorecard-section scorecard-notes">
           <h3>Notes</h3>
-          <textarea id="notes-input" placeholder="Optional notes…">${esc(existing.Notes || "")}</textarea>
+          <textarea id="notes-input" placeholder="Optional notes…" ${locked ? "disabled" : ""}>${esc(existing.Notes || "")}</textarea>
         </div>
 
-        <button class="btn btn--primary" id="submit-scorecard-btn">Save PT Test</button>
+        ${locked
+          ? `<button class="btn btn--primary" id="submit-scorecard-btn" disabled>Locked — contact IAT Department</button>`
+          : `<button class="btn btn--primary" id="submit-scorecard-btn">Save PT Test</button>`}
       `;
 
       document.getElementById("back-to-history-btn").addEventListener("click", () => {
@@ -1775,20 +1799,22 @@
 
       items.forEach(refreshPtBadge);
 
-      contentEl.querySelectorAll(".pt-input").forEach(input => {
-        const item = items.find(i => i.key === input.dataset.key);
-        input.addEventListener("input", () => {
-          currentScores[item.key] = input.value;
-          refreshPtBadge(item);
-          const totalEl = document.getElementById("total-points-display");
-          totalEl.textContent = ptTotalLabel();
-          totalEl.classList.remove("total-pulse");
-          void totalEl.offsetWidth;
-          totalEl.classList.add("total-pulse");
+      if (!locked) {
+        contentEl.querySelectorAll(".pt-input").forEach(input => {
+          const item = items.find(i => i.key === input.dataset.key);
+          input.addEventListener("input", () => {
+            currentScores[item.key] = input.value;
+            refreshPtBadge(item);
+            const totalEl = document.getElementById("total-points-display");
+            totalEl.textContent = ptTotalLabel();
+            totalEl.classList.remove("total-pulse");
+            void totalEl.offsetWidth;
+            totalEl.classList.add("total-pulse");
+          });
         });
-      });
 
-      document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitPtScorecard(dateStr, timestampStr, age, sex, standard));
+        document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitPtScorecard(dateStr, timestampStr, age, sex, standard));
+      }
       Shell.animateIn(contentEl);
     }
 
@@ -1826,6 +1852,10 @@
     }
 
     function submitScorecard(dateStr, timestampStr) {
+      if (isPastDateLocked(dateStr)) {
+        Shell.showToast(PAST_DATE_LOCK_MESSAGE, { type: "error" });
+        return;
+      }
       const items = activeItems();
       const unscored = items.filter(item => currentScores[item.key] !== 0 && currentScores[item.key] !== 1);
       if (unscored.length) {
@@ -1887,6 +1917,10 @@
      * pass/fail for whichever ones actually have a value.
      */
     function submitPtScorecard(dateStr, timestampStr, age, sex, standard) {
+      if (isPastDateLocked(dateStr)) {
+        Shell.showToast(PAST_DATE_LOCK_MESSAGE, { type: "error" });
+        return;
+      }
       const { passed, attempted } = computePtTotals(standard);
 
       const row = {

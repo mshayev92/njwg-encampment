@@ -2560,6 +2560,22 @@ const Shell = (() => {
   }
 
   /**
+   * A small attribution/contact note appended to the bottom of every
+   * page's main content, right after Shell.init() places it there.
+   * Appended (not part of a page's own #page-content) so it survives
+   * every innerHTML re-render the page itself does.
+   */
+  function renderFooterNote_() {
+    const main = document.querySelector(".app-main");
+    if (!main || document.getElementById("app-footer-note")) return;
+    const footer = document.createElement("footer");
+    footer.id = "app-footer-note";
+    footer.className = "app-footer-note";
+    footer.textContent = "This app was built and is maintained by the Innovations and Technology Department. Direct questions, comments, or concerns to the Innovations and Technology Department.";
+    main.appendChild(footer);
+  }
+
+  /**
    * Call once per page. Pass { activePage: 'schedule' | 'roster' | ... , requireAuth: true }
    */
   function init({ activePage = null, requireAuth = true } = {}) {
@@ -2571,6 +2587,7 @@ const Shell = (() => {
     // listener for a "system" preference for the rest of this page's life.
     initThemeWatcher_();
     injectSkipLink_();
+    renderFooterNote_();
     // Skip if Shell.renderNav(activePage) already ran earlier in this
     // same page load (see the inline script right after #nav-rail in
     // every page's markup) — otherwise the sidebar links get torn down
