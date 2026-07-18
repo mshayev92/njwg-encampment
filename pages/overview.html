@@ -825,6 +825,7 @@
         renderAll();
       });
 
+      const rosterHadCache = !!cached;
       if (cached) {
         lastRosterRows = cached.rows || [];
         rosterLoaded = true;
@@ -838,7 +839,15 @@
         // functions already tolerate a null/empty array for whichever
         // piece didn't come through.
         rosterLoaded = true;
-        renderAll();
+        // Only render here if this sheet WASN'T already showing from
+        // cache — if it was, this settling is just the background
+        // revalidation confirming: either the data actually changed
+        // (onFresh above already re-rendered) or it didn't (nothing new
+        // to show). Without this guard, EVERY background revalidation —
+        // even a byte-identical one — replayed renderAll()'s full
+        // innerHTML rebuild and Shell.animateIn(), producing a second,
+        // spurious "flash" moments after the real reveal on every load.
+        if (!rosterHadCache) renderAll();
       });
 
       // Schedule: same instant-cache pattern, independent of Roster.
@@ -846,10 +855,12 @@
         lastScheduleRows = fresh.rows || [];
         renderAll();
       });
+      const scheduleHadCache = !!scheduleHandle.data;
       if (scheduleHandle.data) { lastScheduleRows = scheduleHandle.data.rows || []; scheduleLoaded = true; }
       scheduleHandle.ready.catch(() => { /* surfaced by the Schedule page itself if it matters */ }).finally(() => {
         scheduleLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!scheduleHadCache) renderAll();
       });
 
       // Weather has no backend cache of its own (it's a direct call to
@@ -870,50 +881,60 @@
         lastUniformRows = fresh.rows || [];
         renderAll();
       });
+      const uniformHadCache = !!uniformHandle.data;
       if (uniformHandle.data) { lastUniformRows = uniformHandle.data.rows || []; uniformLoaded = true; }
       uniformHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
         uniformLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!uniformHadCache) renderAll();
       });
 
       const roomHandle = Api.getSheetCached("RoomInspections", (fresh) => {
         lastRoomRows = fresh.rows || [];
         renderAll();
       });
+      const roomHadCache = !!roomHandle.data;
       if (roomHandle.data) { lastRoomRows = roomHandle.data.rows || []; roomLoaded = true; }
       roomHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
         roomLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!roomHadCache) renderAll();
       });
 
       const ptHandle = Api.getSheetCached("PTInspections", (fresh) => {
         lastPtRows = fresh.rows || [];
         renderAll();
       });
+      const ptHadCache = !!ptHandle.data;
       if (ptHandle.data) { lastPtRows = ptHandle.data.rows || []; ptLoaded = true; }
       ptHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
         ptLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!ptHadCache) renderAll();
       });
 
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
         lastInspectionPeriods = fresh.rows || [];
         renderAll();
       });
+      const periodsHadCache = !!periodsHandle.data;
       if (periodsHandle.data) { lastInspectionPeriods = periodsHandle.data.rows || []; periodsLoaded = true; }
       periodsHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
         periodsLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!periodsHadCache) renderAll();
       });
 
       const observationsHandle = Api.getSheetCached("Observations", (fresh) => {
         lastObservationRows = fresh.rows || [];
         renderAll();
       });
+      const observationsHadCache = !!observationsHandle.data;
       if (observationsHandle.data) { lastObservationRows = observationsHandle.data.rows || []; observationsLoaded = true; }
       observationsHandle.ready.catch(() => { /* surfaced by the Observations page itself if it matters */ }).finally(() => {
         observationsLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!observationsHadCache) renderAll();
       });
 
       // Black flag status, now rendered inline in the weather card (see
@@ -924,18 +945,22 @@
         lastBlackFlagStatus = (fresh.rows || [])[0] || null;
         renderAll();
       });
+      const blackFlagHadCache = !!blackFlagHandle.data;
       if (blackFlagHandle.data) { lastBlackFlagStatus = (blackFlagHandle.data.rows || [])[0] || null; blackFlagLoaded = true; }
       blackFlagHandle.ready.catch(() => { /* surfaced by the header pill on other pages if it matters */ }).finally(() => {
         blackFlagLoaded = true;
-        renderAll();
+        // See the matching comment on Roster's ready.finally() above.
+        if (!blackFlagHadCache) renderAll();
       });
 
       // One synchronous call for whatever's ALREADY warm in cache right
       // now (shows the spinner if nothing is yet, or renders instantly
-      // if everything already was) — the async branches above each also
-      // call renderAll() as their own piece lands, but renderAll() itself
-      // is a no-op repaint (same content) once every flag is already
-      // true, so this doesn't risk a second visible animation.
+      // if everything already was). The async branches above only call
+      // renderAll() again for a piece that either (a) wasn't cached yet —
+      // its FIRST arrival is what reveals it, or (b) genuinely changed on
+      // background revalidation (via each sheet's onFresh callback) — so
+      // this doesn't risk a second visible entrance animation for data
+      // that didn't actually change.
       renderAll();
     }
 
