@@ -237,22 +237,27 @@
     const session = Auth.getSession();
     const submitterPosition = (session && (session.Position || session.position)) || "Staff";
 
+    // Whether this position can submit recommendations at all (the "full"
+    // version — one or both forms below) vs only the read-only, day-sorted
+    // review of every submission (see renderSubmissionsReview) is gated by
+    // the edit-recommendations pencil (see PAGE_WRITE_GATES in
+    // worker/src/auth.js and EDIT_GATES in pages/admin.html) — NOT by
+    // whether the position happens to be scoped to a flight or squadron.
+    const sessionPages = (Array.isArray(session?.Pages) ? session.Pages : []).map(p => String(p).toLowerCase());
+    const canSubmitRecommendations = sessionPages.includes("edit-recommendations");
+
     // Positions ARE flights in this app (see js/config.js SQUADRON_FLIGHTS
     // and roster.html's primaryFlight) — a Flight/CC's StaffAccess row is
     // scoped to exactly ONE flight, a Squadron/CC's to several (the ones
-    // under that squadron). That distinction is what BE Form 60-13 asks
-    // for: Part I (Honor Cadet) is completed by Flight Commanders, Part II
-    // (Honor Flight) by Squadron Commanders — so it's used here directly,
-    // rather than inventing a separate "role" field this app has no other
-    // use for. A position with blank/"all" Flights (CCT/Administrator) is
-    // neither a flight nor a squadron, so neither submission form applies
-    // to it — it instead gets a read-only, day-sorted review of every
-    // Honor Cadet and Honor Flight submission (see renderSubmissionsReview).
+    // under that squadron). That's used here only to decide WHICH form a
+    // position with submit access sees — Part I (Honor Cadet) for Flight
+    // Commanders, Part II (Honor Flight) for Squadron Commanders — per BE
+    // Form 60-13; it no longer decides WHETHER a position can submit at all.
     const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : [])
       .filter(f => f && String(f).toLowerCase() !== "all");
-    const isUnscoped = sessionFlightList.length === 0;
-    const showHonorCadetForm = sessionFlightList.length === 1;
-    const showHonorFlightForm = sessionFlightList.length > 1;
+    const isUnscoped = !canSubmitRecommendations;
+    const showHonorCadetForm = canSubmitRecommendations && sessionFlightList.length <= 1;
+    const showHonorFlightForm = canSubmitRecommendations && sessionFlightList.length > 1;
 
     let rosterRows = [];
     let honorCadetRows = [];
@@ -911,15 +916,8 @@
         return;
       }
 
-      if (!showHonorCadetForm && !showHonorFlightForm) {
-        contentEl.innerHTML = `
-          <div class="state-message">
-            <div class="state-message__icon">🎖️</div>
-            <p>No award recommendation form applies to your position.</p>
-          </div>`;
-        return;
-      }
-
+      // canSubmitRecommendations is true here (the isUnscoped branch above
+      // already returned otherwise), so exactly one of these two is true.
       contentEl.innerHTML = `
         ${showHonorCadetForm ? renderHonorCadetSection() : ""}
         ${showHonorFlightForm ? renderHonorFlightSection() : ""}
