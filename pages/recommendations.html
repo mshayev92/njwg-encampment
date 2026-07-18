@@ -597,11 +597,30 @@
     // read-only review — a Schedule-style sliding tab bar (see
     // Shell.enhanceTabs) to cycle between the Honor Cadet and Honor Flight
     // submissions, each sorted most recent DAY first (ties broken by
-    // submission time), rather than one form-less page trying to show both
-    // recommendation types stacked or merged together.
+    // submission time). A second Schedule-style tab bar underneath —
+    // the exact same "one tab per distinct date" pattern Schedule uses for
+    // its day tabs — narrows the list down to one specific submission day
+    // instead of every day merged together.
 
     let activeSubmissionsTab = "hc"; // "hc" | "hf" — which recommendation type is showing
     let submissionsTabsIndicator = null;
+    let activeSubmissionsDay = "all"; // "all" | a Date string — which day's submissions are showing
+    let submissionsDayTabsIndicator = null;
+
+    function submissionsRowsForKind(kind) {
+      return kind === "hc" ? honorCadetRows : honorFlightRows;
+    }
+
+    /** Every distinct Date value among the currently-showing kind's submissions, chronological. */
+    function distinctSubmissionDays(kind) {
+      return Array.from(new Set(submissionsRowsForKind(kind).map(r => r.Date).filter(Boolean))).sort();
+    }
+
+    /** Short display label for a date ("Mon, Jul 18") — same formatting Schedule's day tabs use. */
+    function dayTabLabel(dateStr) {
+      const d = new Date(dateStr + "T00:00:00");
+      return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    }
 
     function submissionReviewRowHtml(r, kind) {
       const title = kind === "hc"
@@ -639,6 +658,7 @@
             <button class="tabs__tab ${activeSubmissionsTab === "hc" ? "is-active" : ""}" data-tab="hc">Honor Cadet</button>
             <button class="tabs__tab ${activeSubmissionsTab === "hf" ? "is-active" : ""}" data-tab="hf">Honor Flight</button>
           </div>
+          <div class="tabs rec-tabs" id="submissions-day-tabs-bar" style="display:none;"></div>
           <div class="rec-history-list" id="submissions-review-list"></div>
         </div>
       `;
@@ -655,6 +675,58 @@
           activeSubmissionsTab = btn.dataset.tab;
           tabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
           if (submissionsTabsIndicator) submissionsTabsIndicator.move();
+          // The set of valid days differs per kind — a day selected for
+          // Honor Cadet may not exist under Honor Flight, so start over
+          // at "All Days" rather than silently filtering on a stale one.
+          activeSubmissionsDay = "all";
+          renderSubmissionsDayTabs();
+          renderSubmissionsReviewList();
+        });
+      });
+
+      renderSubmissionsDayTabs();
+    }
+
+    /**
+     * The day tabs bar underneath the Honor Cadet/Honor Flight tabs — one
+     * tab per distinct date the currently-showing kind has a submission on,
+     * plus "All Days". Rebuilt (not just re-activated) on every call since
+     * the available days themselves can change (switching kind, or a
+     * submission added/removed) — same reasoning as the Periods tab in
+     * pages/inspections.html rebuilding its tiles fresh each time.
+     */
+    function renderSubmissionsDayTabs() {
+      const bar = document.getElementById("submissions-day-tabs-bar");
+      if (!bar) return;
+      const days = distinctSubmissionDays(activeSubmissionsTab);
+
+      if (!days.length) {
+        bar.style.display = "none";
+        bar.innerHTML = "";
+        return;
+      }
+
+      // A previously-selected day can stop existing (its only submission
+      // was removed, or the kind was just switched) — fall back to "all"
+      // rather than filtering on a day nothing matches.
+      if (activeSubmissionsDay !== "all" && !days.includes(activeSubmissionsDay)) {
+        activeSubmissionsDay = "all";
+      }
+
+      bar.style.display = "";
+      bar.setAttribute("role", "tablist");
+      bar.innerHTML = `
+        <button class="tabs__tab ${activeSubmissionsDay === "all" ? "is-active" : ""}" data-day="all">All Days</button>
+        ${days.map(d => `<button class="tabs__tab ${activeSubmissionsDay === d ? "is-active" : ""}" data-day="${esc(d)}">${esc(dayTabLabel(d))}</button>`).join("")}
+      `;
+      submissionsDayTabsIndicator = Shell.enhanceTabs(bar);
+
+      bar.querySelectorAll("[data-day]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.day === activeSubmissionsDay) return;
+          activeSubmissionsDay = btn.dataset.day;
+          bar.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+          if (submissionsDayTabsIndicator) submissionsDayTabsIndicator.move();
           renderSubmissionsReviewList();
         });
       });
@@ -665,11 +737,12 @@
       if (!listEl) return;
 
       const kind = activeSubmissionsTab;
-      const rows = sortedByDay(kind === "hc" ? honorCadetRows : honorFlightRows);
+      let rows = sortedByDay(submissionsRowsForKind(kind));
+      if (activeSubmissionsDay !== "all") rows = rows.filter(r => r.Date === activeSubmissionsDay);
 
       listEl.innerHTML = rows.length
         ? rows.map(row => submissionReviewRowHtml(row, kind)).join("")
-        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${kind === "hc" ? "Honor Cadet" : "Honor Flight"} recommendations submitted yet.</p>`;
+        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${kind === "hc" ? "Honor Cadet" : "Honor Flight"} recommendations submitted${activeSubmissionsDay !== "all" ? " on this day" : ""} yet.</p>`;
     }
 
     // ---- Page assembly -----------------------------------------------------
@@ -751,42 +824,81 @@
     // each data point matters; they're a personal, per-device knob (there's
     // no shared config sheet for them), stored in localStorage.
 
-    const WEIGHT_STORAGE_KEY = "njwg_award_weights";
+    // Scoring is out of 100%: each ranking mode (Honor Cadet / Honor Flight)
+    // has its OWN set of components, each an editable share of that mode's
+    // 100% total — the two modes don't share one weight configuration,
+    // since a component meaningful to one (a cadet's own nominations) isn't
+    // meaningful to the other. A component's slider holds a raw relative
+    // share; the displayed/used PERCENT is that share divided by the sum of
+    // all of this mode's raw shares, so the set always sums to 100% no
+    // matter what's typed — dragging one slider live-rebalances the rest
+    // instead of requiring the person to manually make everything add up.
+    const WEIGHT_STORAGE_KEY = "njwg_award_weights_v2";
     const UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
     const ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
 
-    // dir: +1 raises the score, -1 lowers it (a bad signal). scope: which
-    // ranking(s) a metric feeds — "both", "cadet" (Honor Cadet only), or
-    // "flight" (Honor Flight only). def: default weight.
-    const METRICS = [
-      { id: "uniform",    label: "Uniform Inspections",     dir: 1,  scope: "both",   def: 1 },
-      { id: "room",       label: "Room Inspections",        dir: 1,  scope: "both",   def: 1 },
-      { id: "pt",         label: "Physical Training",       dir: 1,  scope: "both",   def: 1 },
-      { id: "posObs",     label: "Positive Observations",   dir: 1,  scope: "both",   def: 1 },
-      { id: "concernObs", label: "Concern Observations",    dir: -1, scope: "both",   def: 1 },
-      { id: "hcRecs",     label: "Honor Cadet Nominations", dir: 1,  scope: "cadet",  def: 2 },
-      { id: "hfRecs",     label: "Honor Flight Nominations",dir: 1,  scope: "flight", def: 2 }
-    ];
+    // dir: +1 raises the score, -1 lowers it (a bad signal). def: default
+    // share, out of 100 — each mode's def values sum to 100.
+    const RANKING_METRICS = {
+      hc: [
+        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 20 },
+        { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
+        { id: "pt",         label: "Physical Training",        dir: 1,  def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
+        { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
+        { id: "hcRecs",     label: "Honor Cadet Nominations",  dir: 1,  def: 20 }
+      ],
+      hf: [
+        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 20 },
+        { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
+        { id: "pt",         label: "Physical Training",        dir: 1,  def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
+        { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
+        { id: "hfRecs",     label: "Honor Flight Nominations", dir: 1,  def: 20 }
+      ]
+    };
+
+    function defaultWeightsFor(mode) {
+      return Object.fromEntries(RANKING_METRICS[mode].map(m => [m.id, m.def]));
+    }
 
     function defaultWeights() {
-      return Object.fromEntries(METRICS.map(m => [m.id, m.def]));
+      return { hc: defaultWeightsFor("hc"), hf: defaultWeightsFor("hf") };
     }
 
     function loadWeights() {
       const w = defaultWeights();
       try {
         const stored = JSON.parse(localStorage.getItem(WEIGHT_STORAGE_KEY) || "{}");
-        METRICS.forEach(m => {
-          if (typeof stored[m.id] === "number" && isFinite(stored[m.id])) w[m.id] = stored[m.id];
+        ["hc", "hf"].forEach(mode => {
+          const storedMode = stored[mode];
+          if (!storedMode) return;
+          RANKING_METRICS[mode].forEach(m => {
+            if (typeof storedMode[m.id] === "number" && isFinite(storedMode[m.id]) && storedMode[m.id] >= 0) {
+              w[mode][m.id] = storedMode[m.id];
+            }
+          });
         });
       } catch (e) { /* corrupt/absent — fall back to defaults */ }
       return w;
     }
 
-    let weights = loadWeights();
+    let weights = loadWeights(); // { hc: { metricId: rawShare }, hf: { metricId: rawShare } }
 
     function saveWeights() {
       try { localStorage.setItem(WEIGHT_STORAGE_KEY, JSON.stringify(weights)); } catch (e) { /* storage full/blocked */ }
+    }
+
+    /** Each of `mode`'s components as a live percent of that mode's 100% total — always sums to 100. */
+    function normalizedPercents(mode) {
+      const metrics = RANKING_METRICS[mode];
+      const raw = weights[mode];
+      const total = metrics.reduce((sum, m) => sum + Math.max(0, num(raw[m.id])), 0);
+      const pct = {};
+      metrics.forEach(m => {
+        pct[m.id] = total > 0 ? (100 * Math.max(0, num(raw[m.id])) / total) : (100 / metrics.length);
+      });
+      return pct;
     }
 
     function flightVisible(flight) {
@@ -874,7 +986,7 @@
       });
     }
 
-    function fmtWeight(w) { return Number.isInteger(w) ? String(w) : w.toFixed(1); }
+    function fmtPercent(p) { return `${Math.round(p)}%`; }
 
     function fmtMetric(id, v) {
       if (v === null || v === undefined) return "—";
@@ -882,28 +994,32 @@
       return String(Math.round(num(v) * 10) / 10);
     }
 
-    function weightFieldHtml(m) {
-      const ctx = m.scope === "cadet" ? "Honor Cadet only" : m.scope === "flight" ? "Honor Flight only" : "";
+    function weightFieldHtml(m, mode, pct) {
       const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
         <div class="weight-field">
           <div class="weight-field__head">
             <span class="weight-field__label">${esc(m.label)}</span>
-            <span class="weight-field__value" id="w-val-${m.id}">${fmtWeight(weights[m.id])}</span>
+            <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(pct[m.id])}</span>
           </div>
-          <input type="range" min="0" max="5" step="0.5" value="${weights[m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} weight">
-          <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}${ctx ? ` · ${ctx}` : ""}</span>
+          <input type="range" min="0" max="100" step="1" value="${weights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} share">
+          <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
 
     function renderWeekly() {
       contentEl.innerHTML = `
+        <div class="tabs rec-tabs" id="standings-tabs-bar" style="margin-bottom: var(--space-6);">
+          <button class="tabs__tab ${activeStandingsTab === "hc" ? "is-active" : ""}" data-standings="hc">Honor Cadet</button>
+          <button class="tabs__tab ${activeStandingsTab === "hf" ? "is-active" : ""}" data-standings="hf">Honor Flight</button>
+        </div>
+
         <div class="card" style="margin-bottom: var(--space-6);">
-          <h3 class="section-label">Scoring Weights</h3>
+          <h3 class="section-label" id="weights-title">Scoring Weights</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: 0;">
-            Tune how much each data point counts toward the standings below. Saved on this device.
+            Each component's share of the 100% total — drag one and the others rebalance automatically. Saved on this device.
           </p>
-          <div class="weights-grid">${METRICS.map(weightFieldHtml).join("")}</div>
+          <div class="weights-grid" id="weights-grid"></div>
           <div style="margin-top: var(--space-5);">
             <button class="btn btn--ghost" id="weights-reset-btn">Reset to defaults</button>
           </div>
@@ -912,51 +1028,76 @@
         <div class="card">
           <h3 class="section-label">Top Contenders</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
-            Ranked across every data point logged so far. Index is relative — the leader is 100.
+            Ranked across every data point logged so far, scored out of 100.
           </p>
-          <div class="tabs rec-tabs" id="standings-tabs-bar">
-            <button class="tabs__tab ${activeStandingsTab === "hc" ? "is-active" : ""}" data-standings="hc">Honor Cadet</button>
-            <button class="tabs__tab ${activeStandingsTab === "hf" ? "is-active" : ""}" data-standings="hf">Honor Flight</button>
-          </div>
           <div class="standings-list" id="standings-list"></div>
         </div>
       `;
       wireWeekly();
+      renderWeightsPanel();
       renderStandingsList();
       Shell.animateIn(contentEl);
     }
 
     function wireWeekly() {
-      contentEl.querySelectorAll("input[data-weight]").forEach(input => {
+      const tabsBarEl = document.getElementById("standings-tabs-bar");
+      if (!tabsBarEl) return;
+      standingsTabsIndicator = Shell.enhanceTabs(tabsBarEl);
+      tabsBarEl.querySelectorAll("[data-standings]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          if (btn.dataset.standings === activeStandingsTab) return;
+          activeStandingsTab = btn.dataset.standings;
+          tabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
+          if (standingsTabsIndicator) standingsTabsIndicator.move();
+          // The Scoring Weights panel is mode-specific (Honor Cadet and
+          // Honor Flight each have their own 100% component set), so
+          // switching modes has to rebuild it too, not just the standings.
+          renderWeightsPanel();
+          renderStandingsList();
+        });
+      });
+    }
+
+    /**
+     * Renders (and self-wires) the Scoring Weights panel for whichever
+     * mode is currently active. Called on its own — separately from the
+     * outer renderWeekly() — every time the Honor Cadet/Honor Flight tab
+     * switches, so only this panel and the standings list refresh rather
+     * than tearing down and rebuilding the tab bar itself.
+     */
+    function renderWeightsPanel() {
+      const mode = activeStandingsTab;
+      const metrics = RANKING_METRICS[mode];
+      const pct = normalizedPercents(mode);
+
+      const titleEl = document.getElementById("weights-title");
+      if (titleEl) titleEl.textContent = `Scoring Weights — ${mode === "hc" ? "Honor Cadet" : "Honor Flight"}`;
+
+      const gridEl = document.getElementById("weights-grid");
+      if (!gridEl) return;
+      gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode, pct)).join("");
+
+      gridEl.querySelectorAll("input[data-weight]").forEach(input => {
         input.addEventListener("input", () => {
-          const id = input.dataset.weight;
-          weights[id] = Number(input.value);
-          const valEl = document.getElementById(`w-val-${id}`);
-          if (valEl) valEl.textContent = fmtWeight(weights[id]);
+          weights[mode][input.dataset.weight] = Number(input.value);
           saveWeights();
+          const freshPct = normalizedPercents(mode);
+          metrics.forEach(m => {
+            const valEl = document.getElementById(`w-val-${mode}-${m.id}`);
+            if (valEl) valEl.textContent = fmtPercent(freshPct[m.id]);
+          });
           renderStandingsList();
         });
       });
 
       const resetBtn = document.getElementById("weights-reset-btn");
-      if (resetBtn) resetBtn.addEventListener("click", () => {
-        weights = defaultWeights();
-        saveWeights();
-        renderWeekly();
-      });
-
-      const tabsBarEl = document.getElementById("standings-tabs-bar");
-      if (tabsBarEl) {
-        standingsTabsIndicator = Shell.enhanceTabs(tabsBarEl);
-        tabsBarEl.querySelectorAll("[data-standings]").forEach(btn => {
-          btn.addEventListener("click", () => {
-            if (btn.dataset.standings === activeStandingsTab) return;
-            activeStandingsTab = btn.dataset.standings;
-            tabsBarEl.querySelectorAll(".tabs__tab").forEach(b => b.classList.toggle("is-active", b === btn));
-            if (standingsTabsIndicator) standingsTabsIndicator.move();
-            renderStandingsList();
-          });
-        });
+      if (resetBtn) {
+        resetBtn.onclick = () => {
+          weights[mode] = defaultWeightsFor(mode);
+          saveWeights();
+          renderWeightsPanel();
+          renderStandingsList();
+        };
       }
     }
 
@@ -964,15 +1105,16 @@
       const listEl = document.getElementById("standings-list");
       if (!listEl) return;
 
-      const isCadet = activeStandingsTab === "hc";
-      const applicable = METRICS.filter(m => m.scope === "both" || m.scope === (isCadet ? "cadet" : "flight"));
+      const mode = activeStandingsTab;
+      const metrics = RANKING_METRICS[mode];
+      const pct = normalizedPercents(mode);
 
-      const contenders = isCadet
+      const contenders = mode === "hc"
         ? cadetRawMetrics().map(cd => ({ name: cd.name, sub: cd.flight, metrics: cd.metrics }))
         : flightRawMetrics().map(f => ({ name: f.name, sub: `${f.cadetCount} cadet${f.cadetCount === 1 ? "" : "s"}`, metrics: f.metrics }));
 
       if (!contenders.length) {
-        listEl.innerHTML = `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${isCadet ? "cadets" : "flights"} with data yet.</p>`;
+        listEl.innerHTML = `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${mode === "hc" ? "cadets" : "flights"} with data yet.</p>`;
         return;
       }
 
@@ -980,28 +1122,29 @@
       // on a comparable 0-1 scale before weighting (a cadet with no data on
       // an axis just scores 0 there).
       const maxByMetric = {};
-      applicable.forEach(m => {
+      metrics.forEach(m => {
         maxByMetric[m.id] = Math.max(0, ...contenders.map(c => num(c.metrics[m.id])));
       });
 
+      // Each component contributes at most its own percent share of the
+      // 100% total (norm maxes out at 1), so a perfect cadet/flight with no
+      // concerns lands at exactly 100 — this is a literal score out of
+      // 100%, not a rank-relative index.
       const scored = contenders.map(c => {
-        let raw = 0;
+        let score = 0;
         const parts = [];
-        applicable.forEach(m => {
-          const w = weights[m.id];
+        metrics.forEach(m => {
           const norm = maxByMetric[m.id] > 0 ? num(c.metrics[m.id]) / maxByMetric[m.id] : 0;
-          raw += m.dir * w * norm;
-          if (w > 0) parts.push({ m, rawVal: c.metrics[m.id] });
+          score += m.dir * pct[m.id] * norm;
+          parts.push({ m, rawVal: c.metrics[m.id] });
         });
-        return { name: c.name, sub: c.sub, raw, parts };
-      }).sort((a, b) => b.raw - a.raw);
-
-      const top = Math.max(0, ...scored.map(s => s.raw));
+        return { name: c.name, sub: c.sub, score, parts };
+      }).sort((a, b) => b.score - a.score);
 
       listEl.innerHTML = scored.map((s, i) => {
-        const index = top > 0 ? Math.round(100 * Math.max(0, s.raw) / top) : 0;
+        const displayScore = Math.max(0, Math.round(s.score));
         return `
-          <div class="standings-row ${i === 0 && s.raw > 0 ? "standings-row--top" : ""}">
+          <div class="standings-row ${i === 0 && s.score > 0 ? "standings-row--top" : ""}">
             <div class="standings-row__rank">${i + 1}</div>
             <div class="standings-row__body">
               <div class="standings-row__name">${esc(s.name)}${s.sub ? ` <span style="font-weight:400; color:var(--ink-600); font-size:var(--fs-xs);">${esc(s.sub)}</span>` : ""}</div>
@@ -1009,7 +1152,7 @@
                 ${s.parts.map(p => `<span class="standings-chip ${p.m.dir < 0 ? "standings-chip--neg" : ""}">${esc(p.m.label)}: ${fmtMetric(p.m.id, p.rawVal)}</span>`).join("")}
               </div>
             </div>
-            <div class="standings-row__score">${index}<small>Index</small></div>
+            <div class="standings-row__score">${displayScore}<small>/ 100</small></div>
           </div>`;
       }).join("");
     }
@@ -1026,13 +1169,19 @@
       const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
         honorCadetRows = fresh.rows || [];
         if (document.getElementById("hc-history-list")) renderHonorCadetHistory();
-        if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
+        if (document.getElementById("submissions-review-list")) {
+          if (activeSubmissionsTab === "hc") renderSubmissionsDayTabs();
+          renderSubmissionsReviewList();
+        }
         refreshWeeklyIfActive();
       });
       const hfHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
         honorFlightRows = fresh.rows || [];
         if (document.getElementById("hf-history-list")) renderHonorFlightHistory();
-        if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
+        if (document.getElementById("submissions-review-list")) {
+          if (activeSubmissionsTab === "hf") renderSubmissionsDayTabs();
+          renderSubmissionsReviewList();
+        }
         refreshWeeklyIfActive();
       });
 
