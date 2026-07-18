@@ -5,9 +5,10 @@ compatibility_date = "2024-11-01"
 # One KV namespace, used for several things (distinguished by key prefix):
 #   rl:<hash>        rate-limit counters (short TTL)
 #   googletoken       cached Google OAuth access token (~55 min TTL)
-#   sheetvals:<name>  cached sheet read data (short TTL), mirrors
-#                     READ_CACHE_TTL_SECONDS in the old apps-script/Code.gs
-#   sheetmeta         cached sheet name -> numeric gid map (~5 min TTL)
+#   sheetvals:<name>  cached sheet read data (READ_CACHE_TTL_SECONDS, ~5 min;
+#                     invalidated immediately on any write to that sheet)
+#   sheetmeta         cached sheet name -> numeric gid map (~1 hr TTL;
+#                     invalidated immediately when a new tab is created)
 #   push:<hash>       stored Web Push subscriptions (one per device;
 #                     written once when a staffer enables alerts)
 #

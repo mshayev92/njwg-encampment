@@ -44,11 +44,17 @@ function colIndexToLetter(index) {
 // ---- Spreadsheet metadata (sheet name -> numeric sheetId) --------------
 //
 // Row deletion via batchUpdate's deleteDimension needs the sheet's
-// numeric gid, not its name. This rarely changes, so it's cached in KV
-// briefly to avoid an extra API round-trip on every write/delete.
-
+// numeric gid, not its name. The tab name -> gid map only ever changes
+// when a NEW tab is created, and that path (ensureSheetExists below) calls
+// invalidateMeta the moment it does — so the cache is never left stale by
+// an actual change, and the TTL can be long. It's kept at an hour purely
+// as a backstop against out-of-band spreadsheet edits (e.g. someone
+// renaming a tab in the Sheets UI); anything the app itself does is
+// reflected immediately via invalidateMeta. A long TTL here means this
+// key is re-`put` ~24x/day instead of ~288x/day — a small but free
+// reduction in KV writes.
 const META_CACHE_KEY = "sheetmeta";
-const META_CACHE_TTL_SECONDS = 300;
+const META_CACHE_TTL_SECONDS = 3600;
 
 export async function getSpreadsheetMeta(env) {
   const cached = await env.NJWG_KV.get(META_CACHE_KEY, "json");

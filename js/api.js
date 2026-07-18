@@ -287,6 +287,53 @@ const Api = (() => {
     });
   }
 
+  function normalizeCell_(v) {
+    return v === undefined || v === null ? "" : String(v);
+  }
+
+  /**
+   * True only when an UPDATE write (one carrying match columns) would store
+   * a row byte-identical to what's already in the cached full-sheet read —
+   * i.e. the write is a genuine no-op and can be skipped, sparing a server
+   * round-trip AND the KV invalidate + repopulation it would trigger. This
+   * is the client half of "never write unless the data actually changed".
+   *
+   * The bias is entirely toward writing: it returns true ONLY when it can
+   * positively identify exactly one matching cached row whose every column
+   * already equals what the write would set. Anything uncertain — no cache
+   * for the sheet, no match (a real insert), an ambiguous multi-match, or
+   * an append (no match columns at all) — returns false so the write still
+   * happens. A value that merely stringifies the same IS the same value, so
+   * this can never hide a real change; at worst it misses skipping a
+   * no-op (e.g. a boolean re-read as "TRUE" vs "true"), which is harmless.
+   *
+   * Note the server's setRow REPLACES the whole row: a column present on
+   * the existing row but omitted from rowData would be blanked, so the
+   * comparison spans the UNION of both column sets, treating "missing" as
+   * the empty string exactly as the server would write it.
+   */
+  function updateWouldBeNoop_(sheetName, rowData, matchColumns) {
+    if (!Array.isArray(matchColumns) || !matchColumns.length) return false;
+    const entry = cache.get(cacheKey(sheetName, {}));
+    const rows = entry && entry.data && entry.data.rows;
+    if (!Array.isArray(rows) || !rows.length) return false;
+
+    // Locate the target row the SAME way the server does — trimmed,
+    // case-insensitive equality on every match column (see
+    // findMatchingRowNumber in worker/src/index.js).
+    const keyOf = (row) => matchColumns.map((c) => normalizeCell_(row[c]).trim().toLowerCase()).join(" ");
+    const targetKey = keyOf(rowData);
+    const matches = rows.filter((r) => keyOf(r) === targetKey);
+    if (matches.length !== 1) return false;
+    const existing = matches[0];
+
+    const keys = new Set([...Object.keys(existing), ...Object.keys(rowData)]);
+    for (const k of keys) {
+      if (normalizeCell_(existing[k]) !== normalizeCell_(rowData[k])) return false;
+    }
+    return true;
+  }
+
   async function fetchSheet_(sheetName, extraParams, { force = false } = {}) {
     const key = cacheKey(sheetName, extraParams);
 
@@ -671,6 +718,22 @@ const Api = (() => {
      * to a permission error before updating its own UI.
      */
     writeRow(sheetName, rowData, { matchColumn = null, matchColumns = null, optimistic = true } = {}) {
+      const effectiveMatch = (Array.isArray(matchColumns) && matchColumns.length)
+        ? matchColumns
+        : (matchColumn ? [matchColumn] : []);
+
+      // Skip a write that wouldn't change anything. Only on the optimistic
+      // path (the default, high-volume one): an { optimistic: false } caller
+      // is awaiting the server's real result — often to catch a permission
+      // error before mutating its UI — so it must always make the round-trip
+      // rather than get a synthetic "noop" back. A no-op skip leaves the
+      // cache exactly as-is (it already equals the server) and deliberately
+      // does NOT markSheetStale, so it also avoids the follow-up revalidation
+      // read — no write, no invalidate, no repopulation.
+      if (optimistic && updateWouldBeNoop_(sheetName, rowData, effectiveMatch)) {
+        return Promise.resolve({ ok: true, action: "noop", row: rowData });
+      }
+
       // This sheet's cached rows no longer reflect reality — force the
       // next read to revalidate rather than serve pre-write data from the
       // freshness window.
