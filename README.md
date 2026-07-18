@@ -32,13 +32,15 @@ Other protections layered on top:
 - Basic rate limiting slows down brute-force passphrase/password guessing and URL scraping.
 - Every login attempt (device gate and per-position) is logged to a `LoginLog` tab, auto-created on first use, for after-action review.
 
-### Writable sheets requiring a separate edit grant: Roster, Schedule, InspectionPeriods, HonorCadetRecommendations, HonorFlightRecommendations
+### Writable sheets requiring a separate edit grant: Roster, Schedule, InspectionPeriods
 
 Writing to any of these requires **both**:
-- the normal view page id in that position's `Pages` column (`roster`, `schedule`, `inspections`, or `recommendations` — the same id that controls nav visibility), **and**
-- a separate **edit id**: `edit-roster`, `edit-schedule`, `edit-inspections`, or `edit-recommendations`.
+- the normal view page id in that position's `Pages` column (`roster`, `schedule`, or `inspections` — the same id that controls nav visibility), **and**
+- a separate **edit id**: `edit-roster`, `edit-schedule`, or `edit-inspections`.
 
-Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule/Inspections stay view-only for that position. On the Awards page, a position without `edit-recommendations` gets a read-only review of every submission instead of the recommendation forms (see `pages/recommendations.html`).
+Seeing a page no longer implies being able to edit it. A position with `Pages = "schedule"` can view Schedule but not touch it; a position with `Pages = "schedule,edit-schedule"` can view and edit it. The edit ids are independent — mix and match freely, e.g. `Pages = "roster,edit-roster,schedule,inspections"` gives Roster edit rights but Schedule/Inspections stay view-only for that position.
+
+`HonorCadetRecommendations`/`HonorFlightRecommendations` have no edit id of their own — a Flight Commander position (scoped to one flight in `Flights`) sees only the Honor Cadet form for its own flight, a Squadron Commander (scoped to several flights) sees only the Honor Flight form, and any other position sees a read-only review of every submission instead of a form; see **Awards visibility** below and `pages/recommendations.html`.
 
 `UniformInspections`, `RoomInspections`, `Notes`, `Observations`, `Announcements`, and `BlackFlagStatus` stay writable by any signed-in position that can reach their page — no separate edit id for those; view access implies edit access.
 
@@ -107,7 +109,7 @@ Every page follows the same pattern: load `config.js` → `api.js` → `auth.js`
 Create tabs named exactly:
 - **StaffAccess** — columns: `Position, Pages, Password`.
   - `Position` — the exact dropdown label, e.g. `Alpha Flight`, `Bravo Flight`, `Squadron 1`, `Squadron 2`, `CCT`, `Administrator`. Each row is one dropdown option — add or remove a row to add or remove an option, no code changes needed.
-  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, Inspections, or Awards, additionally include `edit-roster`, `edit-schedule`, `edit-inspections`, or `edit-recommendations` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
+  - `Pages` — comma-separated list of page ids this position can see, e.g. `schedule`. Matches `NAV_ITEMS` ids in `js/config.js`. **Roster is always visible to every signed-in position and does not need to be listed here.** To grant EDIT access (not just view) to Roster, Schedule, or Inspections, additionally include `edit-roster`, `edit-schedule`, or `edit-inspections` — e.g. `Pages = "schedule,edit-schedule,roster"` can view Schedule+Roster and edit Schedule only.
   - `Password` — **plaintext**. Leave blank for ordinary flights/squadrons. Fill in a real password for the `CCT` and `Administrator` rows specifically (matched case-insensitively) — those two positions cannot sign in without it. This entire sheet is never exposed through the app's generic read API — see the security tradeoff section above — but is visible to anyone with Sheet access, so restrict Sheet sharing accordingly.
 - **Roster** — columns: `CapId, Name, Rank, Flight, Age, Sex`. Purely a display list of students for staff to browse — **never used for login**. `Age`/`Sex` feed the Physical Training inspection's chart lookup (see below); both are optional per cadet.
 - **Schedule** — columns: `Day, Time, Activity, Location, Flight`
@@ -198,6 +200,13 @@ Every `Api.getSheet(...)` / `Api.writeRow(...)` call attaches both tokens automa
 ## Per-page access control (positions only see what they're granted)
 
 Each `StaffAccess` row's `Pages` column lists which nav pages that position can see — except Roster, which is always visible to everyone signed in. Enforced both in nav rendering (`js/shell.js`'s `getAllowedNavItems()`) and against direct URL access (`Shell.requirePageAccess`, called from every page's `Shell.init`). This is a UX/organizational guard, not a data-security boundary — see the tradeoffs above.
+
+### Awards visibility (flight/squadron-scoped, not gated by a pencil)
+
+The Awards page (`pages/recommendations.html`) reads a position's `Flights` column, not an edit id, to decide what it sees:
+- **One flight** (a Flight Commander): only the Honor Cadet submission form for that flight, plus a day-tabbed, read-only view of that flight's own past Honor Cadet submissions. No Honor Flight tab, no Weekly standings tab.
+- **Several flights** (a Squadron Commander): only the Honor Flight submission form, plus a day-tabbed view covering both the squadron's own Honor Flight submissions and the Honor Cadet submissions from the flights under it. No Weekly standings tab.
+- **Blank/`all` Flights** (CCT, Administrator, etc.): no submission form (BE Form 60-13 isn't theirs to complete), but the full read-only review across every flight/squadron's submissions, both kinds, plus the Weekly standings tab.
 
 ## Login attempt logging
 
