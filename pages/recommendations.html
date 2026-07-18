@@ -266,6 +266,15 @@
     let observationRows = [];
     let hcAttested = false;
     let hfAttested = false;
+    // Flights/squadrons may only have ONE recommendation of each kind
+    // in flight per day — once submitted, the form is replaced by a
+    // read-only view of that submission with an Edit option (which
+    // reopens the same form, pre-filled, and updates the existing row
+    // in place rather than appending a new one). null = not currently
+    // editing today's submission (i.e. showing the read-only view, or
+    // there's nothing yet so the blank form shows instead).
+    let hcEditingId = null;
+    let hfEditingId = null;
 
     // Daily = the per-day recommendation forms/review (below); Weekly = the
     // aggregated standings that rank top contenders across every data point.
@@ -308,7 +317,31 @@
       return (groupByFlight(rosterRows)[flight] || []).slice().sort((a, b) => String(a.Name).localeCompare(String(b.Name)));
     }
 
+    /** This flight's Honor Cadet recommendation for today, if one was already submitted. */
+    function todaysHonorCadetRow() {
+      const today = Shell.todayIso();
+      const flights = honorCadetFlightOptions();
+      return honorCadetRows.find(r => r.Date === today && flights.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase())) || null;
+    }
+
     function renderHonorCadetSection() {
+      const existing = todaysHonorCadetRow();
+
+      // Already submitted today and not currently editing it — show the
+      // read-only "here's what you submitted" view instead of the form,
+      // per the one-recommendation-per-day rule.
+      if (existing && hcEditingId !== existing.Id) {
+        return `
+          <div class="card" style="margin-bottom: var(--space-6);">
+            <h3 class="section-label">Honor Cadet Recommendation</h3>
+            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+              BE Form 60-13, Part I — one recommendation per flight per day. You've already submitted today's.
+            </p>
+            <div class="rec-history-list">${honorCadetHistoryRowHtml(existing, { editable: true })}</div>
+          </div>
+        `;
+      }
+
       const defaultFlight = honorCadetFlightOptions()[0] || "";
 
       return `
@@ -323,7 +356,7 @@
             <span>I affirm that I am the Flight Commander submitting this recommendation.</span>
           </label>
 
-          <input type="hidden" id="hc-flight-select" value="${esc(defaultFlight)}">
+          <input type="hidden" id="hc-flight-select" value="${esc(existing ? existing.Flight : defaultFlight)}">
 
           <div class="rec-form-field">
             <label for="hc-student-select">Student</label>
@@ -332,22 +365,23 @@
 
           <div class="rec-form-field">
             <label for="hc-drill">Drill, Barracks, &amp; Uniforms</label>
-            <textarea id="hc-drill" placeholder="How has this cadet distinguished themselves here?"></textarea>
+            <textarea id="hc-drill" placeholder="How has this cadet distinguished themselves here?">${esc(existing ? existing.DrillBarracksUniforms : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hc-academics">Academics &amp; Knowledge</label>
-            <textarea id="hc-academics"></textarea>
+            <textarea id="hc-academics">${esc(existing ? existing.AcademicsKnowledge : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hc-teamwork">Teamwork, Leadership, &amp; Conduct</label>
-            <textarea id="hc-teamwork"></textarea>
+            <textarea id="hc-teamwork">${esc(existing ? existing.TeamworkLeadershipConduct : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hc-notes">Additional Notes</label>
-            <textarea id="hc-notes"></textarea>
+            <textarea id="hc-notes">${esc(existing ? existing.AdditionalNotes : "")}</textarea>
           </div>
 
-          <button class="btn btn--primary" id="hc-submit-btn" disabled>Submit Recommendation</button>
+          <button class="btn btn--primary" id="hc-submit-btn" ${existing ? "" : "disabled"}>${existing ? "Save Changes" : "Submit Recommendation"}</button>
+          ${existing ? `<button type="button" class="btn btn--ghost" id="hc-cancel-edit-btn">Cancel</button>` : ""}
 
           <div class="rec-history-list" id="hc-history-list" style="margin-top: var(--space-5);"></div>
         </div>
@@ -359,7 +393,16 @@
       const studentSelect = document.getElementById("hc-student-select");
       const attestCheckbox = document.getElementById("hc-attest-checkbox");
       const submitBtn = document.getElementById("hc-submit-btn");
-      if (!studentSelect || !submitBtn) return;
+      const cancelBtn = document.getElementById("hc-cancel-edit-btn");
+      if (!studentSelect || !submitBtn) {
+        // Nothing to wire but the read-only "already submitted" view — it
+        // still needs its Edit button and the (empty, in this state) history list wired.
+        renderHonorCadetHistory();
+        wireHonorCadetEditButtons();
+        return;
+      }
+
+      const existing = hcEditingId ? honorCadetRows.find(r => String(r.Id) === String(hcEditingId)) : null;
 
       function refreshStudents() {
         const flight = document.getElementById("hc-flight-select").value;
@@ -367,6 +410,7 @@
         studentSelect.innerHTML = students.length
           ? students.map(s => `<option value="${esc(s.CapId)}">${esc(s.Name)} (${esc(s.CapId)})</option>`).join("")
           : `<option value="">No cadets in this flight</option>`;
+        if (existing) studentSelect.value = existing.StudentCapId;
         Shell.enhanceSelect(studentSelect);
       }
       refreshStudents();
@@ -376,10 +420,23 @@
         flightSelect.addEventListener("change", refreshStudents);
       }
 
-      attestCheckbox.addEventListener("change", () => {
-        hcAttested = attestCheckbox.checked;
-        submitBtn.disabled = !hcAttested;
-      });
+      // Editing an existing submission re-affirms nothing new was hidden —
+      // it's already attested, so the button starts enabled and the
+      // checkbox doesn't reappear (there's no attest checkbox in that
+      // branch of renderHonorCadetSection at all).
+      if (attestCheckbox) {
+        attestCheckbox.addEventListener("change", () => {
+          hcAttested = attestCheckbox.checked;
+          submitBtn.disabled = !hcAttested;
+        });
+      }
+
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => {
+          hcEditingId = null;
+          renderDaily();
+        });
+      }
 
       submitBtn.addEventListener("click", () => {
         const flight = document.getElementById("hc-flight-select").value;
@@ -387,8 +444,8 @@
         if (!student) { Shell.showToast("Pick a student first.", { type: "error" }); return; }
 
         const row = {
-          Id: `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          Date: Shell.todayIso(),
+          Id: existing ? existing.Id : `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: existing ? existing.Date : Shell.todayIso(),
           Timestamp: new Date().toISOString(),
           SubmittedByPosition: submitterPosition,
           Flight: flight,
@@ -400,23 +457,33 @@
           AdditionalNotes: document.getElementById("hc-notes").value.trim()
         };
 
-        Api.writeRow("HonorCadetRecommendations", row);
-        honorCadetRows.push(row);
+        Api.writeRow("HonorCadetRecommendations", row, existing ? { matchColumn: "Id" } : {});
+        if (existing) {
+          honorCadetRows = honorCadetRows.map(r => String(r.Id) === String(row.Id) ? row : r);
+        } else {
+          honorCadetRows.push(row);
+        }
         Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
 
-        ["hc-drill", "hc-academics", "hc-teamwork", "hc-notes"].forEach(id => { document.getElementById(id).value = ""; });
-        attestCheckbox.checked = false;
+        hcEditingId = null;
         hcAttested = false;
-        submitBtn.disabled = true;
-
-        renderHonorCadetHistory();
-        Shell.showToast(`Recommendation submitted for ${student.Name}.`, { type: "success" });
+        Shell.showToast(existing ? `Recommendation for ${student.Name} updated.` : `Recommendation submitted for ${student.Name}.`, { type: "success" });
+        renderDaily();
       });
 
       renderHonorCadetHistory();
     }
 
-    function honorCadetHistoryRowHtml(r) {
+    function wireHonorCadetEditButtons() {
+      document.querySelectorAll("[data-edit-hc]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          hcEditingId = btn.dataset.editHc;
+          renderDaily();
+        });
+      });
+    }
+
+    function honorCadetHistoryRowHtml(r, { editable = false } = {}) {
       return `
         <div class="rec-history-row" data-id="${esc(r.Id)}">
           <div class="rec-history-row__body">
@@ -427,17 +494,20 @@
             ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
-          <button type="button" class="rec-history-row__delete" data-delete-hc="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>
+          ${editable ? `<button type="button" class="btn btn--ghost" data-edit-hc="${esc(r.Id)}">Edit</button>` : `<button type="button" class="rec-history-row__delete" data-delete-hc="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>`}
         </div>`;
     }
 
     function renderHonorCadetHistory() {
       const listEl = document.getElementById("hc-history-list");
       if (!listEl) return;
-      const visible = honorCadetRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const today = Shell.todayIso();
+      // Today's own submission is already shown (with its Edit control) in
+      // the summary card above — the history list here is prior days only.
+      const visible = honorCadetRows.filter(r => r.Date !== today && sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
       const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       listEl.innerHTML = sorted.length
-        ? sorted.map(honorCadetHistoryRowHtml).join("")
+        ? sorted.map(r => honorCadetHistoryRowHtml(r)).join("")
         : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No Honor Cadet recommendations submitted yet.</p>`;
 
       listEl.querySelectorAll("[data-delete-hc]").forEach(btn => {
@@ -460,7 +530,27 @@
       return canonicalFlightNames(sessionFlightList);
     }
 
+    /** This squadron's Honor Flight recommendation for today, if one was already submitted. */
+    function todaysHonorFlightRow() {
+      const today = Shell.todayIso();
+      return honorFlightRows.find(r => r.Date === today && String(r.SubmittedByPosition) === String(submitterPosition)) || null;
+    }
+
     function renderHonorFlightSection() {
+      const existing = todaysHonorFlightRow();
+
+      if (existing && hfEditingId !== existing.Id) {
+        return `
+          <div class="card">
+            <h3 class="section-label">Honor Flight Recommendation</h3>
+            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+              BE Form 60-13, Part II — one recommendation per squadron per day. You've already submitted today's.
+            </p>
+            <div class="rec-history-list">${honorFlightHistoryRowHtml(existing, { editable: true })}</div>
+          </div>
+        `;
+      }
+
       const flights = honorFlightFlightOptions();
       return `
         <div class="card">
@@ -477,28 +567,29 @@
           <div class="rec-form-field">
             <label for="hf-flight-select">Flight</label>
             <select id="hf-flight-select">
-              ${flights.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("")}
+              ${flights.map(f => `<option value="${esc(f)}" ${existing && existing.Flight === f ? "selected" : ""}>${esc(f)}</option>`).join("")}
             </select>
           </div>
 
           <div class="rec-form-field">
             <label for="hf-drill">Drill, Barracks, &amp; Uniforms</label>
-            <textarea id="hf-drill" placeholder="How has this flight distinguished itself here?"></textarea>
+            <textarea id="hf-drill" placeholder="How has this flight distinguished itself here?">${esc(existing ? existing.DrillBarracksUniforms : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hf-academics">Academics &amp; Knowledge</label>
-            <textarea id="hf-academics"></textarea>
+            <textarea id="hf-academics">${esc(existing ? existing.AcademicsKnowledge : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hf-teamwork">Teamwork, Leadership, &amp; Conduct</label>
-            <textarea id="hf-teamwork"></textarea>
+            <textarea id="hf-teamwork">${esc(existing ? existing.TeamworkLeadershipConduct : "")}</textarea>
           </div>
           <div class="rec-form-field">
             <label for="hf-notes">Additional Notes</label>
-            <textarea id="hf-notes"></textarea>
+            <textarea id="hf-notes">${esc(existing ? existing.AdditionalNotes : "")}</textarea>
           </div>
 
-          <button class="btn btn--primary" id="hf-submit-btn" disabled>Submit Recommendation</button>
+          <button class="btn btn--primary" id="hf-submit-btn" ${existing ? "" : "disabled"}>${existing ? "Save Changes" : "Submit Recommendation"}</button>
+          ${existing ? `<button type="button" class="btn btn--ghost" id="hf-cancel-edit-btn">Cancel</button>` : ""}
 
           <div class="rec-history-list" id="hf-history-list" style="margin-top: var(--space-5);"></div>
         </div>
@@ -509,22 +600,38 @@
       const flightSelect = document.getElementById("hf-flight-select");
       const attestCheckbox = document.getElementById("hf-attest-checkbox");
       const submitBtn = document.getElementById("hf-submit-btn");
-      if (!flightSelect || !submitBtn) return;
+      const cancelBtn = document.getElementById("hf-cancel-edit-btn");
+      if (!flightSelect || !submitBtn) {
+        renderHonorFlightHistory();
+        wireHonorFlightEditButtons();
+        return;
+      }
+
+      const existing = hfEditingId ? honorFlightRows.find(r => String(r.Id) === String(hfEditingId)) : null;
 
       Shell.enhanceSelect(flightSelect);
 
-      attestCheckbox.addEventListener("change", () => {
-        hfAttested = attestCheckbox.checked;
-        submitBtn.disabled = !hfAttested;
-      });
+      if (attestCheckbox) {
+        attestCheckbox.addEventListener("change", () => {
+          hfAttested = attestCheckbox.checked;
+          submitBtn.disabled = !hfAttested;
+        });
+      }
+
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", () => {
+          hfEditingId = null;
+          renderDaily();
+        });
+      }
 
       submitBtn.addEventListener("click", () => {
         const flight = flightSelect.value;
         if (!flight) { Shell.showToast("Pick a flight first.", { type: "error" }); return; }
 
         const row = {
-          Id: `hf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-          Date: Shell.todayIso(),
+          Id: existing ? existing.Id : `hf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: existing ? existing.Date : Shell.todayIso(),
           Timestamp: new Date().toISOString(),
           SubmittedByPosition: submitterPosition,
           Squadron: submitterPosition,
@@ -535,23 +642,33 @@
           AdditionalNotes: document.getElementById("hf-notes").value.trim()
         };
 
-        Api.writeRow("HonorFlightRecommendations", row);
-        honorFlightRows.push(row);
+        Api.writeRow("HonorFlightRecommendations", row, existing ? { matchColumn: "Id" } : {});
+        if (existing) {
+          honorFlightRows = honorFlightRows.map(r => String(r.Id) === String(row.Id) ? row : r);
+        } else {
+          honorFlightRows.push(row);
+        }
         Api.setCachedRows("HonorFlightRecommendations", honorFlightRows);
 
-        ["hf-drill", "hf-academics", "hf-teamwork", "hf-notes"].forEach(id => { document.getElementById(id).value = ""; });
-        attestCheckbox.checked = false;
+        hfEditingId = null;
         hfAttested = false;
-        submitBtn.disabled = true;
-
-        renderHonorFlightHistory();
-        Shell.showToast(`Honor Flight recommendation submitted for ${flight}.`, { type: "success" });
+        Shell.showToast(existing ? `Honor Flight recommendation for ${flight} updated.` : `Honor Flight recommendation submitted for ${flight}.`, { type: "success" });
+        renderDaily();
       });
 
       renderHonorFlightHistory();
     }
 
-    function honorFlightHistoryRowHtml(r) {
+    function wireHonorFlightEditButtons() {
+      document.querySelectorAll("[data-edit-hf]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          hfEditingId = btn.dataset.editHf;
+          renderDaily();
+        });
+      });
+    }
+
+    function honorFlightHistoryRowHtml(r, { editable = false } = {}) {
       return `
         <div class="rec-history-row" data-id="${esc(r.Id)}">
           <div class="rec-history-row__body">
@@ -562,17 +679,18 @@
             ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
-          <button type="button" class="rec-history-row__delete" data-delete-hf="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>
+          ${editable ? `<button type="button" class="btn btn--ghost" data-edit-hf="${esc(r.Id)}">Edit</button>` : `<button type="button" class="rec-history-row__delete" data-delete-hf="${esc(r.Id)}" aria-label="Remove recommendation">✕</button>`}
         </div>`;
     }
 
     function renderHonorFlightHistory() {
       const listEl = document.getElementById("hf-history-list");
       if (!listEl) return;
-      const visible = honorFlightRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const today = Shell.todayIso();
+      const visible = honorFlightRows.filter(r => r.Date !== today && sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
       const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       listEl.innerHTML = sorted.length
-        ? sorted.map(honorFlightHistoryRowHtml).join("")
+        ? sorted.map(r => honorFlightHistoryRowHtml(r)).join("")
         : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No Honor Flight recommendations submitted yet.</p>`;
 
       listEl.querySelectorAll("[data-delete-hf]").forEach(btn => {
