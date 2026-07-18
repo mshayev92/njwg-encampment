@@ -7,11 +7,25 @@
     // renders at its collapsed width immediately instead of flashing
     // open at the default width for a frame and visibly animating shut
     // once js/shell.js runs (see .nav-rail-collapsed in css/app.css).
+    // The theme read right after does the same job for dark mode:
+    // resolve njwg_theme (light/dark/system) and set data-theme on <html>
+    // BEFORE tokens.css is even requested, so a dark-mode device never
+    // flashes the light palette for a frame first (see the
+    // :root[data-theme="dark"] block in css/tokens.css, and
+    // initThemeWatcher_ in js/shell.js for what keeps this in sync for
+    // the rest of the page's life, including a live OS theme change).
     try {
       if (localStorage.getItem("njwg_nav_collapsed") === "true") {
         document.documentElement.classList.add("nav-rail-collapsed");
       }
     } catch (e) { /* storage unavailable — falls back to expanded */ }
+    try {
+      var njwgThemePref = localStorage.getItem("njwg_theme") || "system";
+      var njwgThemeResolved = njwgThemePref === "system"
+        ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : njwgThemePref;
+      document.documentElement.setAttribute("data-theme", njwgThemeResolved);
+    } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Overview — NJWG Encampment</title>
@@ -169,7 +183,7 @@
     .weather-card__temp {
       font-family: var(--font-display);
       font-size: var(--fs-3xl);
-      color: var(--indigo-900);
+      color: var(--heading);
     }
 
     .weather-card__details {

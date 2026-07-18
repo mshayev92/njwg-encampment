@@ -61,7 +61,10 @@ const Shell = (() => {
     award:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M8.5 13.5L7 22l5-3 5 3-1.5-8.5"/></svg>',
     // A device outline with a "+" — distinct from `download` (the CSV
     // export tray-arrow), reads as "add this app to your device."
-    install:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 8v6M9 11h6"/><path d="M11 18h2"/></svg>'
+    install:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 8v6M9 11h6"/><path d="M11 18h2"/></svg>',
+    sun:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
+    moon:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
+    monitor:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
   };
 
   // All of these used to be single GLOBAL localStorage keys, shared by
@@ -198,6 +201,71 @@ const Shell = (() => {
     applyCollapsedState_(collapsed);
   }
 
+  // ---- Theme (light / dark / system) ----
+  // Same "flat, device-level, not position-scoped" precedent as
+  // NAV_COLLAPSED_KEY above (a visual-chrome preference belongs to the
+  // device, not whoever's currently signed into it). THEME_PREF is what
+  // the person picked — "light" | "dark" | "system"; THEME_RESOLVED is
+  // never itself stored, it's always recomputed from THEME_PREF (+ the
+  // OS setting, when THEME_PREF is "system") and written to
+  // <html data-theme="...">, which is what every dark: token override in
+  // css/tokens.css actually keys off. Every page also carries an
+  // identical synchronous inline script in <head>, BEFORE tokens.css/
+  // app.css load (see index.html/gate.html/offline.html and each
+  // pages/*.html) that does this same resolution at first paint — this
+  // module's job is to keep that in sync with live changes (the person
+  // toggling the menu, or the OS theme flipping under a "system" pref)
+  // for the rest of the page's life, not the first paint itself.
+  const THEME_KEY = "njwg_theme";
+  let darkMediaQuery_ = null;
+
+  function getThemePreference_() {
+    const v = localStorage.getItem(THEME_KEY);
+    return (v === "light" || v === "dark") ? v : "system";
+  }
+
+  function systemPrefersDark_() {
+    return !!(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+
+  function resolveTheme_(pref) {
+    return pref === "system" ? (systemPrefersDark_() ? "dark" : "light") : pref;
+  }
+
+  /** Applies `pref` to <html> + the mobile theme-color meta, and refreshes the toggle button/menu if the header's currently on screen. Does NOT persist — see setThemePreference_ for that. */
+  function applyTheme_(pref) {
+    const resolved = resolveTheme_(pref);
+    document.documentElement.setAttribute("data-theme", resolved);
+    // The address-bar/status-bar tint on mobile — matches the surface
+    // color it's sitting above rather than staying the fixed brand
+    // indigo regardless of theme, the same reasoning --bg itself
+    // unifies with the nav rail's color in dark mode (see tokens.css).
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute("content", resolved === "dark" ? "#080a38" : "#0d1250");
+    updateThemeMenuUI_(pref, resolved);
+  }
+
+  function setThemePreference_(pref) {
+    localStorage.setItem(THEME_KEY, pref);
+    applyTheme_(pref);
+  }
+
+  /**
+   * Registers the live OS-theme-change listener once per page load —
+   * only matters for a "system" preference, so a person who's left the
+   * app open sees it follow their OS switching (say, at sunset) without
+   * needing to reload. Explicit "light"/"dark" prefs ignore this
+   * entirely, on purpose — they've opted OUT of following the system.
+   */
+  function initThemeWatcher_() {
+    applyTheme_(getThemePreference_());
+    if (!window.matchMedia || darkMediaQuery_) return;
+    darkMediaQuery_ = window.matchMedia("(prefers-color-scheme: dark)");
+    darkMediaQuery_.addEventListener("change", () => {
+      if (getThemePreference_() === "system") applyTheme_("system");
+    });
+  }
+
   /**
    * The crest button (icon + unit name) is pre-rendered statically in
    * each page's own HTML now, not generated here — see the markup right
@@ -284,6 +352,28 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (⌘/Ctrl-K)" aria-label="Search" style="padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.search}</span>
           </button>
+          <div class="theme-menu-wrap">
+            <button class="btn btn--ghost" id="theme-menu-btn" aria-haspopup="true" aria-expanded="false" data-tooltip="Theme" aria-label="Theme" style="padding: var(--space-2);">
+              <span id="theme-menu-icon" style="width:18px;height:18px;display:inline-flex;"></span>
+            </button>
+            <div class="theme-menu" id="theme-menu" hidden>
+              <button class="theme-menu__item" id="theme-option-light" data-theme-pref="light">
+                <span class="theme-menu__item-icon">${ICONS.sun}</span>
+                <span>Light</span>
+                <span class="theme-menu__item-check">${ICONS.check}</span>
+              </button>
+              <button class="theme-menu__item" id="theme-option-dark" data-theme-pref="dark">
+                <span class="theme-menu__item-icon">${ICONS.moon}</span>
+                <span>Dark</span>
+                <span class="theme-menu__item-check">${ICONS.check}</span>
+              </button>
+              <button class="theme-menu__item" id="theme-option-system" data-theme-pref="system">
+                <span class="theme-menu__item-icon">${ICONS.monitor}</span>
+                <span>System</span>
+                <span class="theme-menu__item-check">${ICONS.check}</span>
+              </button>
+            </div>
+          </div>
           <button class="btn btn--ghost app-header__bell" id="announcements-bell-btn" style="position: relative; padding: var(--space-2);" data-tooltip="Notifications" aria-label="Notifications">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.bell}</span>
             <span id="announcements-badge" style="display:none; position:absolute; top:2px; right:2px; background:var(--red-600); color:#fff; border-radius:999px; font-size:10px; line-height:1; padding:3px 5px; font-family:var(--font-mono);"></span>
@@ -365,6 +455,8 @@ const Shell = (() => {
     if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
 
     wireProfileMenu_();
+    wireThemeMenu_();
+    updateThemeMenuUI_(getThemePreference_(), resolveTheme_(getThemePreference_()));
     wireSyncIndicator_();
     wireTooltips_(header);
   }
@@ -418,6 +510,69 @@ const Shell = (() => {
   function wireProfileMenu_() {
     const btn = document.getElementById("profile-menu-btn");
     if (btn) btn.addEventListener("click", () => toggleProfileMenu_());
+  }
+
+  // ---- Theme menu (header, between search and the bell) — same
+  // static-markup/hidden-toggle pattern as the profile menu above,
+  // just with three mutually-exclusive options instead of an action
+  // list. ----
+
+  let themeMenuOutsideHandler_ = null;
+  let themeMenuKeyHandler_ = null;
+
+  function closeThemeMenu_() {
+    const menu = document.getElementById("theme-menu");
+    const btn = document.getElementById("theme-menu-btn");
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute("aria-expanded", "false");
+    if (themeMenuOutsideHandler_) {
+      document.removeEventListener("mousedown", themeMenuOutsideHandler_, true);
+      themeMenuOutsideHandler_ = null;
+    }
+    if (themeMenuKeyHandler_) {
+      document.removeEventListener("keydown", themeMenuKeyHandler_);
+      themeMenuKeyHandler_ = null;
+    }
+  }
+
+  function toggleThemeMenu_() {
+    const menu = document.getElementById("theme-menu");
+    const btn = document.getElementById("theme-menu-btn");
+    if (!menu || !btn) return;
+    if (!menu.hidden) { closeThemeMenu_(); return; }
+
+    menu.hidden = false;
+    btn.setAttribute("aria-expanded", "true");
+
+    themeMenuOutsideHandler_ = (e) => {
+      if (menu.contains(e.target) || btn.contains(e.target)) return;
+      closeThemeMenu_();
+    };
+    themeMenuKeyHandler_ = (e) => { if (e.key === "Escape") closeThemeMenu_(); };
+    setTimeout(() => {
+      document.addEventListener("mousedown", themeMenuOutsideHandler_, true);
+      document.addEventListener("keydown", themeMenuKeyHandler_);
+    }, 0);
+  }
+
+  /** Reflects `pref`/`resolved` onto the trigger icon (sun/moon, matching what's actually applied) and the check mark on the active menu item. Safe to call even when the header/menu isn't in the DOM yet. */
+  function updateThemeMenuUI_(pref, resolved) {
+    const triggerIcon = document.getElementById("theme-menu-icon");
+    if (triggerIcon) triggerIcon.innerHTML = resolved === "dark" ? ICONS.moon : ICONS.sun;
+    document.querySelectorAll(".theme-menu__item").forEach((item) => {
+      item.classList.toggle("is-active", item.dataset.themePref === pref);
+    });
+  }
+
+  function wireThemeMenu_() {
+    const btn = document.getElementById("theme-menu-btn");
+    if (btn) btn.addEventListener("click", () => toggleThemeMenu_());
+    document.querySelectorAll("#theme-menu [data-theme-pref]").forEach((item) => {
+      item.addEventListener("click", () => {
+        setThemePreference_(item.dataset.themePref);
+        closeThemeMenu_();
+      });
+    });
   }
 
   // ---- Sync status indicator (header) ----
@@ -2411,6 +2566,10 @@ const Shell = (() => {
     activePage_ = activePage;
     if (requireAuth) Auth.requireSession();
     if (requireAuth && activePage) requirePageAccess(activePage);
+    // Unconditional (like the skip-link below) — theme is a visual
+    // preference independent of auth, and registers the live OS-change
+    // listener for a "system" preference for the rest of this page's life.
+    initThemeWatcher_();
     injectSkipLink_();
     // Skip if Shell.renderNav(activePage) already ran earlier in this
     // same page load (see the inline script right after #nav-rail in

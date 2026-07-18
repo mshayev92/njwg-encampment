@@ -2,6 +2,21 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <script>
+    // Applied synchronously, before first paint — resolves njwg_theme
+    // (light/dark/system) and sets data-theme on <html> BEFORE
+    // tokens.css is even requested, so a dark-mode device never flashes
+    // the light palette for a frame first. See the same script in every
+    // pages/*.html and the :root[data-theme="dark"] block in
+    // css/tokens.css.
+    try {
+      var njwgThemePref = localStorage.getItem("njwg_theme") || "system";
+      var njwgThemeResolved = njwgThemePref === "system"
+        ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+        : njwgThemePref;
+      document.documentElement.setAttribute("data-theme", njwgThemeResolved);
+    } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
+  </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NJWG Encampment</title>
   <meta name="theme-color" content="#0d1250">
@@ -84,7 +99,7 @@
 
     .login-card__left h1 {
       font-size: var(--fs-lg);
-      color: var(--surface);
+      color: var(--on-brand);
       margin: var(--space-2) 0 0;
     }
 
@@ -176,7 +191,7 @@
       font-size: var(--fs-sm);
       letter-spacing: var(--tracking-wide);
       text-transform: uppercase;
-      color: var(--surface);
+      color: var(--on-brand);
       cursor: pointer;
     }
 
@@ -219,7 +234,7 @@
     .password-step__selected {
       font-family: var(--font-display);
       font-size: var(--fs-md);
-      color: var(--indigo-900);
+      color: var(--heading);
     }
 
     .password-step .field { text-align: left; margin-bottom: 0; }
