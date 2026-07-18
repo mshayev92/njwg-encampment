@@ -141,7 +141,7 @@
        composed per condition). These are actual CSS-drawn elements, not
        tint overlays: the sky keeps its dawn/day/dusk/night color and the
        weather sits on top as recognizable shapes. No snow scene — this is
-       a summer encampment, so those WMO codes never map to one (see
+       a summer encampment, so those NWS icon codes never map to one (see
        weatherConditionBucket). Everything is pure CSS, so nothing here
        loads or can fail; a device with no weather data just draws the
        clear-sky scene (sun by day, crescent moon + stars by night). */
@@ -389,22 +389,17 @@
       return Shell.flightMatchesAudience(allowedFlights, flight);
     }
 
-    // Weather codes from Open-Meteo's WMO code table, condensed to
-    // plain-language labels for display.
-    const WEATHER_CODE_LABELS = {
-      0: "Clear sky", 1: "Mainly clear", 2: "Partly cloudy", 3: "Overcast",
-      45: "Fog", 48: "Depositing rime fog",
-      51: "Light drizzle", 53: "Drizzle", 55: "Dense drizzle",
-      61: "Light rain", 63: "Rain", 65: "Heavy rain",
-      71: "Light snow", 73: "Snow", 75: "Heavy snow",
-      80: "Light showers", 81: "Showers", 82: "Violent showers",
-      95: "Thunderstorm", 96: "Thunderstorm w/ hail", 99: "Thunderstorm w/ heavy hail"
-    };
-
+    /**
+     * The National Weather Service API (api.weather.gov) is a two-step
+     * lookup: /points/{lat},{lon} resolves a lat/lon into the gridpoint
+     * forecast endpoint for that location, then that endpoint's first
+     * period is the current/upcoming-hour conditions. Both calls share
+     * the same abort timeout budget below so a hang on either leg still
+     * lets the page settle.
+     */
     async function fetchWeather() {
       const lat = window.APP_CONFIG.WEATHER_LAT;
       const lon = window.APP_CONFIG.WEATHER_LON;
-      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph`;
       // A bare fetch() to a third-party service can hang indefinitely on a
       // flaky connection or captive portal, and it never settles. Because
       // the WHOLE page render is gated behind weatherLoaded (set only in
@@ -414,10 +409,29 @@
       // (weather simply shows "unavailable" if the call didn't come back).
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
+      const headers = { "Accept": "application/geo+json" };
       try {
-        const response = await fetch(url, { signal: controller.signal });
-        if (!response.ok) throw new Error("Weather service unavailable.");
-        return await response.json();
+        const pointsResp = await fetch(`https://api.weather.gov/points/${lat},${lon}`, { signal: controller.signal, headers });
+        if (!pointsResp.ok) throw new Error("Weather service unavailable.");
+        const points = await pointsResp.json();
+        const forecastHourlyUrl = points.properties && points.properties.forecastHourly;
+        if (!forecastHourlyUrl) throw new Error("Weather service unavailable.");
+
+        const forecastResp = await fetch(forecastHourlyUrl, { signal: controller.signal, headers });
+        if (!forecastResp.ok) throw new Error("Weather service unavailable.");
+        const forecast = await forecastResp.json();
+        const period = forecast.properties && forecast.properties.periods && forecast.properties.periods[0];
+        if (!period) throw new Error("Weather service unavailable.");
+
+        return {
+          current: {
+            temperatureF: period.temperature,
+            shortForecast: period.shortForecast,
+            windSpeed: period.windSpeed,
+            relativeHumidity: period.relativeHumidity && typeof period.relativeHumidity.value === "number" ? period.relativeHumidity.value : null,
+            icon: period.icon || ""
+          }
+        };
       } finally {
         clearTimeout(timeoutId);
       }
@@ -453,15 +467,16 @@
       }
 
       const c = weather.current;
-      const label = WEATHER_CODE_LABELS[c.weather_code] || "—";
+      const label = c.shortForecast || "—";
+      const humidityText = c.relativeHumidity !== null ? `Humidity ${Math.round(c.relativeHumidity)}% · ` : "";
       return `
         <div class="card weather-card">
           ${blackFlagHtml}
           <div class="weather-card__body">
-            <div class="weather-card__temp">${Math.round(c.temperature_2m)}°F</div>
+            <div class="weather-card__temp">${Math.round(c.temperatureF)}°F</div>
             <div>
               <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
-              <div class="weather-card__details">${label} · Humidity ${Math.round(c.relative_humidity_2m)}% · Wind ${Math.round(c.wind_speed_10m)} mph</div>
+              <div class="weather-card__details">${label} · ${humidityText}Wind ${c.windSpeed || "—"}</div>
             </div>
           </div>
         </div>
@@ -481,28 +496,34 @@
     }
 
     /**
-     * Buckets an Open-Meteo WMO weather_code (see WEATHER_CODE_LABELS
-     * above) down to one of six drawn weather scenes: clear, partly
-     * (partly cloudy), cloudy (overcast), fog, rain, storm. No weather
-     * data yet/at all (fetchWeather failed, or hasn't resolved) reads the
-     * same as a clear sky — the welcome card enhances the time-of-day
-     * scene with current conditions, never blocks or degrades it when
-     * weather is unavailable.
+     * Buckets an NWS forecast icon (e.g. ".../icons/land/day/tsra,40?size=medium")
+     * down to one of six drawn weather scenes: clear, partly (partly
+     * cloudy), cloudy (overcast), fog, rain, storm. NWS icon URLs encode
+     * the condition as the last path segment before the query string, an
+     * optional "wind_" prefix, and an optional ",<percent>" chance suffix
+     * — strip both to get the bare condition code. No weather data yet/at
+     * all (fetchWeather failed, or hasn't resolved) reads the same as a
+     * clear sky — the welcome card enhances the time-of-day scene with
+     * current conditions, never blocks or degrades it when weather is
+     * unavailable.
      */
     function weatherConditionBucket(weather) {
-      const code = weather && weather.current ? weather.current.weather_code : null;
-      if (code === null || code === undefined) return "clear";
-      if ([95, 96, 99].includes(code)) return "storm";
-      if (code === 45 || code === 48) return "fog";
-      // Drizzle / rain / showers all draw the rain scene. The snow codes
-      // (71/73/75) are folded in here too purely as a defensive fallback:
+      const icon = weather && weather.current ? weather.current.icon : null;
+      if (!icon) return "clear";
+      const segments = icon.split("?")[0].split("/");
+      const raw = (segments[segments.length - 1] || "").split(",")[0];
+      const code = raw.replace(/^wind_/, "");
+      if (["tsra", "tsra_sct", "tsra_hi"].includes(code)) return "storm";
+      if (["fog", "haze", "dust", "smoke"].includes(code)) return "fog";
+      // Rain, drizzle, and mixed-precip codes all draw the rain scene. The
+      // snow codes are folded in here too purely as a defensive fallback:
       // this is a summer encampment so they shouldn't occur, and there's
       // no snow scene — falling precipitation reads far better as rain
       // than as a clear sky if an out-of-season code ever slips through.
-      if ([51, 53, 55, 61, 63, 65, 71, 73, 75, 80, 81, 82].includes(code)) return "rain";
-      if (code === 3) return "cloudy";
-      if (code === 2) return "partly";
-      return "clear"; // 0 (clear sky), 1 (mainly clear)
+      if (["rain", "rain_showers", "rain_showers_hi", "rain_sleet", "rain_snow", "rain_fzra", "sleet", "snow", "blizzard"].includes(code)) return "rain";
+      if (["bkn", "ovc"].includes(code)) return "cloudy";
+      if (code === "sct") return "partly";
+      return "clear"; // skc (clear), few (mostly clear), and anything unrecognized
     }
 
     // Explicit, hand-placed raindrop positions/timings (across the ~150px
@@ -759,7 +780,7 @@
     let lastObservationRows = null;
     let lastBlackFlagStatus = null;
     // These come from independent sources (Api's sheet cache x7, a
-    // direct Open-Meteo fetch) that used to each trigger their OWN
+    // direct National Weather Service API fetch) that used to each trigger their OWN
     // renderAll() the moment they landed — so a cold load visibly built
     // itself piece by piece (weather popping in after the rest, in
     // particular), and a warm-cache load could still replay the
@@ -832,7 +853,7 @@
       });
 
       // Weather has no backend cache of its own (it's a direct call to
-      // Open-Meteo, not the Apps Script) — fetched every load, and now
+      // the National Weather Service API, not the Apps Script) — fetched every load, and now
       // gates the first render the same way Roster/Schedule do instead
       // of patching in separately once the other two are already shown.
       fetchWeather().then((w) => { lastWeather = w; }).catch(() => { lastWeather = null; }).finally(() => {
