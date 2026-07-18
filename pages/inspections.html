@@ -405,9 +405,9 @@
     }
 
     /* Reset button chrome so an unscoped viewer's flight-avg-card can be a
-       real <button> (click-to-expand its cadets) without losing the card
-       look — same "make an interactive element look like the static
-       card" trick as .student-row. */
+       real <button> (drills into renderPeriodFlightDetail for that one
+       flight) without losing the card look — same "make an interactive
+       element look like the static card" trick as .student-row. */
     .flight-avg-card--clickable {
       cursor: pointer;
       text-align: left;
@@ -751,9 +751,10 @@
     let pendingPeriodId = "";
     let currentPeriodId = "";
     let selectedPeriod = null; // the InspectionPeriods row currently drilled into on the Periods tab
+    let selectedPeriodFlight = null; // flight name drilled into within that period (unscoped positions only — see renderPeriodFlightDetail)
     // Explicit view-mode flag so a background refresh can re-render
     // whatever's on screen without guessing from the DOM. One of:
-    // "flights" | "students" | "history" | "scorecard" | "periods-tiles" | "period-detail" | "trends"
+    // "flights" | "students" | "history" | "scorecard" | "periods-tiles" | "period-detail" | "period-flight-detail" | "trends"
     let currentView = "flights";
 
     function activeItems() { return INSPECTION_TYPES[activeType].items; }
@@ -1014,12 +1015,13 @@
       // than showing a detail page for a period that no longer exists.
       if (selectedPeriod && String(selectedPeriod.Id) === String(id)) {
         selectedPeriod = null;
-        if (currentView === "period-detail") currentView = "periods-tiles";
+        selectedPeriodFlight = null;
+        if (currentView === "period-detail" || currentView === "period-flight-detail") currentView = "periods-tiles";
       }
       Api.setCachedRows("InspectionPeriods", inspectionPeriods);
       Shell.showToast("Period deleted.", { type: "success" });
       renderPeriodsSection();
-      if (currentView === "flights" || currentView === "history" || currentView === "periods-tiles" || currentView === "period-detail") renderActiveView();
+      if (currentView === "flights" || currentView === "history" || currentView === "periods-tiles" || currentView === "period-detail" || currentView === "period-flight-detail") renderActiveView();
     }
 
     // ---- Periods tab (tiles of scheduled periods -> per-flight scores) ----
@@ -1155,12 +1157,13 @@
      * already narrowed `scores` down to just its own flight(s)) sees each
      * flight's average with its cadets' individual scores right below,
      * no click needed. An unscoped (CCT/Administrator) position instead
-     * sees every flight's average only, click-to-expand each one's cadets
-     * — same collapsed-by-default review flow as the rest of the app's
-     * flight grids.
+     * sees every flight's average only, and clicking one drills into
+     * renderPeriodFlightDetail for that one flight — the exact same
+     * average-plus-cadet-list layout a flight/squadron gets directly.
      */
     function renderPeriodDetail(period) {
       currentView = "period-detail";
+      selectedPeriodFlight = null;
       const scores = computePeriodFlightScores(period);
       const showCadetsDirect = allowedFlights.length > 0;
 
@@ -1178,10 +1181,9 @@
               ${periodCadetListHtml(s.cadets)}
             </div>
           ` : `
-            <button type="button" class="flight-avg-card flight-avg-card--clickable" data-toggle-flight="${esc(s.flight)}" aria-expanded="false">
+            <button type="button" class="flight-avg-card flight-avg-card--clickable" data-open-flight="${esc(s.flight)}">
               <div class="flight-avg-card__name">${esc(s.flight)}</div>
               ${flightAvgSummaryHtml(s)}
-              <div hidden>${periodCadetListHtml(s.cadets)}</div>
             </button>
           `).join("")}
         </div>
@@ -1193,16 +1195,49 @@
       });
 
       if (!showCadetsDirect) {
-        contentEl.querySelectorAll("[data-toggle-flight]").forEach(card => {
+        contentEl.querySelectorAll("[data-open-flight]").forEach(card => {
           card.addEventListener("click", () => {
-            const wrapper = card.lastElementChild; // the hidden cadet-list wrapper, always the last child
-            const expanded = card.getAttribute("aria-expanded") === "true";
-            card.setAttribute("aria-expanded", String(!expanded));
-            if (wrapper) wrapper.hidden = expanded;
+            selectedPeriodFlight = card.dataset.openFlight;
+            renderPeriodFlightDetail(period, selectedPeriodFlight);
           });
         });
       }
 
+      Shell.animateIn(contentEl);
+    }
+
+    /**
+     * One flight's average-plus-cadet-list for a period, as its own full
+     * view — reached by an unscoped (CCT/Administrator) position clicking
+     * a flight card in renderPeriodDetail. Recomputes scores fresh from
+     * computePeriodFlightScores rather than reusing a stale snapshot, so
+     * it stays correct across a background data refresh (see
+     * renderActiveView) the same way renderPeriodDetail already does.
+     */
+    function renderPeriodFlightDetail(period, flight) {
+      currentView = "period-flight-detail";
+      const score = computePeriodFlightScores(period).find(s => s.flight === flight);
+      if (!score) { renderPeriodDetail(period); return; }
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-period-btn">← Back</button>
+          <h2>${esc(flight)} · ${esc(periodLabel(period))} · ${esc(period.Date)}</h2>
+        </div>
+
+        <div class="flight-avg-list">
+          <div class="flight-avg-card">
+            <div class="flight-avg-card__name">${esc(score.flight)}</div>
+            ${flightAvgSummaryHtml(score)}
+            ${periodCadetListHtml(score.cadets)}
+          </div>
+        </div>
+      `;
+
+      document.getElementById("back-to-period-btn").addEventListener("click", () => {
+        selectedPeriodFlight = null;
+        renderPeriodDetail(period);
+      });
       Shell.animateIn(contentEl);
     }
 
@@ -2186,6 +2221,7 @@
       if (currentView === "scorecard") return; // don't clobber in-progress scoring
       if (currentView === "history" && selectedStudent) return renderHistory();
       if (currentView === "students" && selectedFlight) return renderStudentList();
+      if (currentView === "period-flight-detail" && selectedPeriod && selectedPeriodFlight) return renderPeriodFlightDetail(selectedPeriod, selectedPeriodFlight);
       if (currentView === "period-detail" && selectedPeriod) return renderPeriodDetail(selectedPeriod);
       if (currentView === "periods-tiles") return renderPeriodsTab();
       return renderFlightGrid();
@@ -2233,7 +2269,8 @@
         // still has its detail view open.
         if (selectedPeriod && !inspectionPeriods.some(p => String(p.Id) === String(selectedPeriod.Id))) {
           selectedPeriod = null;
-          if (currentView === "period-detail") currentView = "periods-tiles";
+          selectedPeriodFlight = null;
+          if (currentView === "period-detail" || currentView === "period-flight-detail") currentView = "periods-tiles";
         }
         renderPeriodsSection();
         renderActiveView();
@@ -2304,7 +2341,7 @@
       tabButtons.forEach(b => b.classList.toggle("is-active", b.dataset.tab === tab));
       inspectionTabsIndicator.move();
       if (tab === "trends") renderTrends();
-      else if (tab === "periods") { selectedPeriod = null; renderPeriodsTab(); }
+      else if (tab === "periods") { selectedPeriod = null; selectedPeriodFlight = null; renderPeriodsTab(); }
       else { selectedFlight = null; selectedStudent = null; renderFlightGrid(); }
     }
 
