@@ -55,9 +55,14 @@ export const PAGE_WRITE_GATES = {
 export const RATE_LIMIT_PER_MINUTE = 60;
 export const READ_CACHE_TTL_SECONDS = 20;
 
+// InspectionPeriodId ties a scored entry back to the InspectionPeriods row
+// it was filed under (blank for an ad-hoc entry logged with nothing
+// scheduled) — see pages/inspections.html's Periods tab, which sums scores
+// per period purely by matching this Id. Deleting a period only removes
+// its InspectionPeriods row; already-scored entries (and this Id) persist.
 export const UNIFORM_INSPECTION_COLUMNS = [
   "StudentCapId", "StudentName", "Flight", "InspectingPosition",
-  "Date", "Timestamp",
+  "Date", "Timestamp", "InspectionPeriodId",
   "Haircut", "CosmeticsOrShave", "CleanlinessPress", "ShirtTuck",
   "PatchesNametag", "InsigniaRibbons", "GigLine",
   "BootBlousingShoeShine", "MilitaryBearingCourtesy",
@@ -65,7 +70,7 @@ export const UNIFORM_INSPECTION_COLUMNS = [
 ];
 export const ROOM_INSPECTION_COLUMNS = [
   "StudentCapId", "StudentName", "Flight", "InspectingPosition",
-  "Date", "Timestamp",
+  "Date", "Timestamp", "InspectionPeriodId",
   "HospitalCorners", "Pillow", "Collar", "SheetsBlanket", "Shoes",
   "Towel", "TopShelf", "Clothes", "TopOfDrawerCabinet",
   "TotalPoints", "Notes"
@@ -81,7 +86,7 @@ export const ROOM_INSPECTION_COLUMNS = [
 // — the denominator, since it varies test to test.
 export const PT_INSPECTION_COLUMNS = [
   "StudentCapId", "StudentName", "Flight", "InspectingPosition",
-  "Date", "Timestamp", "Age", "Sex",
+  "Date", "Timestamp", "InspectionPeriodId", "Age", "Sex",
   "PacerLaps", "PacerLapsPass",
   "MileRunTime", "MileRunTimePass",
   "CurlUps", "CurlUpsPass",
