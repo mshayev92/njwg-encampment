@@ -109,18 +109,6 @@
       margin-top: var(--space-1);
     }
 
-    .welcome-card__orb {
-      position: absolute;
-      border-radius: 50%;
-    }
-
-    .welcome-card__cloud {
-      position: absolute;
-      background: rgba(255, 255, 255, 0.55);
-      border-radius: 999px;
-      filter: blur(2px);
-    }
-
     .welcome-card__stars {
       position: absolute;
       inset: 0;
@@ -138,89 +126,137 @@
 
     /* Dawn (5-8am): soft sunrise pink/orange fading to pale morning blue. */
     .welcome-card--dawn { background: linear-gradient(180deg, #ffd9a0 0%, #ffb199 40%, #8ec5e8 100%); color: #3a2410; }
-    .welcome-card--dawn .welcome-card__orb { width: 90px; height: 90px; right: 36px; bottom: -28px; background: #fff2c2; box-shadow: 0 0 60px 20px rgba(255, 235, 180, 0.8); }
-
     /* Day (8am-5pm): bright clear sky. */
     .welcome-card--day { background: linear-gradient(180deg, #4fa8e0 0%, #bfe3f7 100%); color: #103050; }
-    .welcome-card--day .welcome-card__orb { width: 68px; height: 68px; right: 48px; top: 20px; background: #fff6d0; box-shadow: 0 0 50px 16px rgba(255, 250, 210, 0.85); }
-
     /* Dusk (5-8pm): sunset gradient, warm orange over deep purple. */
     .welcome-card--dusk { background: linear-gradient(180deg, #33245f 0%, #b3466b 55%, #ff9d5c 100%); color: #fff3e6; }
-    .welcome-card--dusk .welcome-card__orb { width: 78px; height: 78px; right: 44px; bottom: 8px; background: #ffd39b; box-shadow: 0 0 55px 18px rgba(255, 170, 110, 0.7); }
-
-    /* Night (8pm-5am): deep indigo, echoing the app's own nav-rail
-       palette so the "dark mode" scene still feels on-brand. */
+    /* Night (8pm-5am): deep indigo, echoing the app's own nav-rail palette. */
     .welcome-card--night { background: linear-gradient(180deg, #0d1250 0%, #1a2470 100%); color: #f4f4fb; }
-    .welcome-card--night .welcome-card__orb { width: 52px; height: 52px; right: 56px; top: 24px; background: #eef1fb; box-shadow: 0 0 30px 8px rgba(230, 235, 255, 0.5); }
 
-    /* ---- Weather overlay effects ----
-       The gradient/orb above answer "what time is it"; these answer
-       "what's it doing outside" — layered on top of whichever
-       time-of-day scene is active, not a replacement for it, so the
-       card always reads as both "when" and "what." welcome-card--wx-clear
-       (clear/mainly-clear skies, OR no weather data at all — see
-       weatherConditionBucket) adds nothing on top, so a device that
-       can't reach the weather API just sees the original
-       time-of-day-only card exactly as before. */
-    .welcome-card__overlay {
+    /* ---- Weather graphics ----
+       Each condition is drawn as its OWN little illustrated scene on top
+       of the time-of-day sky gradient — a rayed sun, a crescent moon,
+       puffy clouds, an overcast cloud bank, angled rain, a lightning
+       bolt, drifting fog bands (see renderWelcomeCard for how they're
+       composed per condition). These are actual CSS-drawn elements, not
+       tint overlays: the sky keeps its dawn/day/dusk/night color and the
+       weather sits on top as recognizable shapes. No snow scene — this is
+       a summer encampment, so those WMO codes never map to one (see
+       weatherConditionBucket). Everything is pure CSS, so nothing here
+       loads or can fail; a device with no weather data just draws the
+       clear-sky scene (sun by day, crescent moon + stars by night). */
+
+    /* Sun with slowly-rotating rays (clear + partly-cloudy days). The
+       disc is a radial-gradient; the rays are a conic-gradient masked to
+       a thin ring just outside it, so they read as discrete spokes. */
+    .wx-sun {
       position: absolute;
-      inset: 0;
-      pointer-events: none;
-    }
-    .welcome-card--wx-clouds .welcome-card__overlay,
-    .welcome-card--wx-rain .welcome-card__overlay { background: rgba(40, 46, 70, 0.28); }
-    .welcome-card--wx-fog .welcome-card__overlay { background: rgba(210, 215, 225, 0.45); backdrop-filter: blur(1px); }
-    .welcome-card--wx-storm .welcome-card__overlay { background: rgba(10, 12, 30, 0.45); }
-    .welcome-card--wx-snow .welcome-card__overlay { background: rgba(255, 255, 255, 0.12); }
-
-    /* Denser cloud cover for overcast/foggy/rainy/stormy conditions —
-       layered on top of the two base clouds every non-night scene
-       already draws, rather than replacing them. */
-    .welcome-card__cloud--dense { width: 120px; height: 36px; opacity: 0.82; }
-
-    /* Rain (also used, alongside the flash below, for storms) */
-    .welcome-card__rain { position: absolute; inset: 0; overflow: hidden; }
-    .welcome-card__raindrop {
-      position: absolute;
-      top: -12%;
-      width: 2px;
-      height: 16px;
-      background: linear-gradient(180deg, transparent, rgba(210, 230, 255, 0.8));
-      animation: welcome-rain-fall linear infinite;
-    }
-    @keyframes welcome-rain-fall {
-      from { transform: translateY(0); }
-      to { transform: translateY(170%); }
-    }
-
-    /* Snow */
-    .welcome-card__snow { position: absolute; inset: 0; overflow: hidden; }
-    .welcome-card__snowflake {
-      position: absolute;
-      top: -10%;
+      right: 56px; top: 24px;
+      width: 56px; height: 56px;
       border-radius: 50%;
-      background: rgba(255, 255, 255, 0.9);
-      animation: welcome-snow-fall linear infinite;
+      background: radial-gradient(circle at 38% 34%, #fff7d4 0%, #ffd63f 58%, #ffbf1c 100%);
+      box-shadow: 0 0 30px 8px rgba(255, 210, 80, 0.5);
     }
-    @keyframes welcome-snow-fall {
-      from { transform: translate(0, 0); opacity: 0.9; }
-      to { transform: translate(12px, 170%); opacity: 0.4; }
+    .wx-sun::before {
+      content: "";
+      position: absolute;
+      inset: -19px;
+      border-radius: 50%;
+      background: repeating-conic-gradient(from 0deg, rgba(255, 216, 96, 0.95) 0deg 2.6deg, transparent 2.6deg 30deg);
+      -webkit-mask: radial-gradient(circle, transparent 50%, #000 53%, #000 63%, transparent 70%);
+              mask: radial-gradient(circle, transparent 50%, #000 53%, #000 63%, transparent 70%);
+      animation: wx-spin 70s linear infinite;
+    }
+    @keyframes wx-spin { to { transform: rotate(360deg); } }
+
+    /* Crescent moon (clear + partly-cloudy nights) — the lit crescent is
+       carved by an inset box-shadow, so it needs no sky-colored cut-out
+       and stays correct on any scene. */
+    .wx-moon {
+      position: absolute;
+      right: 60px; top: 26px;
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      box-shadow: inset -13px -6px 0 0 #eef1fb, 0 0 24px 6px rgba(230, 235, 255, 0.4);
     }
 
-    /* Storm: an occasional lightning flash instead of a continuous
-       effect — brightens the whole scene (clouds, overlay, rain)
-       together since they share one filter, rather than each layer
-       needing its own flash animation. */
-    .welcome-card--wx-storm .welcome-card__scene {
-      animation: welcome-storm-flash 7s ease-in-out infinite;
+    /* Puffy cloud: a rounded body plus two circular lobes on top. The
+       fill is a variable so the lobes (::before/::after) always match
+       whatever a condition modifier sets. */
+    .wx-cloud {
+      --cloud-fill: #ffffff;
+      position: absolute;
+      width: 90px; height: 27px;
+      background: var(--cloud-fill);
+      border-radius: 28px;
+      filter: drop-shadow(0 6px 10px rgba(40, 50, 90, 0.16));
     }
-    @keyframes welcome-storm-flash {
-      0%, 92%, 100% { filter: brightness(1); }
-      93% { filter: brightness(1.9); }
-      94% { filter: brightness(1); }
-      95.5% { filter: brightness(1.6); }
-      96% { filter: brightness(1); }
+    .wx-cloud::before, .wx-cloud::after {
+      content: ""; position: absolute; background: var(--cloud-fill); border-radius: 50%;
     }
+    .wx-cloud::before { width: 43px; height: 43px; left: 13px; top: -21px; }
+    .wx-cloud::after  { width: 29px; height: 29px; right: 15px; top: -13px; }
+    .wx-cloud--gray  { --cloud-fill: #d6dbe8; }
+    .wx-cloud--rain  { --cloud-fill: #aab3c9; }
+    .wx-cloud--storm { --cloud-fill: #6a7290; }
+
+    /* Soft overcast sky mass behind the puffy clouds (cloudy/rain/storm):
+       a blurred elliptical gradient, not a flat rectangle, so the sky
+       reads as "socked in" without a sticker-like tint box. */
+    .wx-cloudbank {
+      position: absolute;
+      right: -30px; top: -30px;
+      width: 330px; height: 148px;
+      border-radius: 50%;
+      filter: blur(14px);
+      opacity: 0.92;
+    }
+    .wx-cloudbank--gray  { background: radial-gradient(ellipse at 62% 42%, rgba(214, 219, 232, 0.95) 0%, rgba(214, 219, 232, 0) 70%); }
+    .wx-cloudbank--rain  { background: radial-gradient(ellipse at 62% 42%, rgba(150, 160, 184, 0.95) 0%, rgba(150, 160, 184, 0) 70%); }
+    .wx-cloudbank--storm { background: radial-gradient(ellipse at 62% 42%, rgba(70, 78, 104, 0.97) 0%, rgba(70, 78, 104, 0) 72%); }
+
+    /* Angled rain streaks (rain + storm), falling from beneath the cloud
+       cluster on the right. */
+    .wx-rain { position: absolute; right: 22px; top: 72px; width: 150px; height: 52px; overflow: hidden; }
+    .wx-rain__drop {
+      position: absolute; top: 0;
+      width: 2px; height: 12px; border-radius: 2px;
+      background: linear-gradient(180deg, transparent, rgba(196, 224, 255, 0.9));
+      animation: wx-rain-fall linear infinite;
+    }
+    @keyframes wx-rain-fall {
+      0% { transform: translate(0, -14px) rotate(12deg); opacity: 0; }
+      20% { opacity: 1; }
+      100% { transform: translate(11px, 52px) rotate(12deg); opacity: 0; }
+    }
+
+    /* Lightning bolt (storm) — always drawn (so a glance always reads
+       "storm"), with a periodic bright glow-flash rather than blinking
+       in and out of existence. */
+    .wx-bolt {
+      position: absolute; right: 92px; top: 60px;
+      width: 24px; height: 38px;
+      background: linear-gradient(180deg, #fff1a8 0%, #ffcf3a 100%);
+      clip-path: polygon(58% 0%, 16% 54%, 44% 54%, 30% 100%, 84% 40%, 56% 40%);
+      animation: wx-bolt-flash 4.5s ease-in-out infinite;
+    }
+    @keyframes wx-bolt-flash {
+      0%, 84%, 100% { filter: drop-shadow(0 0 4px rgba(255, 206, 70, 0.5)); }
+      86% { filter: drop-shadow(0 0 13px rgba(255, 232, 120, 1)); }
+      88% { filter: drop-shadow(0 0 3px rgba(255, 206, 70, 0.4)); }
+      90% { filter: drop-shadow(0 0 13px rgba(255, 232, 120, 1)); }
+    }
+
+    /* Drifting fog/haze bands. */
+    .wx-fog { position: absolute; inset: 0; overflow: hidden; }
+    .wx-fog__band {
+      position: absolute; left: -25%;
+      width: 150%; height: 15px; border-radius: 999px;
+      background: rgba(228, 232, 240, 0.5);
+      filter: blur(5px);
+      animation: wx-fog-drift ease-in-out infinite alternate;
+    }
+    @keyframes wx-fog-drift { from { transform: translateX(-6%); } to { transform: translateX(6%); } }
 
     .weather-card {
       display: flex;
@@ -446,96 +482,130 @@
 
     /**
      * Buckets an Open-Meteo WMO weather_code (see WEATHER_CODE_LABELS
-     * above) down to one of the six .welcome-card--wx-* visual variants.
-     * No weather data yet/at all (fetchWeather failed, or hasn't
-     * resolved) reads the same as a clear sky — the welcome card is
-     * meant to enhance the time-of-day scene with current conditions,
-     * never to block or degrade it when weather is unavailable.
+     * above) down to one of six drawn weather scenes: clear, partly
+     * (partly cloudy), cloudy (overcast), fog, rain, storm. No weather
+     * data yet/at all (fetchWeather failed, or hasn't resolved) reads the
+     * same as a clear sky — the welcome card enhances the time-of-day
+     * scene with current conditions, never blocks or degrades it when
+     * weather is unavailable.
      */
     function weatherConditionBucket(weather) {
       const code = weather && weather.current ? weather.current.weather_code : null;
       if (code === null || code === undefined) return "clear";
-      if (code === 45 || code === 48) return "fog";
-      if ([51, 53, 55, 61, 63, 65, 80, 81, 82].includes(code)) return "rain";
-      if ([71, 73, 75].includes(code)) return "snow";
       if ([95, 96, 99].includes(code)) return "storm";
-      if (code === 2 || code === 3) return "clouds";
+      if (code === 45 || code === 48) return "fog";
+      // Drizzle / rain / showers all draw the rain scene. The snow codes
+      // (71/73/75) are folded in here too purely as a defensive fallback:
+      // this is a summer encampment so they shouldn't occur, and there's
+      // no snow scene — falling precipitation reads far better as rain
+      // than as a clear sky if an out-of-season code ever slips through.
+      if ([51, 53, 55, 61, 63, 65, 71, 73, 75, 80, 81, 82].includes(code)) return "rain";
+      if (code === 3) return "cloudy";
+      if (code === 2) return "partly";
       return "clear"; // 0 (clear sky), 1 (mainly clear)
     }
 
-    // Staggered left-offset/timing per raindrop/snowflake so the fall
-    // reads as natural rain/snow rather than a uniform grid — same
-    // "explicit, hand-placed" approach the two base clouds already use
-    // (see renderWelcomeCard) rather than generating positions at
-    // render time for what's a fixed decorative effect.
+    // Explicit, hand-placed raindrop positions/timings (across the ~150px
+    // rain box that sits under the cloud cluster), so the streaks read as
+    // natural rain rather than a uniform grid — same "hand-placed, not
+    // generated" approach the clouds themselves use in renderWelcomeCard.
     const WELCOME_RAINDROPS = [
-      { left: "4%",  delay: "0s",    duration: "0.5s" },
-      { left: "14%", delay: "0.18s", duration: "0.6s" },
-      { left: "24%", delay: "0.35s", duration: "0.45s" },
-      { left: "34%", delay: "0.08s", duration: "0.55s" },
-      { left: "44%", delay: "0.42s", duration: "0.5s" },
-      { left: "54%", delay: "0.22s", duration: "0.65s" },
-      { left: "64%", delay: "0s",    duration: "0.48s" },
-      { left: "74%", delay: "0.3s",  duration: "0.58s" },
-      { left: "84%", delay: "0.12s", duration: "0.52s" },
-      { left: "94%", delay: "0.38s", duration: "0.6s" }
+      { left: "8px",   delay: "0s",    duration: "0.72s" },
+      { left: "28px",  delay: "0.28s", duration: "0.62s" },
+      { left: "48px",  delay: "0.12s", duration: "0.74s" },
+      { left: "68px",  delay: "0.4s",  duration: "0.58s" },
+      { left: "88px",  delay: "0.05s", duration: "0.68s" },
+      { left: "108px", delay: "0.32s", duration: "0.6s" },
+      { left: "128px", delay: "0.18s", duration: "0.7s" },
+      { left: "18px",  delay: "0.5s",  duration: "0.64s" }
     ];
-    const WELCOME_SNOWFLAKES = [
-      { left: "2%",  size: "4px", delay: "0s",   duration: "4.2s" },
-      { left: "12%", size: "3px", delay: "0.6s", duration: "5s" },
-      { left: "22%", size: "5px", delay: "1.4s", duration: "3.8s" },
-      { left: "32%", size: "3px", delay: "0.2s", duration: "4.6s" },
-      { left: "42%", size: "6px", delay: "2s",   duration: "5.4s" },
-      { left: "52%", size: "4px", delay: "0.9s", duration: "4s" },
-      { left: "62%", size: "3px", delay: "1.7s", duration: "5.2s" },
-      { left: "72%", size: "5px", delay: "0.4s", duration: "4.4s" },
-      { left: "82%", size: "4px", delay: "1.1s", duration: "3.6s" },
-      { left: "92%", size: "3px", delay: "1.9s", duration: "5.6s" }
-    ];
+
+    /** Sun (day/dawn/dusk) or crescent moon (night) — the "clear sky" element, also reused as the peeking body behind a partly-cloudy scene. */
+    function wxSunOrMoon(isNight) {
+      return isNight ? `<div class="wx-moon"></div>` : `<div class="wx-sun"></div>`;
+    }
+
+    /** A single puffy cloud with an optional fill modifier and inline position. */
+    function wxCloud(modifier, style) {
+      return `<div class="wx-cloud ${modifier}" style="${style}"></div>`;
+    }
+
+    /** The angled rain-streak layer, shared by the rain and storm scenes. */
+    function wxRain() {
+      return `<div class="wx-rain">${WELCOME_RAINDROPS.map(d =>
+        `<div class="wx-rain__drop" style="left:${d.left}; animation-delay:${d.delay}; animation-duration:${d.duration};"></div>`
+      ).join("")}</div>`;
+    }
+
+    /**
+     * Composes the drawn weather scene (the graphics behind the greeting)
+     * for one condition, given whether it's currently night. Each branch
+     * is its own little illustration — see the .wx-* CSS above.
+     */
+    function wxSceneGraphics(condition, isNight) {
+      const stars = isNight ? `<div class="welcome-card__stars"></div>` : "";
+      switch (condition) {
+        case "partly":
+          return `
+            ${stars}
+            ${wxSunOrMoon(isNight)}
+            ${wxCloud("", "right:26px; top:56px;")}
+          `;
+        case "cloudy":
+          return `
+            <div class="wx-cloudbank wx-cloudbank--gray"></div>
+            ${wxCloud("wx-cloud--gray", "right:104px; top:52px;")}
+            ${wxCloud("", "right:38px; top:30px;")}
+          `;
+        case "fog":
+          return `
+            <div class="wx-fog">
+              <div class="wx-fog__band" style="top:26%; animation-duration:9s;"></div>
+              <div class="wx-fog__band" style="top:45%; animation-duration:12s; animation-delay:-3s;"></div>
+              <div class="wx-fog__band" style="top:63%; animation-duration:10s; animation-delay:-6s;"></div>
+              <div class="wx-fog__band" style="top:80%; animation-duration:13s; animation-delay:-2s;"></div>
+            </div>
+          `;
+        case "rain":
+          return `
+            <div class="wx-cloudbank wx-cloudbank--rain"></div>
+            ${wxCloud("wx-cloud--gray", "right:116px; top:44px;")}
+            ${wxCloud("wx-cloud--rain", "right:44px; top:24px;")}
+            ${wxRain()}
+          `;
+        case "storm":
+          return `
+            <div class="wx-cloudbank wx-cloudbank--storm"></div>
+            ${wxCloud("wx-cloud--storm", "right:116px; top:42px;")}
+            ${wxCloud("wx-cloud--storm", "right:44px; top:22px;")}
+            ${wxRain()}
+            <div class="wx-bolt"></div>
+          `;
+        case "clear":
+        default:
+          return `${stars}${wxSunOrMoon(isNight)}`;
+      }
+    }
 
     /**
      * "Welcome, {Position}" — its own box at the top of the page, with a
-     * purely-CSS scene behind the text: a time-of-day gradient sky
-     * (sun/moon/stars/clouds, unchanged from before) layered with the
-     * CURRENT weather condition (extra cloud cover, fog haze, rain,
-     * snow, or storm flash — see the .welcome-card--wx-* rules above),
-     * so the card reflects both "when" and "what's it doing outside"
-     * instead of the clock alone. Recomputed on the same 60s interval
-     * as Now/Next AND whenever fresh weather data lands (see load()
-     * below), so it transitions on its own as real time/weather change
-     * while the tab stays open.
+     * purely-CSS scene behind the text: the time-of-day gradient sky
+     * (dawn/day/dusk/night) with a drawn illustration of the CURRENT
+     * weather on top (sun, crescent moon, clouds, rain, lightning, or
+     * fog — see wxSceneGraphics / the .wx-* CSS above), so the card
+     * reflects both "when" and "what's it doing outside." Recomputed on
+     * the same 60s interval as Now/Next AND whenever fresh weather data
+     * lands (see load() below), so it transitions on its own as real
+     * time/weather change while the tab stays open.
      */
     function renderWelcomeCard(weather) {
       const scene = timeOfDayScene();
       const condition = weatherConditionBucket(weather);
       const position = (session && (session.Position || session.position)) || "Staff";
-      const hasClouds = scene !== "night";
-      const denseClouds = condition === "clouds" || condition === "fog" || condition === "rain" || condition === "snow" || condition === "storm";
       return `
         <div class="card welcome-card welcome-card--${scene} welcome-card--wx-${condition}">
           <div class="welcome-card__scene">
-            ${scene === "night" && condition === "clear" ? `<div class="welcome-card__stars"></div>` : ""}
-            ${hasClouds ? `
-              <div class="welcome-card__cloud" style="width:70px; height:24px; left:12%; top:32%;"></div>
-              <div class="welcome-card__cloud" style="width:48px; height:18px; left:55%; top:58%;"></div>
-            ` : ""}
-            ${denseClouds ? `
-              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:-4%; top:10%;"></div>
-              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:38%; top:46%;"></div>
-              <div class="welcome-card__cloud welcome-card__cloud--dense" style="left:72%; top:12%;"></div>
-            ` : ""}
-            <div class="welcome-card__orb"></div>
-            <div class="welcome-card__overlay"></div>
-            ${condition === "rain" || condition === "storm" ? `
-              <div class="welcome-card__rain">
-                ${WELCOME_RAINDROPS.map(d => `<div class="welcome-card__raindrop" style="left:${d.left}; animation-delay:${d.delay}; animation-duration:${d.duration};"></div>`).join("")}
-              </div>
-            ` : ""}
-            ${condition === "snow" ? `
-              <div class="welcome-card__snow">
-                ${WELCOME_SNOWFLAKES.map(f => `<div class="welcome-card__snowflake" style="left:${f.left}; width:${f.size}; height:${f.size}; animation-delay:${f.delay}; animation-duration:${f.duration};"></div>`).join("")}
-              </div>
-            ` : ""}
+            ${wxSceneGraphics(condition, scene === "night")}
           </div>
           <div class="welcome-card__content">
             <div class="welcome-card__greeting">Welcome</div>
