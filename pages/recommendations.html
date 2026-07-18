@@ -146,13 +146,15 @@
     // for: Part I (Honor Cadet) is completed by Flight Commanders, Part II
     // (Honor Flight) by Squadron Commanders — so it's used here directly,
     // rather than inventing a separate "role" field this app has no other
-    // use for. Blank/"all" Flights (CCT/Administrator) sees both forms
-    // with a full picker, plus a review list of every submission.
+    // use for. A position with blank/"all" Flights (CCT/Administrator) is
+    // neither a flight nor a squadron, so neither submission form applies
+    // to it — it instead gets a read-only, day-sorted review of every
+    // Honor Cadet and Honor Flight submission (see renderSubmissionsReview).
     const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : [])
       .filter(f => f && String(f).toLowerCase() !== "all");
     const isUnscoped = sessionFlightList.length === 0;
-    const showHonorCadetForm = isUnscoped || sessionFlightList.length === 1;
-    const showHonorFlightForm = isUnscoped || sessionFlightList.length > 1;
+    const showHonorCadetForm = sessionFlightList.length === 1;
+    const showHonorFlightForm = sessionFlightList.length > 1;
 
     let rosterRows = [];
     let honorCadetRows = [];
@@ -168,10 +170,6 @@
           (groups[flight] = groups[flight] || []).push(row);
           return groups;
         }, {});
-    }
-
-    function allFlightNames() {
-      return Object.keys(groupByFlight(rosterRows)).sort();
     }
 
     /**
@@ -191,7 +189,7 @@
     // ---- Honor Cadet Recommendation (Part I — Flight Commanders) ----------
 
     function honorCadetFlightOptions() {
-      return isUnscoped ? allFlightNames() : canonicalFlightNames(sessionFlightList);
+      return canonicalFlightNames(sessionFlightList);
     }
 
     function studentsForFlight(flight) {
@@ -199,8 +197,7 @@
     }
 
     function renderHonorCadetSection() {
-      const flights = honorCadetFlightOptions();
-      const defaultFlight = flights[0] || "";
+      const defaultFlight = honorCadetFlightOptions()[0] || "";
 
       return `
         <div class="card" style="margin-bottom: var(--space-6);">
@@ -214,14 +211,7 @@
             <span>I affirm that I am the Flight Commander submitting this recommendation.</span>
           </label>
 
-          ${isUnscoped ? `
-            <div class="rec-form-field">
-              <label for="hc-flight-select">Flight</label>
-              <select id="hc-flight-select">
-                ${flights.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("")}
-              </select>
-            </div>
-          ` : `<input type="hidden" id="hc-flight-select" value="${esc(defaultFlight)}">`}
+          <input type="hidden" id="hc-flight-select" value="${esc(defaultFlight)}">
 
           <div class="rec-form-field">
             <label for="hc-student-select">Student</label>
@@ -332,7 +322,7 @@
     function renderHonorCadetHistory() {
       const listEl = document.getElementById("hc-history-list");
       if (!listEl) return;
-      const visible = isUnscoped ? honorCadetRows : honorCadetRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const visible = honorCadetRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
       const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       listEl.innerHTML = sorted.length
         ? sorted.map(honorCadetHistoryRowHtml).join("")
@@ -355,7 +345,7 @@
     // ---- Honor Flight Recommendation (Part II — Squadron Commanders) ------
 
     function honorFlightFlightOptions() {
-      return isUnscoped ? allFlightNames() : canonicalFlightNames(sessionFlightList);
+      return canonicalFlightNames(sessionFlightList);
     }
 
     function renderHonorFlightSection() {
@@ -467,7 +457,7 @@
     function renderHonorFlightHistory() {
       const listEl = document.getElementById("hf-history-list");
       if (!listEl) return;
-      const visible = isUnscoped ? honorFlightRows : honorFlightRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
+      const visible = honorFlightRows.filter(r => sessionFlightList.some(f => String(f).toLowerCase() === String(r.Flight).toLowerCase()));
       const sorted = visible.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       listEl.innerHTML = sorted.length
         ? sorted.map(honorFlightHistoryRowHtml).join("")
@@ -487,9 +477,71 @@
       });
     }
 
+    // ---- Submission review (positions that are neither a flight nor a
+    // squadron — CCT, Administrator) ----------------------------------------
+    //
+    // Neither BE Form 60-13 part applies to a position with no single
+    // flight/squadron of its own, so instead of the forms it gets a
+    // read-only, combined feed of every Honor Cadet + Honor Flight
+    // submission, most recent DAY first (ties broken by submission time).
+
+    function submissionReviewRowHtml(r, kind) {
+      const title = kind === "hc"
+        ? `${esc(r.StudentName) || "—"} · ${esc(r.Flight) || "—"}`
+        : `${esc(r.Flight) || "—"}`;
+      return `
+        <div class="rec-history-row">
+          <div class="rec-history-row__body">
+            <div class="rec-history-row__title">${kind === "hc" ? "Honor Cadet" : "Honor Flight"} — ${title}</div>
+            <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
+            ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
+            ${r.AcademicsKnowledge ? `<div class="rec-history-row__note"><strong>Academics:</strong> ${esc(r.AcademicsKnowledge)}</div>` : ""}
+            ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
+            ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
+          </div>
+        </div>`;
+    }
+
+    function renderSubmissionsReview() {
+      return `
+        <div class="card">
+          <h3 class="section-label">Award Recommendation Submissions</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+            Read-only review of every Honor Cadet and Honor Flight recommendation submitted, most recent day first.
+          </p>
+          <div class="rec-history-list" id="submissions-review-list"></div>
+        </div>
+      `;
+    }
+
+    function renderSubmissionsReviewList() {
+      const listEl = document.getElementById("submissions-review-list");
+      if (!listEl) return;
+
+      const combined = [
+        ...honorCadetRows.map(row => ({ row, kind: "hc" })),
+        ...honorFlightRows.map(row => ({ row, kind: "hf" }))
+      ].sort((a, b) => {
+        const dayDiff = String(b.row.Date || "").localeCompare(String(a.row.Date || ""));
+        if (dayDiff !== 0) return dayDiff;
+        return new Date(b.row.Timestamp) - new Date(a.row.Timestamp);
+      });
+
+      listEl.innerHTML = combined.length
+        ? combined.map(({ row, kind }) => submissionReviewRowHtml(row, kind)).join("")
+        : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No recommendations submitted yet.</p>`;
+    }
+
     // ---- Page assembly -----------------------------------------------------
 
     function render() {
+      if (isUnscoped) {
+        contentEl.innerHTML = renderSubmissionsReview();
+        renderSubmissionsReviewList();
+        Shell.animateIn(contentEl);
+        return;
+      }
+
       if (!showHonorCadetForm && !showHonorFlightForm) {
         contentEl.innerHTML = `
           <div class="state-message">
@@ -517,10 +569,12 @@
       const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
         honorCadetRows = fresh.rows || [];
         if (document.getElementById("hc-history-list")) renderHonorCadetHistory();
+        if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
       });
       const hfHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
         honorFlightRows = fresh.rows || [];
         if (document.getElementById("hf-history-list")) renderHonorFlightHistory();
+        if (document.getElementById("submissions-review-list")) renderSubmissionsReviewList();
       });
 
       const allCachedNow = !!(rosterHandle.data && hcHandle.data && hfHandle.data);
