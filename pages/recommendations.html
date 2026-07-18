@@ -723,8 +723,12 @@
       const subtitle = isUnscoped
         ? "Read-only review of every submission, most recent day first."
         : "Switch between days to review what's been submitted.";
+      // Only needs its own top margin when it's stacked below a form (the
+      // flight/squadron case) — as the sole card in #rec-content (isUnscoped),
+      // an extra margin here would double up with .rec-mode-tabs's own
+      // margin-bottom above it.
       return `
-        <div class="card" style="margin-top: var(--space-6);">
+        <div class="card"${isUnscoped ? "" : ` style="margin-top: var(--space-6);"`}>
           <h3 class="section-label">${title}</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
             ${subtitle}
