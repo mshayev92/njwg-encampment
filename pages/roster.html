@@ -655,14 +655,20 @@
 
       // Room assignment: unlike everything else on this table, ANY
       // signed-in position can edit it — no edit-roster, no flight
-      // scoping (see assertRosterWriteAccess's Room exception in
-      // worker/src/index.js). Saves on blur/Enter (the "change" event),
-      // not per keystroke, and deliberately does NOT re-render the view
-      // afterward — nothing else on screen depends on a cadet's Room, so
-      // a full re-render would only risk disrupting focus/typing in a
-      // neighboring row's input for zero visible benefit.
+      // scoping (see resolveRosterWrite's Room exception in
+      // worker/src/index.js). Saves on blur ("change"), and Enter is
+      // wired to blur() so it saves immediately too — without this, an
+      // Enter press neither blurs a plain <input> nor fires "change" by
+      // itself, so someone typing a number and hitting Enter (the
+      // instinctive "commit this" action, especially coming from a
+      // spreadsheet) would see nothing happen. Deliberately does NOT
+      // re-render the view afterward on success — nothing else on
+      // screen depends on a cadet's Room, so a full re-render would only
+      // risk disrupting focus/typing in a neighboring row's input for
+      // zero visible benefit.
       target.querySelectorAll(".room-input").forEach(input => {
-        input.addEventListener("change", () => saveRoomAssignment(input.dataset.capid, input.value.trim()));
+        input.addEventListener("keydown", (e) => { if (e.key === "Enter") input.blur(); });
+        input.addEventListener("change", () => saveRoomAssignment(input.dataset.capid, input.value.trim(), input));
       });
 
       target.querySelectorAll("[data-action='row-menu']").forEach(btn => {
@@ -824,19 +830,59 @@
     }
 
     /**
+     * Reconciles Api's SHARED cache (read by every other page, and by
+     * global search) with allRows after a local write — same purpose as
+     * every other page's own Api.setCachedRows call, EXCEPT this one
+     * strips the computed .Name field back off first (via toRosterRow)
+     * before caching. Api's cache is meant to be a faithful mirror of
+     * what the server actually has; caching allRows verbatim would leak
+     * .Name into it permanently, and every subsequent read of that
+     * cached copy would carry a "Name" field the server never sent and
+     * doesn't recognize as a real column.
+     */
+    function syncRosterCache() {
+      Api.setCachedRows("Roster", allRows.map(toRosterRow));
+    }
+
+    /**
      * Room assignment — open to ANY signed-in position (no edit-roster,
      * no flight scoping), unlike everything else Roster writes. Skips
      * the write entirely if the value didn't actually change (e.g. the
      * field was merely focused and blurred), same "don't write a no-op"
      * discipline as the rest of the app's optimistic writes.
+     *
+     * Unlike persistRosterRow (used for leadership/wingman), this AWAITS
+     * the real server round-trip ({ optimistic: false }) instead of
+     * firing-and-forgetting. Room is a plain text field someone might
+     * type into and never revisit, so a failed write needs to be
+     * impossible to miss — with the normal optimistic path, a rejected
+     * write only shows up as a quiet change to the header's sync
+     * indicator (see js/api.js), never a toast, so it would look saved
+     * (the input still shows what was typed) right up until a reload
+     * silently reverted it. Awaiting here means a failure surfaces
+     * immediately as an error toast AND visibly reverts the input back
+     * to the last known-saved value, instead of leaving a phantom value
+     * on screen that was never actually persisted.
      */
-    function saveRoomAssignment(capId, room) {
+    async function saveRoomAssignment(capId, room, inputEl) {
       const idx = allRows.findIndex(r => String(r.CapId) === String(capId));
       if (idx < 0) return;
       const current = allRows[idx];
-      if (String(current.Room || "") === String(room || "")) return;
-      persistRosterRow({ ...current, Room: room });
-      Api.setCachedRows("Roster", allRows);
+      const previousRoom = current.Room || "";
+      if (String(previousRoom) === String(room || "")) return;
+
+      const payload = toRosterRow({ ...current, Room: room });
+      try {
+        await Api.writeRow("Roster", payload, { matchColumn: "CapId", optimistic: false });
+      } catch (err) {
+        if (inputEl) inputEl.value = previousRoom;
+        Shell.showToast(err.message || "Couldn't save that room number.", { type: "error" });
+        return;
+      }
+
+      const withName = { ...payload, Name: Shell.cadetDisplayName(payload) };
+      allRows[idx] = withName;
+      syncRosterCache();
       Shell.showToast("Room updated.", { type: "success" });
     }
 
@@ -865,7 +911,7 @@
         }
       });
 
-      Api.setCachedRows("Roster", allRows);
+      syncRosterCache();
       wingmanPicker = null;
       wingmanSelection.clear();
       Shell.showToast(selectedCapIds.length ? "Wingman team saved." : "Wingman team disbanded.", { type: "success" });
@@ -965,7 +1011,7 @@
       // sees them differ from the stale pre-write cache, and re-fires
       // this page's onFresh subscriber — a second render()/animateIn()
       // replaying the entrance animation right after this save's own.
-      Api.setCachedRows("Roster", allRows);
+      syncRosterCache();
 
       closeForm();
       Shell.showToast(editingCapId ? "Cadet updated." : "Cadet added.", { type: "success" });
@@ -983,7 +1029,7 @@
 
       Api.deleteRow("Roster", student, { matchColumn: "CapId" });
       allRows = allRows.filter(r => r !== student);
-      Api.setCachedRows("Roster", allRows);
+      syncRosterCache();
       Shell.showToast("Cadet removed.", { type: "success" });
       render(allRows);
     }

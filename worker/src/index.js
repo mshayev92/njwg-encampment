@@ -709,14 +709,10 @@ async function handleBatchRead(env, params) {
  * Roster's write gate is narrower than assertPageWriteAccess's normal
  * all-or-nothing "page" rule (see PAGE_WRITE_GATES.Roster). A position
  * with "edit-roster" keeps full, unrestricted access (add/remove cadets,
- * edit rank/flight/age/sex/Role, anything) — same as before.
+ * edit rank/flight/age/sex/Role, anything) — same as before; this
+ * returns null for that case, telling handleWrite to use body.row as-is.
  *
- * A position WITHOUT edit-roster gets two narrower exceptions instead,
- * each confined to changing exactly ONE specific column and nothing
- * else on the row (see the diff loop below, which fetches the cadet's
- * CURRENTLY STORED row and requires every OTHER column to be byte-
- * identical to what's already there — this is what stops a request from
- * trusting whatever else the client claims):
+ * A position WITHOUT edit-roster gets two narrower exceptions instead:
  *
  *   - Room: ANY signed-in position may set a cadet's Room, for any
  *     cadet in any flight — see pages/roster.html's inline Room input.
@@ -731,16 +727,39 @@ async function handleBatchRead(env, params) {
  * Neither requires a separate Pages grant; both are inherent to being
  * signed in / being that flight's own position, mirroring the client-
  * side canEditWingman/Room-input checks — enforced here for real, since
- * the client-side gate is a convenience only. Everything else about
- * Roster (cadet CRUD, leadership, any other column, or changing more
- * than one column in the same request) stays edit-roster-only.
+ * the client-side gate is a convenience only.
+ *
+ * IMPORTANT: rather than "validate body.row, then let handleWrite write
+ * body.row verbatim," this returns a RECONSTRUCTED row — the cadet's
+ * CURRENTLY STORED values for every column, with ONLY the one permitted
+ * column (Room, or Wingman) taken from the request. Every other column
+ * the client sent is simply ignored, not compared-and-rejected. This
+ * matters: an earlier version instead rejected the whole write if any
+ * OTHER column in the client's payload didn't byte-match what was
+ * currently stored — which sounds equivalent, but isn't, because the
+ * client always sends a FULL row (see pages/roster.html's toRosterRow).
+ * If that client's own local copy of some unrelated column (say,
+ * Wingman) was even slightly stale relative to the server — a real
+ * possibility after other edits, other devices, or just being on the
+ * page a while — a plain Room edit would carry along a stale Wingman
+ * value that no longer matched what's stored, and the ENTIRE write got
+ * rejected for a column the person wasn't even trying to change. Never
+ * reading anything but the one permitted column out of the client's
+ * payload makes that failure mode structurally impossible, and is
+ * strictly safer too (a narrow-grant session now can't smuggle ANY
+ * other column change through even by accident).
+ *
+ * Returns:
+ *   - null if the session has full edit-roster access (write body.row as-is)
+ *   - { row, matchColumns: ["CapId"] } — the reconstructed row to write instead
+ *   - throws if nothing is permitted
  */
-async function assertRosterWriteAccess(env, body, session) {
+async function resolveRosterWrite(env, body, session) {
   const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
   if (!pages.includes("roster")) {
     throw new Error("You do not have permission to view Roster, so you can't edit it either.");
   }
-  if (pages.includes("edit-roster")) return;
+  if (pages.includes("edit-roster")) return null;
 
   const deniedMessage = `You do not have edit permission for Roster. Ask an Administrator to add "edit-roster" to your position's Pages.`;
 
@@ -757,30 +776,33 @@ async function assertRosterWriteAccess(env, body, session) {
   const existingArr = values.slice(1).find((r) => String(r[capCol] || "").trim().toLowerCase() === capId);
   if (!existingArr) throw new Error("Cadet not found.");
   const existing = {};
-  headers.forEach((h, i) => { existing[h] = existingArr[i]; });
+  headers.forEach((h, i) => { existing[h] = existingArr[i] ?? ""; });
 
-  // Which columns does this request actually change? No-op columns
-  // (client sent the same value already stored) never count against
-  // either exception below.
-  const keys = new Set([...headers, ...Object.keys(rowData)]);
-  const changedColumns = new Set();
-  for (const key of keys) {
-    const before = String(existing[key] ?? "").trim();
-    const after = String(rowData[key] ?? "").trim();
-    if (before !== after) changedColumns.add(key);
+  // Which single column, if any, does this request actually want to
+  // change? (A value equal to what's already stored isn't "wanting to
+  // change" it — lets a harmless resend of an unmodified field through
+  // without tripping the "only Room" / "only Wingman" checks below.)
+  const requestedChange = (column) => {
+    if (!(column in rowData)) return false;
+    return String(existing[column] ?? "").trim() !== String(rowData[column] ?? "").trim();
+  };
+
+  if (requestedChange("Room")) {
+    return { row: { ...existing, Room: rowData.Room }, matchColumns: ["CapId"] };
   }
-  if (changedColumns.size === 0) return; // nothing actually changes — harmless no-op write
 
-  if (changedColumns.size === 1 && changedColumns.has("Room")) return;
-
-  if (changedColumns.size === 1 && changedColumns.has("Wingman")) {
+  if (requestedChange("Wingman")) {
     const flights = (Array.isArray(session.flights) ? session.flights : []).map((f) => String(f).toLowerCase());
     if (flights.length !== 1) throw new Error(deniedMessage);
     const existingFlight = String(existing.Flight || "").trim().toLowerCase();
     if (existingFlight !== flights[0]) throw new Error(deniedMessage);
-    return;
+    return { row: { ...existing, Wingman: rowData.Wingman }, matchColumns: ["CapId"] };
   }
 
+  // Nothing this session is allowed to change is actually different —
+  // either a genuine no-op resend, or an attempt to change something
+  // outside the two narrow exceptions. Treat both as denied; a real
+  // no-op is harmless to reject since it changes nothing anyway.
   throw new Error(deniedMessage);
 }
 
@@ -788,15 +810,30 @@ async function handleWrite(env, body, session, ctx) {
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
+
+  // For Roster, a session without edit-roster gets back a RECONSTRUCTED
+  // row (see resolveRosterWrite) built from the cadet's actual stored
+  // data plus only the one column that session is allowed to touch —
+  // overriding rowData/matchColumns below so the rest of this function
+  // writes exactly that, never whatever else the client's payload
+  // happened to contain. null means unrestricted (edit-roster, or any
+  // other sheet) — proceed with body.row as normal.
+  let rowData = body.row || {};
+  let matchColumns = Array.isArray(body.matchColumns) && body.matchColumns.length
+    ? body.matchColumns
+    : (body.matchColumn ? [body.matchColumn] : []);
   if (sheetName === "Roster") {
-    await assertRosterWriteAccess(env, body, session);
+    const resolved = await resolveRosterWrite(env, body, session);
+    if (resolved) {
+      rowData = resolved.row;
+      matchColumns = resolved.matchColumns;
+    }
   } else {
     assertPageWriteAccess(sheetName, session);
   }
 
-  const rowData = body.row || {};
   assertReasonableRowPayload(rowData);
-  assertReasonableMatchColumns(body.matchColumns);
+  assertReasonableMatchColumns(matchColumns);
 
   await ensureAutoCreatedTab(env, sheetName);
 
@@ -810,10 +847,6 @@ async function handleWrite(env, body, session, ctx) {
   }
 
   const newRowArray = headers.map((h) => (h in rowData ? rowData[h] : ""));
-
-  const matchColumns = Array.isArray(body.matchColumns) && body.matchColumns.length
-    ? body.matchColumns
-    : (body.matchColumn ? [body.matchColumn] : []);
 
   let action = "appended";
   if (matchColumns.length && matchColumns.every((c) => headers.includes(c))) {
