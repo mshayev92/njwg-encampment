@@ -277,7 +277,7 @@
            interactive instantly while #roster-content was still spinning,
            instead of everything on the page appearing together. -->
       <div class="roster-toolbar" id="roster-toolbar" style="display:none;">
-        <input type="search" id="roster-search" aria-label="Search roster by name, CAP ID, or flight" placeholder="Search by name, CAP ID, or flight…">
+        <input type="search" id="roster-search" aria-label="Search roster by name, CAPID, or flight" placeholder="Search by name, CAPID, or flight…">
       </div>
 
       <div id="roster-form-container"></div>
@@ -611,12 +611,12 @@
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
-                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th><th>Room</th>${canEditRoster ? "<th></th>" : ""}</tr>
+                <tr><th>CAPID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th><th>Room</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
                 ${cadets.map(m => `
                   <tr>
-                    <td data-label="CAP ID" class="mono">${esc(m.CapId) || "—"}</td>
+                    <td data-label="CAPID" class="mono">${esc(m.CapId) || "—"}</td>
                     <td data-label="Name">${esc(m.Name) || "—"}</td>
                     <td data-label="Rank">${esc(m.Rank) || "—"}</td>
                     <td data-label="Age">${esc(m.Age) || "—"}</td>
@@ -929,7 +929,7 @@
             ${student ? "Edit Cadet" : "Add Cadet"}
           </h3>
           <div class="roster-form">
-            <div class="field"><label for="f-capid">CAP ID</label><input id="f-capid" value="${esc(student?.CapId || "")}" ${student ? "readonly" : ""}></div>
+            <div class="field"><label for="f-capid">CAPID</label><input id="f-capid" value="${esc(student?.CapId || "")}" ${student ? "readonly" : ""}></div>
             <div class="field"><label for="f-first">First Name</label><input id="f-first" value="${esc(student?.FirstName || "")}"></div>
             <div class="field"><label for="f-last">Last Name</label><input id="f-last" value="${esc(student?.LastName || "")}"></div>
             <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${esc(student?.Rank || "")}"></div>
@@ -991,7 +991,7 @@
       };
 
       if (!row.CapId || (!row.FirstName && !row.LastName)) {
-        Shell.showToast("CAP ID and at least a first or last name are required.", { type: "error" });
+        Shell.showToast("CAPID and at least a first or last name are required.", { type: "error" });
         return;
       }
 
@@ -999,7 +999,7 @@
       // would otherwise just append a second row with the same id,
       // since matchColumn only updates-in-place for an EXISTING match).
       if (!editingCapId && allRows.some(r => String(r.CapId).toLowerCase() === row.CapId.toLowerCase())) {
-        Shell.showToast("A cadet with that CAP ID already exists.", { type: "error" });
+        Shell.showToast("A cadet with that CAPID already exists.", { type: "error" });
         return;
       }
 

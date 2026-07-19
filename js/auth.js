@@ -17,7 +17,7 @@
       device that's already signed in can keep working — including
       fully offline — after being relaunched, instead of landing back on
       the login screen every time. This app has no per-person login:
-      instead of a CAP ID, the user picks a POSITION (a flight, a
+      instead of a CAPID, the user picks a POSITION (a flight, a
       squadron, "CCT", or "Administrator") from a dropdown populated
       from the StaffAccess sheet tab. CCT and Administrator each require
       their own separate password; ordinary flights/squadrons don't.

@@ -84,7 +84,7 @@ html, body {
   font-size: var(--fs-base);
   line-height: var(--lh-normal);
   -webkit-font-smoothing: antialiased;
-  /* Long unbroken strings (Cap IDs, emails, URLs) wrap instead of
+  /* Long unbroken strings (CAPIDs, emails, URLs) wrap instead of
      stretching the layout; a final guard against horizontal scroll. */
   overflow-wrap: break-word;
 }
@@ -606,7 +606,7 @@ html.nav-rail-collapsed .nav-rail__crest {
      width left a large unbalanced gap on the right only. */
   margin: 0 auto;
   /* Grid items default to min-width:auto, which lets wide content (long
-     names, tables, Cap IDs) push the column past the viewport. Pinning
+     names, tables, CAPIDs) push the column past the viewport. Pinning
      it to 0 lets the column shrink and keeps content within bounds. */
   min-width: 0;
 }
