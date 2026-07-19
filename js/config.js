@@ -165,21 +165,22 @@ window.APP_CONFIG = {
     // "squadron 4": ["Golf", "Hotel"],
   },
 
-  // A per-flight accent color, echoing the convention (already used in
-  // the Google Sheet itself — the Flight column's cells are colored per
-  // flight) in the app's own UI: Overview's Flight Standings bars and
-  // Today's Inspections breakdown, the flight tiles on Roster/
-  // Inspections/Observations, and Schedule's audience badge (see
-  // Shell.flightColor). The Sheets API this app uses (values.get/
-  // values:batchGet) only ever returns cell VALUES, never cell
-  // formatting — reading the sheet's actual background colors would need
-  // a completely different, heavier API call, so these are a plain,
-  // editable palette instead. EDIT THESE to match your actual sheet's
-  // colors exactly if you want them to line up. Keys are lowercased
-  // flight names; any flight name not listed here still gets a color —
-  // Shell.flightColor falls back to a deterministic (but not editable)
-  // hue derived from the name itself, so a squadron or a custom flight
-  // name is never left uncolored, just not exactly tunable.
+  // FALLBACK per-flight accent color — used in Overview's Flight
+  // Standings bars and Today's Inspections breakdown, the flight tiles
+  // on Roster/Inspections/Observations, and Schedule's audience badge
+  // (see Shell.flightColor). This is NOT the primary source anymore: an
+  // Administrator can sync the REAL colors straight from the Roster
+  // sheet's Flight column (Admin -> Worker Settings -> "Sync from
+  // Roster"), which reads the actual cell background color of each
+  // flight's rows — that's what actually shows up once it's been run at
+  // least once. This static palette only matters BEFORE that first sync
+  // (or if the synced-colors fetch fails on a given page load) — edit it
+  // if you want a specific look before ever running the sync, but don't
+  // expect editing it to override an already-synced color. Keys are
+  // lowercased flight names; any flight name not listed here still gets
+  // a color — Shell.flightColor falls back to a deterministic (but not
+  // editable) hue derived from the name itself, so a squadron or a
+  // custom flight name is never left uncolored, just not exactly tunable.
   FLIGHT_COLORS: {
     alpha:   "#2563eb",
     bravo:   "#dc2626",

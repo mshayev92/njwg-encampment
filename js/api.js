@@ -1012,6 +1012,27 @@ const Api = (() => {
         requireDevice: true,
         requireSession: true
       });
+    },
+
+    /**
+     * Returns { [lowercased flight name]: "#rrggbb" } — the shared,
+     * live per-flight color accent map (see Shell.flightColor), synced
+     * from the ACTUAL cell background colors on Roster's Flight column
+     * by an Administrator (see adminSyncFlightColors). Empty until that
+     * sync has run at least once. Any signed-in session can read this —
+     * flight-color accents render on ordinary staff pages, not just Admin.
+     */
+    getFlightColors() {
+      return request("getFlightColors", { requireDevice: true, requireSession: true });
+    },
+
+    /** Re-reads Roster's Flight column cell colors and saves them as the new shared flightColors map. Admin-only; the backend re-checks. */
+    adminSyncFlightColors() {
+      return request("adminSyncFlightColors", {
+        method: "POST",
+        requireDevice: true,
+        requireSession: true
+      });
     }
   };
 })();

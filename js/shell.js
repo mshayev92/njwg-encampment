@@ -1145,31 +1145,90 @@ const Shell = (() => {
     return flightMatchesAudience_(sessionFlights_(), flight);
   }
 
-  // ---- Flight color (see APP_CONFIG.FLIGHT_COLORS) -----------------------
+  // ---- Flight color (see Api.getFlightColors / APP_CONFIG.FLIGHT_COLORS) -
+  //
+  // Three layers, checked in order:
+  //   1. SYNCED colors — the ACTUAL cell background colors read off
+  //      Roster's Flight column in the Google Sheet (see
+  //      worker/src/sheets.js's getColumnBackgroundColorsByValue), synced
+  //      by an admin (Api.adminSyncFlightColors) and fetched once per
+  //      browser session by every signed-in device (see
+  //      initFlightColorSync_ below, wired into Shell.init). This is the
+  //      one that actually matches the Sheet.
+  //   2. APP_CONFIG.FLIGHT_COLORS (js/config.js) — a hand-typed fallback,
+  //      only relevant before any admin has ever run the sync (or if the
+  //      fetch fails/hasn't landed yet on this page load).
+  //   3. A deterministic (stable per name, not independently tunable) hue
+  //      hashed from the flight name itself, so an unrecognized name —
+  //      a squadron, or a flight neither layer above has heard of — still
+  //      gets SOME distinct color instead of looking identical to every
+  //      other unlisted one.
+  // Blank/missing flight names fall back to a neutral gray — "no flight"
+  // isn't an identity to color.
+
+  let syncedFlightColors_ = null; // null until the fetch below resolves (or fails)
 
   function hexToRgb_(hex) {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || ""));
     return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
   }
 
-  /**
-   * A per-flight accent color — a configured value from
-   * APP_CONFIG.FLIGHT_COLORS when the flight name is listed there, or a
-   * deterministic (same name always produces the same color, but not
-   * independently tunable) hue derived from the name itself otherwise,
-   * so a squadron or a custom flight name still gets SOME distinct
-   * color rather than every unlisted flight looking identical. Blank/
-   * missing flight names fall back to a neutral gray — "no flight" isn't
-   * an identity to color.
-   */
   function flightColor_(flight) {
     const key = String(flight || "").trim().toLowerCase();
     if (!key) return "#94a3b8";
+    if (syncedFlightColors_ && syncedFlightColors_[key]) return syncedFlightColors_[key];
     const configured = (window.APP_CONFIG && window.APP_CONFIG.FLIGHT_COLORS) || {};
     if (configured[key]) return configured[key];
     let hash = 0;
     for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
     return `hsl(${hash % 360}, 55%, 45%)`;
+  }
+
+  // Persisted so the NEXT page load has last-known synced colors
+  // available synchronously, before the network fetch below even
+  // resolves — same "instant render from a local snapshot, refresh in
+  // the background" pattern Api's own sheet cache already uses. Without
+  // this, every single page navigation would render its FIRST paint
+  // with the fallback (layer 2/3) colors and only pick up the real ones
+  // on some later re-render that may never actually happen, since flight
+  // color isn't wired into any page's own onFresh/re-render machinery.
+  const FLIGHT_COLORS_STORAGE_KEY = "njwg_flight_colors_v1";
+
+  /**
+   * Hydrates syncedFlightColors_ synchronously from the last page's
+   * snapshot, then fetches the current map in the background (via Api's
+   * own request path, so it's still subject to normal device/session
+   * token handling) and re-persists it for next time. Best-effort: a
+   * failure just leaves whatever's already in effect (the snapshot, or
+   * layer 2/3) alone.
+   */
+  function initFlightColorSync_() {
+    try {
+      const raw = localStorage.getItem(FLIGHT_COLORS_STORAGE_KEY);
+      if (raw) syncedFlightColors_ = JSON.parse(raw);
+    } catch (e) { /* corrupt/unavailable — falls through to the network fetch */ }
+
+    if (typeof Api === "undefined" || !Api.getFlightColors) return;
+    Api.getFlightColors().then((data) => {
+      syncedFlightColors_ = (data && data.colors) || {};
+      try { localStorage.setItem(FLIGHT_COLORS_STORAGE_KEY, JSON.stringify(syncedFlightColors_)); } catch (e) { /* ignore */ }
+    }).catch(() => { /* whatever was hydrated above (or layer 2/3) still applies */ });
+  }
+
+  /**
+   * Re-fetches the flight color map right now instead of waiting for the
+   * next page load — exposed as Shell.refreshFlightColors so the "Sync
+   * from Roster" button on Admin's Worker Settings tab can make its OWN
+   * device reflect the change it just made immediately, rather than the
+   * admin wondering why nothing looks different until they reload.
+   * Returns the promise so a caller can await it before re-rendering.
+   */
+  function refreshFlightColors_() {
+    if (typeof Api === "undefined" || !Api.getFlightColors) return Promise.resolve();
+    return Api.getFlightColors().then((data) => {
+      syncedFlightColors_ = (data && data.colors) || {};
+      try { localStorage.setItem(FLIGHT_COLORS_STORAGE_KEY, JSON.stringify(syncedFlightColors_)); } catch (e) { /* ignore */ }
+    });
   }
 
   /** The same flight color as flightColor_, at low opacity — for a tinted background behind that color's own text/border, matching the app's existing tint-pair convention (--gold-500/--gold-100, etc.). */
@@ -2926,6 +2985,7 @@ const Shell = (() => {
     if (requireAuth) {
       wireIdleTimeout();
       loadGlobalAlerts_();
+      initFlightColorSync_();
       // Replay any writes queued while offline — now (in case this page
       // loaded back online) and whenever the tab is refocused.
       if (Api.flushOutbox) {
@@ -3037,7 +3097,7 @@ const Shell = (() => {
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems, parseScheduleTime: parseScheduleTime_,
     flightMatchesAudience: flightMatchesAudience_,
-    flightColor: flightColor_, flightColorTint: flightColorTint_,
+    flightColor: flightColor_, flightColorTint: flightColorTint_, refreshFlightColors: refreshFlightColors_,
     cadetDisplayName: cadetDisplayName_, isStaffRosterRow: isStaffRosterRow_,
     rosterNameMatches: rosterNameMatches_, normalizeRosterRows: normalizeRosterRows_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,

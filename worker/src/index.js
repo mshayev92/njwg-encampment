@@ -22,7 +22,8 @@ import {
 } from "./auth.js";
 
 import {
-  ensureSheetExists, getHeaderRow, getColumnValues, setRow, setHeaderCell, appendRow, deleteRow, getAllValues
+  ensureSheetExists, getHeaderRow, getColumnValues, setRow, setHeaderCell, appendRow, deleteRow, getAllValues,
+  getColumnBackgroundColorsByValue
 } from "./sheets.js";
 
 import { getCachedSheetValues, getCachedSheetValuesBatch, invalidateSheetCache } from "./readCache.js";
@@ -141,6 +142,18 @@ async function handleGet(request, env) {
     return respond({ ok: true, config: await getRuntimeConfig(env) });
   }
 
+  if (action === "getFlightColors") {
+    // Not admin-gated — flight-color accents render on ordinary staff
+    // pages (Roster/Inspections/Observations/Schedule/Overview), not
+    // just Admin, so every signed-in session needs to be able to read
+    // this. Only an admin can CHANGE it (see adminSyncFlightColors).
+    await requireDeviceToken(env, params.deviceToken);
+    await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    const config = await getRuntimeConfig(env);
+    return respond({ ok: true, colors: config.flightColors || {} });
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
@@ -206,6 +219,14 @@ async function handlePost(request, env, ctx) {
     await checkRateLimit(env, body.token);
     assertAdmin(session);
     return respond({ ok: true, config: await saveRuntimeConfig(env, body.config || {}) });
+  }
+
+  if (body.action === "adminSyncFlightColors") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond(await handleAdminSyncFlightColors(env));
   }
 
   return respond({ ok: false, error: "Unknown or missing action for POST." });
@@ -534,6 +555,32 @@ async function handleAdminListLoginLog(env, params) {
 
   const limit = Math.min(Math.max(Number(params.limit) || 200, 1), 1000);
   return { ok: true, entries: rows.slice(0, limit), total: rows.length };
+}
+
+/**
+ * Reads the ACTUAL cell background colors off Roster's Flight column
+ * (see getColumnBackgroundColorsByValue in sheets.js) and stores the
+ * result as the shared, live flightColors config every signed-in
+ * session reads (see the getFlightColors action) — the durable fix for
+ * an admin's hand-typed FLIGHT_COLORS palette drifting out of sync with
+ * whatever's actually painted in the Sheet. Re-run this any time flights
+ * are recolored or added/removed in the Sheet; nothing re-syncs this
+ * automatically, since it's a formatting read (spreadsheet.get), a
+ * heavier and differently-shaped call than the plain value reads this
+ * app makes on every other request.
+ */
+async function handleAdminSyncFlightColors(env) {
+  const headers = await getHeaderRow(env, "Roster");
+  const flightCol = headers.indexOf("Flight");
+  if (flightCol === -1) throw new Error("Roster sheet is missing a Flight column.");
+
+  const colors = await getColumnBackgroundColorsByValue(env, "Roster", flightCol);
+  if (!Object.keys(colors).length) {
+    throw new Error("No colored Flight cells found in Roster — nothing to sync. Colors must be set as an actual cell background in the Sheet, not just text.");
+  }
+
+  const config = await saveRuntimeConfig(env, { flightColors: colors });
+  return { ok: true, colors: config.flightColors, flightsFound: Object.keys(colors).length };
 }
 
 // ---- WEB PUSH ------------------------------------------------------------
