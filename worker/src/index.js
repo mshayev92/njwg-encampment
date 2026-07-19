@@ -705,11 +705,79 @@ async function handleBatchRead(env, params) {
 
 // ---- WRITE ---------------------------------------------------------------
 
+/**
+ * Roster's write gate is narrower than assertPageWriteAccess's normal
+ * all-or-nothing "page" rule (see PAGE_WRITE_GATES.Roster). A position
+ * with "edit-roster" keeps full, unrestricted access (add/remove cadets,
+ * edit rank/flight/age/sex/Role, anything) — same as before.
+ *
+ * A position WITHOUT edit-roster but scoped to exactly one flight (a
+ * "flight profile" — e.g. a Flight Commander) still gets one narrower
+ * capability: reassigning that flight's OWN wingman teams (the Wingman
+ * column — see pages/roster.html's Wingman Teams card). This doesn't
+ * require a separate Pages grant; it's inherent to being that flight's
+ * own position, mirroring the client-side canEditWingman check — but
+ * enforced here for real, since the client-side gate is a convenience
+ * only. Everything else about Roster (cadet CRUD, leadership, any other
+ * column) stays edit-roster-only.
+ *
+ * Enforced by fetching the cadet's CURRENTLY STORED row and requiring
+ * every column except Wingman to be byte-identical to what's already
+ * there — this is what confines the write to "just the wingman
+ * reassignment" rather than trusting whatever the client claims. The
+ * stored Flight (not whatever Flight value the request happens to
+ * carry) is what's checked against the caller's own flight, so a forged
+ * Flight value in the payload can't be used to reach another flight's
+ * cadet.
+ */
+async function assertRosterWriteAccess(env, body, session) {
+  const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
+  if (!pages.includes("roster")) {
+    throw new Error("You do not have permission to view Roster, so you can't edit it either.");
+  }
+  if (pages.includes("edit-roster")) return;
+
+  const deniedMessage = `You do not have edit permission for Roster. Ask an Administrator to add "edit-roster" to your position's Pages.`;
+
+  const flights = (Array.isArray(session.flights) ? session.flights : []).map((f) => String(f).toLowerCase());
+  if (flights.length !== 1) throw new Error(deniedMessage);
+
+  const rowData = body.row || {};
+  const capId = String(rowData.CapId || "").trim().toLowerCase();
+  if (!capId) throw new Error(deniedMessage);
+
+  const values = await getCachedSheetValues(env, "Roster");
+  if (!values.length) throw new Error(deniedMessage);
+  const headers = values[0];
+  const capCol = headers.indexOf("CapId");
+  if (capCol === -1) throw new Error(deniedMessage);
+
+  const existingArr = values.slice(1).find((r) => String(r[capCol] || "").trim().toLowerCase() === capId);
+  if (!existingArr) throw new Error("Cadet not found.");
+  const existing = {};
+  headers.forEach((h, i) => { existing[h] = existingArr[i]; });
+
+  const existingFlight = String(existing.Flight || "").trim().toLowerCase();
+  if (existingFlight !== flights[0]) throw new Error(deniedMessage);
+
+  const keys = new Set([...headers, ...Object.keys(rowData)]);
+  for (const key of keys) {
+    if (key === "Wingman") continue;
+    const before = String(existing[key] ?? "").trim();
+    const after = String(rowData[key] ?? "").trim();
+    if (before !== after) throw new Error(deniedMessage);
+  }
+}
+
 async function handleWrite(env, body, session, ctx) {
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
-  assertPageWriteAccess(sheetName, session);
+  if (sheetName === "Roster") {
+    await assertRosterWriteAccess(env, body, session);
+  } else {
+    assertPageWriteAccess(sheetName, session);
+  }
 
   const rowData = body.row || {};
   assertReasonableRowPayload(rowData);
