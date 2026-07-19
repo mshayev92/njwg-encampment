@@ -427,6 +427,12 @@
     const session = Auth.getSession();
     const esc = Shell.escapeHtml;
     const allowedFlights = (session && Array.isArray(session.Flights)) ? session.Flights : [];
+    // Gates the "Edit weights" button on the Flight Standings card below —
+    // the backend re-checks this independently (assertAdmin in
+    // handleWrite's FlightStandingsWeights special case), this is purely
+    // the client-side convenience of not showing a control that would
+    // just be rejected.
+    const isAdmin = ((session && session.Pages) || []).map(p => String(p).toLowerCase()).includes("admin");
 
     function isFlightAllowed(flight) {
       return Shell.flightMatchesAudience(allowedFlights, flight);
@@ -741,22 +747,53 @@
       if (!cadets.length) return "";
 
       const rowsByCategory = { uniform: uniformRows, room: roomRows, pt: ptRows };
+      // Whoever's viewing this — CCT/Administrator/Squadron Commander —
+      // sees more than one flight in scope; a Flight Commander sees
+      // exactly one. Broken into one colored sub-bar PER FLIGHT once
+      // there's more than one to actually tell apart (matching Flight
+      // Standings below); a single-flight scope keeps ONE combined bar,
+      // just now tinted with that flight's own color too.
+      const flights = Array.from(new Set(cadets.map(c => c.Flight || "Unassigned"))).sort();
 
       const sections = todaysPeriods.map(period => {
         const rows = rowsByCategory[period.Category] || [];
         const inspectedCapIds = new Set(rows.filter(r => r.Date === todayStr).map(r => String(r.StudentCapId)));
-        const inspectedCount = cadets.filter(c => inspectedCapIds.has(String(c.CapId))).length;
-        const pct = Math.round((inspectedCount / cadets.length) * 100);
         const label = period.Category === "room" ? "Room Inspection"
           : period.Category === "pt" ? "Physical Training"
           : `Uniform — ${period.UniformType || "—"}`;
+
+        if (flights.length <= 1) {
+          const inspectedCount = cadets.filter(c => inspectedCapIds.has(String(c.CapId))).length;
+          const pct = Math.round((inspectedCount / cadets.length) * 100);
+          const color = flights.length === 1 ? Shell.flightColor(flights[0]) : "var(--green-600)";
+          return `
+            <div style="margin-bottom: var(--space-3);">
+              <div class="progress__label-row">
+                <span>${esc(label)}</span>
+                <span>${inspectedCount}/${cadets.length}</span>
+              </div>
+              <div class="progress"><div class="progress__fill" style="width:${pct}%; background:${color};"></div></div>
+            </div>`;
+        }
+
+        const perFlight = flights.map(flight => {
+          const flightCadets = cadets.filter(c => (c.Flight || "Unassigned") === flight);
+          const inspectedCount = flightCadets.filter(c => inspectedCapIds.has(String(c.CapId))).length;
+          const pct = Math.round((inspectedCount / flightCadets.length) * 100);
+          return `
+            <div style="margin-bottom: var(--space-2);">
+              <div class="progress__label-row" style="font-size: var(--fs-2xs); color: var(--ink-600);">
+                <span>${esc(flight)}</span>
+                <span>${inspectedCount}/${flightCadets.length}</span>
+              </div>
+              <div class="progress" style="height:6px;"><div class="progress__fill" style="width:${pct}%; background:${Shell.flightColor(flight)};"></div></div>
+            </div>`;
+        }).join("");
+
         return `
-          <div style="margin-bottom: var(--space-3);">
-            <div class="progress__label-row">
-              <span>${esc(label)}</span>
-              <span>${inspectedCount}/${cadets.length}</span>
-            </div>
-            <div class="progress"><div class="progress__fill" style="width:${pct}%;"></div></div>
+          <div style="margin-bottom: var(--space-4);">
+            <div class="progress__label-row" style="margin-bottom: var(--space-2);"><span>${esc(label)}</span></div>
+            ${perFlight}
           </div>`;
       }).join("");
 
@@ -794,12 +831,43 @@
     // the highest per-cadet rate among the flights actually being compared
     // — the same normalize-against-cohort-max approach Recommendations
     // uses for its own unbounded metrics.
-    const STANDINGS_WEIGHTS = { uniform: 30, room: 20, pt: 20, posObs: 30, concernObs: 20 };
+    //
+    // The actual numbers are admin-adjustable (see the "Edit weights"
+    // button on the card below), stored in the FlightStandingsWeights
+    // sheet — DELIBERATELY SEPARATE from Recommendations' own per-device
+    // localStorage award-ranking weights (njwg_award_weights_v2), which
+    // are a personal judgment call for picking an Honor Cadet/Flight, not
+    // a shared setting. These defaults are only what's shown before the
+    // sheet has loaded (or if it comes back empty).
+    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 30, room: 20, pt: 20, posObs: 30, concernObs: 20 };
+
+    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, pt, posObs, concernObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
+    function weightsFromRow(row) {
+      if (!row) return { ...DEFAULT_STANDINGS_WEIGHTS };
+      const pick = (col, fallback) => {
+        // A blank cell — never configured, or an admin cleared it — means
+        // "use the default," NOT a literal zero. Number("") is 0 (and
+        // finite!), so an empty string has to be caught explicitly here
+        // or a blank Room cell would silently zero out that weight
+        // instead of falling back the way an admin would expect.
+        const raw = row[col];
+        if (raw === undefined || raw === null || String(raw).trim() === "") return fallback;
+        const n = Number(raw);
+        return Number.isFinite(n) ? n : fallback;
+      };
+      return {
+        uniform: pick("Uniform", DEFAULT_STANDINGS_WEIGHTS.uniform),
+        room: pick("Room", DEFAULT_STANDINGS_WEIGHTS.room),
+        pt: pick("PT", DEFAULT_STANDINGS_WEIGHTS.pt),
+        posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs),
+        concernObs: pick("ConcernObservations", DEFAULT_STANDINGS_WEIGHTS.concernObs)
+      };
+    }
 
     function num_(v) { return Number(v) || 0; }
     function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
 
-    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows) {
+    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights) {
       // Flight Commander/Sergeant roster rows (Role populated) are flight
       // staff, not cadets — excluded, same as every other per-cadet
       // computation on this page.
@@ -850,34 +918,65 @@
         const posNorm = maxPos > 0 ? f.posPerCadet / maxPos : 0;
         const concernNorm = maxConcern > 0 ? f.concernPerCadet / maxConcern : 0;
         const score = Math.max(0, Math.round(
-          STANDINGS_WEIGHTS.uniform * (f.uniformAvg || 0) +
-          STANDINGS_WEIGHTS.room * (f.roomAvg || 0) +
-          STANDINGS_WEIGHTS.pt * (f.ptRate || 0) +
-          STANDINGS_WEIGHTS.posObs * posNorm -
-          STANDINGS_WEIGHTS.concernObs * concernNorm
+          weights.uniform * (f.uniformAvg || 0) +
+          weights.room * (f.roomAvg || 0) +
+          weights.pt * (f.ptRate || 0) +
+          weights.posObs * posNorm -
+          weights.concernObs * concernNorm
         ));
         return { ...f, score };
       }).sort((a, b) => b.score - a.score);
     }
 
-    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, observationRows) {
-      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows);
-      if (!standings.length) return "";
+    // Toggled by the "Edit weights" button — a client-only UI state, not
+    // persisted; reopens closed on the next page load same as every other
+    // page's inline edit forms.
+    let editingStandingsWeights = false;
+
+    function renderWeightsForm(weights) {
+      return `
+        <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
+          <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
+            How much each factor counts toward a flight's score. Uniform/Room/PT are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
+          </p>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-3);">
+            <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-pt">Physical Training</label><input type="number" id="w-pt" min="0" max="100" value="${esc(weights.pt)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-concern">Concern Observations (penalty)</label><input type="number" id="w-concern" min="0" max="100" value="${esc(weights.concernObs)}"></div>
+          </div>
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-4);">
+            <button class="btn btn--primary" id="save-standings-weights-btn">Save</button>
+            <button class="btn btn--ghost" id="cancel-standings-weights-btn">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights) {
+      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights);
+      if (!standings.length && !editingStandingsWeights) return "";
 
       return `
         <div class="card">
-          <h2 class="card-title">Flight Standings</h2>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap: var(--space-3);">
+            <h2 class="card-title">Flight Standings</h2>
+            ${isAdmin ? `<button class="btn btn--ghost" id="edit-standings-weights-btn" style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); flex-shrink:0;">${editingStandingsWeights ? "Close" : "Edit weights"}</button>` : ""}
+          </div>
           <p style="font-size: var(--fs-2xs); color: var(--ink-600); margin: calc(-1 * var(--space-2)) 0 var(--space-3);">Blended from Uniform/Room/PT inspection results and Observations logged so far.</p>
-          ${standings.map((f, i) => `
+          ${isAdmin && editingStandingsWeights ? renderWeightsForm(weights) : ""}
+          ${standings.map((f, i) => {
+            const color = Shell.flightColor(f.flight);
+            return `
             <div class="standings-row${i === 0 && f.score > 0 ? " standings-row--top" : ""}">
               <div class="standings-row__rank">${i + 1}</div>
               <div class="standings-row__body">
                 <div class="standings-row__name">${esc(f.flight)} <span class="standings-row__count">${f.cadetCount} cadet${f.cadetCount === 1 ? "" : "s"}</span></div>
-                <div class="progress"><div class="progress__fill" style="width:${f.score}%;"></div></div>
+                <div class="progress"><div class="progress__fill" style="width:${f.score}%; background:${color};"></div></div>
               </div>
               <div class="standings-row__score">${f.score}</div>
-            </div>
-          `).join("")}
+            </div>`;
+          }).join("")}
         </div>`;
     }
 
@@ -939,7 +1038,8 @@
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
     let lastBlackFlagStatus = null;
-    // These come from independent sources (Api's sheet cache x7, a
+    let lastStandingsWeights = { ...DEFAULT_STANDINGS_WEIGHTS };
+    // These come from independent sources (Api's sheet cache x8, a
     // direct National Weather Service API fetch) that used to each trigger their OWN
     // renderAll() the moment they landed — so a cold load visibly built
     // itself piece by piece (weather popping in after the rest, in
@@ -956,9 +1056,10 @@
     let periodsLoaded = false;
     let observationsLoaded = false;
     let blackFlagLoaded = false;
+    let standingsWeightsLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded || !standingsWeightsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -970,11 +1071,54 @@
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
-          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastObservationRows || [])}
+          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastObservationRows || [], lastStandingsWeights)}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
+      wireStandingsWeightsForm();
       Shell.animateIn(contentEl);
+    }
+
+    /** Wires the "Edit weights"/Save/Cancel buttons — a no-op if they're not currently in the DOM (not an admin, or the form is closed). */
+    function wireStandingsWeightsForm() {
+      const editBtn = document.getElementById("edit-standings-weights-btn");
+      if (editBtn) editBtn.addEventListener("click", () => { editingStandingsWeights = !editingStandingsWeights; renderAll(); });
+
+      const saveBtn = document.getElementById("save-standings-weights-btn");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          const patch = {
+            RecordKey: "singleton",
+            Uniform: Number(document.getElementById("w-uniform").value) || 0,
+            Room: Number(document.getElementById("w-room").value) || 0,
+            PT: Number(document.getElementById("w-pt").value) || 0,
+            PositiveObservations: Number(document.getElementById("w-pos").value) || 0,
+            ConcernObservations: Number(document.getElementById("w-concern").value) || 0
+          };
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Saving…";
+          try {
+            // Not optimistic — the whole point of "for every position,
+            // immediately" is knowing the save actually landed before
+            // trusting the score everyone now sees; a permission error
+            // (session lost admin between page load and click) should
+            // surface here, not silently as a background sync failure.
+            await Api.writeRow("FlightStandingsWeights", patch, { matchColumn: "RecordKey", optimistic: false });
+            lastStandingsWeights = weightsFromRow(patch);
+            Api.setCachedRows("FlightStandingsWeights", [patch]);
+            editingStandingsWeights = false;
+            Shell.showToast("Standings weights saved.", { type: "success" });
+            renderAll();
+          } catch (err) {
+            Shell.showToast(err.message, { type: "error" });
+            saveBtn.disabled = false;
+            saveBtn.textContent = "Save";
+          }
+        });
+      }
+
+      const cancelBtn = document.getElementById("cancel-standings-weights-btn");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => { editingStandingsWeights = false; renderAll(); });
     }
 
     function load() {
@@ -1112,6 +1256,22 @@
         blackFlagLoaded = true;
         // See the matching comment on Roster's ready.finally() above.
         if (!blackFlagHadCache) renderAll();
+      });
+
+      // Flight Standings weights — a singleton row, same shape/pattern as
+      // BlackFlagStatus above. Missing/blank cells (a brand-new tab, or
+      // one an admin hasn't ever saved to) fall back to
+      // DEFAULT_STANDINGS_WEIGHTS via weightsFromRow.
+      const weightsHandle = Api.getSheetCached("FlightStandingsWeights", (fresh) => {
+        lastStandingsWeights = weightsFromRow((fresh.rows || [])[0]);
+        renderAll();
+      });
+      const weightsHadCache = !!weightsHandle.data;
+      if (weightsHandle.data) { lastStandingsWeights = weightsFromRow((weightsHandle.data.rows || [])[0]); standingsWeightsLoaded = true; }
+      weightsHandle.ready.catch(() => { /* falls back to DEFAULT_STANDINGS_WEIGHTS if this never lands */ }).finally(() => {
+        standingsWeightsLoaded = true;
+        // See the matching comment on Roster's ready.finally() above.
+        if (!weightsHadCache) renderAll();
       });
 
       // One synchronous call for whatever's ALREADY warm in cache right
