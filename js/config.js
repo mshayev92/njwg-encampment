@@ -136,11 +136,13 @@ window.APP_CONFIG = {
     admin:           ["Roster"]
   },
 
-  // Sheets the header's notification bell reads on EVERY page regardless of
-  // which pages a position is granted (Announcements + Black Flag + Notes
-  // addressed to me — see loadGlobalAlerts_ in js/shell.js), so they are
-  // always warmed even for a position whose Pages don't include them.
-  GLOBAL_SHEETS: ["Announcements", "BlackFlagStatus", "Notes"],
+  // NOTE: Announcements / BlackFlagStatus / Notes — the header's
+  // notification bell feed, shown on EVERY page regardless of which
+  // pages a position is granted — are kept warm by loadGlobalAlerts_ in
+  // js/shell.js on its own independent poll, not by PAGE_SHEETS/warmCache
+  // below. There's deliberately no GLOBAL_SHEETS entry here for
+  // Shell.accessiblePrefetchSheets_ to also warm them through warmCache;
+  // doing both used to fetch the same three sheets twice.
 
   // Squadrons have no cadets of their own — they're a grouping of
   // flights. There's no sheet/column anywhere that records this

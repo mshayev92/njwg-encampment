@@ -156,13 +156,21 @@ const Shell = (() => {
   }
 
   /**
-   * The set of sheets worth warming for THIS position: every sheet read by
-   * a page it's actually allowed to see (APP_CONFIG.PAGE_SHEETS), plus the
-   * always-on global sheets the header bell reads on every page
-   * (GLOBAL_SHEETS). This is what's handed to Api.warmCache instead of the
-   * full PREFETCH_SHEETS, so a position never spends background reads
-   * warming sheets behind pages it can't open. Falls back to the full
-   * PREFETCH_SHEETS if PAGE_SHEETS isn't configured, so nothing regresses.
+   * The set of sheets worth warming for THIS position via Api.warmCache:
+   * every sheet read by a page it's actually allowed to see
+   * (APP_CONFIG.PAGE_SHEETS). This is what's handed to Api.warmCache
+   * instead of the full PREFETCH_SHEETS, so a position never spends
+   * background reads warming sheets behind pages it can't open. Falls
+   * back to the full PREFETCH_SHEETS if PAGE_SHEETS isn't configured, so
+   * nothing regresses.
+   *
+   * Deliberately does NOT seed GLOBAL_SHEETS (Announcements/
+   * BlackFlagStatus/Notes) — those are already kept warm independently by
+   * loadGlobalAlerts_'s own poll (see Shell.init), on every page
+   * regardless of access. Seeding them here too used to mean the same
+   * three sheets were fetched twice on overlapping schedules: once via
+   * this function's batchRead warm, once via loadGlobalAlerts_'s
+   * individual reads.
    */
   function accessiblePrefetchSheets_() {
     const cfg = window.APP_CONFIG || {};
@@ -170,7 +178,7 @@ const Shell = (() => {
     if (!Object.keys(pageSheets).length) return cfg.PREFETCH_SHEETS || [];
 
     const allowed = getAllowedPageIds();
-    const set = new Set(cfg.GLOBAL_SHEETS || []);
+    const set = new Set();
     Object.keys(pageSheets).forEach((pageId) => {
       if (allowed.has(pageId.toLowerCase())) {
         (pageSheets[pageId] || []).forEach((sheet) => set.add(sheet));
