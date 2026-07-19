@@ -22,23 +22,46 @@ function readCacheTtl() {
   return Math.max(60, READ_CACHE_TTL_SECONDS);
 }
 
+// sheetName -> in-flight Promise<values[][]>, isolate-local. Two requests
+// landing on the SAME isolate with a cold (expired/never-populated) cache
+// entry for the same sheet would otherwise both call getAllValues and both
+// `put` into KV — a small cache stampede. Coordinating through this map
+// means the second caller just awaits the first's in-flight fetch instead
+// of firing a duplicate Sheets API call. This is per-isolate only (like
+// the rate limiter's isolate-local counters in auth.js) — it can't
+// coordinate across isolates, but the common case it targets (a burst of
+// near-simultaneous reads for the same sheet, e.g. several sheets warming
+// on one device's page load hitting the same isolate) is exactly the case
+// a single isolate sees.
+const inFlightFetches = new Map();
+
 export async function getCachedSheetValues(env, sheetName) {
   const cached = await env.NJWG_KV.get(cacheKeyFor(sheetName), "json");
   if (cached) return cached;
 
-  const values = await getAllValues(env, sheetName);
-  // KV values are capped at 25MB, comfortably larger than any sheet this
-  // app deals with, so unlike the old 100KB CacheService limit this
-  // essentially never needs a fallback path.
-  //
-  // TTL comes from READ_CACHE_TTL_SECONDS (see the long note on it in
-  // auth.js for why it's deliberately minutes, not seconds — writes
-  // invalidate immediately, so this only bounds direct-sheet-edit
-  // visibility, and its length is the main lever on KV write volume).
-  // readCacheTtl() still floors it at KV's 60s minimum as a safety net.
-  await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: readCacheTtl() });
+  if (inFlightFetches.has(sheetName)) return inFlightFetches.get(sheetName);
 
-  return values;
+  const promise = (async () => {
+    const values = await getAllValues(env, sheetName);
+    // KV values are capped at 25MB, comfortably larger than any sheet this
+    // app deals with, so unlike the old 100KB CacheService limit this
+    // essentially never needs a fallback path.
+    //
+    // TTL comes from READ_CACHE_TTL_SECONDS (see the long note on it in
+    // auth.js for why it's deliberately minutes, not seconds — writes
+    // invalidate immediately, so this only bounds direct-sheet-edit
+    // visibility, and its length is the main lever on KV write volume).
+    // readCacheTtl() still floors it at KV's 60s minimum as a safety net.
+    await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: readCacheTtl() });
+    return values;
+  })();
+  inFlightFetches.set(sheetName, promise);
+
+  try {
+    return await promise;
+  } finally {
+    inFlightFetches.delete(sheetName);
+  }
 }
 
 /**

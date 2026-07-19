@@ -387,25 +387,64 @@ const Api = (() => {
    * so the header bell / any open page picks up fresher data from the warm
    * too. Best-effort: a failure just leaves the cache as-is, and the page
    * that actually needs a sheet still issues its own read.
+   *
+   * Registers each requested name into the SAME `inFlight` map fetchSheet_
+   * checks, so a page's own action=read for one of these sheets — fired
+   * concurrently with this batch, e.g. right as a page loads while
+   * warmCache is also warming it — shares this one in-flight batchRead
+   * instead of firing a duplicate request. Without this, warmCache's own
+   * inFlight check (see Api.warmCache) only ever caught the reverse case
+   * (skip a sheet a page is already fetching); a page's read starting
+   * AFTER this batch was already in flight had no way to know and would
+   * fire its own redundant action=read for the same sheet.
    */
-  async function batchFetchSheets_(sheetNames) {
-    if (!sheetNames.length) return;
-    const data = await request("batchRead", { params: { sheets: sheetNames.join(",") } });
-    const sheets = (data && data.sheets) || {};
-    Object.keys(sheets).forEach((name) => {
-      const key = cacheKey(name, {});
-      // Store the SAME shape a read caches ({ ok, rows }) so the change
-      // detection here — and every caller reading .rows — treats a warmed
-      // sheet identically to an individually-read one (a shape mismatch
-      // would make every warm look "changed" and re-fire subscribers).
-      const rowsData = { ok: true, rows: (sheets[name] && sheets[name].rows) || [] };
-      const previous = cache.get(key);
-      const changed = !previous || JSON.stringify(previous.data) !== JSON.stringify(rowsData);
-      const entry = { data: rowsData, fetchedAt: Date.now() };
-      cache.set(key, entry);
-      persistToStorage_(key, entry);
-      if (changed) notifySubscribers_(key, rowsData);
+  function batchFetchSheets_(sheetNames) {
+    if (!sheetNames.length) return Promise.resolve();
+
+    // Defensive de-dupe against whatever's already in flight (normally
+    // empty here — callers like Api.warmCache already filter these out —
+    // but keeps this function correct if ever called with an overlapping
+    // set directly).
+    const names = sheetNames.filter((name) => !inFlight.has(cacheKey(name, {})));
+    if (!names.length) return Promise.resolve();
+
+    const promise = request("batchRead", { params: { sheets: names.join(",") } })
+      .then((data) => {
+        const sheets = (data && data.sheets) || {};
+        const result = {};
+        names.forEach((name) => {
+          const key = cacheKey(name, {});
+          // Store the SAME shape a read caches ({ ok, rows }) so the change
+          // detection here — and every caller reading .rows — treats a
+          // warmed sheet identically to an individually-read one (a shape
+          // mismatch would make every warm look "changed" and re-fire
+          // subscribers).
+          const rowsData = { ok: true, rows: (sheets[name] && sheets[name].rows) || [] };
+          const previous = cache.get(key);
+          const changed = !previous || JSON.stringify(previous.data) !== JSON.stringify(rowsData);
+          const entry = { data: rowsData, fetchedAt: Date.now() };
+          cache.set(key, entry);
+          persistToStorage_(key, entry);
+          inFlight.delete(key);
+          if (changed) notifySubscribers_(key, rowsData);
+          result[name] = rowsData;
+        });
+        return result;
+      })
+      .catch((err) => {
+        names.forEach((name) => inFlight.delete(cacheKey(name, {})));
+        throw err;
+      });
+
+    // Each sheet's inFlight entry resolves to THAT sheet's own data (the
+    // same shape fetchSheet_'s inFlight promise resolves to), so a
+    // concurrent fetchSheet_ call returning this promise behaves exactly
+    // like an ordinary individual read to its caller.
+    names.forEach((name) => {
+      inFlight.set(cacheKey(name, {}), promise.then((result) => result[name]));
     });
+
+    return promise;
   }
 
   // ---- Sync status (for the header's sync indicator) -------------------
@@ -677,12 +716,27 @@ const Api = (() => {
      * around quickly doesn't re-hit the backend on every single load) or
      * if a page is already fetching it on its own (inFlight).
      *
+     * maxAgeMs defaults to the Worker's own KV read-cache lifetime
+     * (READ_CACHE_TTL_SECONDS in worker/src/auth.js, 5 minutes) rather
+     * than something shorter — re-warming more often than that can never
+     * see fresher data anyway, since the Worker itself won't re-hit the
+     * Sheets API until its cache entry expires. It's also deliberately
+     * LONGER than Shell's warmCache poll interval (currently 3 minutes):
+     * if it were shorter than (or equal to) the poll interval, every
+     * single tick would find every sheet already older than maxAgeMs and
+     * re-fetch the whole set unconditionally, making this filter a
+     * structural no-op. A write still gets picked up immediately
+     * regardless of this window — writeRow/deleteRow call
+     * markSheetStale_, which resets fetchedAt to 0, so the very next
+     * warm (or read) treats that sheet as maximally stale no matter what
+     * maxAgeMs is set to.
+     *
      * Everything still stale after that filtering is warmed in a SINGLE
      * batchRead request rather than one read per sheet — so warming a
      * dozen sheets costs one Worker invocation, not a dozen, which is the
      * dominant steady-state backend cost for a device left open all day.
      */
-    warmCache(sheetNames, { maxAgeMs = 120000 } = {}) {
+    warmCache(sheetNames, { maxAgeMs = 300000 } = {}) {
       const stale = (sheetNames || []).filter((name) => {
         const key = cacheKey(name, {});
         // A page is already fetching this on its own — its read will fill
