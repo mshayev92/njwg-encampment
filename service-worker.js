@@ -25,12 +25,15 @@
    navigation strategy).
    ============================================================ */
 
-// Bumped to v14: added offline.html (the fallback shown for a navigation
-// that isn't in the cache while offline — see the fetch handler below) to
-// the precached shell. Changing this name forces every device to drop its
-// old cached shell on activate and re-fetch the new list, so the fallback
-// page is actually available offline from the very next successful visit.
-const CACHE_NAME = "njwg-encampment-v14";
+// Bumped to v15: added js/richtext.js (the rich-text editor Notes and
+// Announcements depend on) to the precached shell — it was previously
+// only cached opportunistically the first time one of those two pages was
+// visited online, so a device whose cache was seeded before that could
+// lose that editor entirely once offline. Changing this name forces every
+// device to drop its old cached shell on activate and re-fetch the new
+// list, so the fix actually takes effect from the very next successful
+// visit rather than only for a cache populated from scratch.
+const CACHE_NAME = "njwg-encampment-v15";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -50,6 +53,7 @@ const APP_SHELL = [
   "./js/api.js",
   "./js/auth.js",
   "./js/shell.js",
+  "./js/richtext.js",
   "./pages/schedule.html",
   "./pages/roster.html",
   "./pages/inspections.html",

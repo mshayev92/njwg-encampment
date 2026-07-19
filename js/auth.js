@@ -12,18 +12,33 @@
       (see js/config.js DEVICE_GATE settings) — enforced server-side,
       not just here.
 
-   2. PER-POSITION SESSION — stored in sessionStorage, so it does NOT
-      persist across a full browser close, and additionally auto-clears
-      after a period of inactivity (see idle timer below). This app has
-      no per-person login: instead of a CAP ID, the user picks a
-      POSITION (a flight, a squadron, "CCT", or "Administrator") from a
-      dropdown populated from the StaffAccess sheet tab. CCT and
-      Administrator each require their own separate password; ordinary
-      flights/squadrons don't. This is the layer that identifies which
-      position is using the device right now and what pages/role it
-      has, so it intentionally does not linger the way the device gate
-      does — that keeps a shared device from staying "signed in as"
-      whatever position was last picked, indefinitely.
+   2. PER-POSITION SESSION — stored in localStorage (same durability as
+      the device gate), so it survives a full browser/PWA close and a
+      device that's already signed in can keep working — including
+      fully offline — after being relaunched, instead of landing back on
+      the login screen every time. This app has no per-person login:
+      instead of a CAP ID, the user picks a POSITION (a flight, a
+      squadron, "CCT", or "Administrator") from a dropdown populated
+      from the StaffAccess sheet tab. CCT and Administrator each require
+      their own separate password; ordinary flights/squadrons don't.
+      "Signed in as that position indefinitely on a shared device" is
+      bounded by the SAME idle timer this module already ran against
+      sessionStorage (see enforceIdleTimeout below, backed by
+      IDLE_LAST_ACTIVE_KEY in localStorage) — that timer is what
+      actually enforces the "don't stay signed in forever" property, so
+      moving the session itself to localStorage doesn't weaken it, it
+      just stops closing the app from ALSO acting as a second, more
+      aggressive logout on top of the idle timer.
+      PREVIOUSLY this lived in sessionStorage, which cleared on every
+      browser/tab close — that meant a device that was already signed
+      in still couldn't resume its session (or reach any of the
+      service-worker's precached pages) after being closed and reopened
+      offline, since re-establishing a session always requires a live
+      network round trip to the Worker (both to list positions and to
+      issue a new session token). See offline.html / service-worker.js
+      for the rest of the offline story; this is the piece that made a
+      cold, offline relaunch dead-end at the login screen even on a
+      device that had already signed in while online.
 
    SECURITY NOTE: this module manages the CLIENT side of both layers
    only (storing/reading tokens). The actual authentication check
@@ -31,7 +46,7 @@
    which verifies every token's signature and expiry on every single
    call. Nothing here is
    the security boundary — a user with dev tools open can always see
-   or edit local/sessionStorage. That's expected and fine, because the
+   or edit localStorage. That's expected and fine, because the
    backend never trusts the client, only the signed token it verifies
    itself.
    ============================================================ */
@@ -103,7 +118,7 @@ const Auth = (() => {
 
   function getSession() {
     try {
-      const raw = sessionStorage.getItem(SESSION_KEY);
+      const raw = localStorage.getItem(SESSION_KEY);
       return raw ? JSON.parse(raw) : null;
     } catch {
       return null;
@@ -116,12 +131,17 @@ const Auth = (() => {
   }
 
   function setSession({ token, member }) {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, ...member }));
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ token, ...member }));
     touchActivity();
   }
 
   function clearSession() {
-    sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
+    // A leftover sessionStorage entry from before the session moved to
+    // localStorage would otherwise sit there harmlessly until the tab
+    // closes — removed here too so a stale one from an old page version
+    // can never be read by mistake.
+    try { sessionStorage.removeItem(SESSION_KEY); } catch { /* ignore */ }
   }
 
   /**

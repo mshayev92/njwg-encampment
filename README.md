@@ -23,7 +23,7 @@ Because of that, **no page in this app is the security boundary** — pages are 
 - **Ordinary flights/squadrons** — no password needed. Picking the position from the dropdown is enough, since the device gate is already the outer barrier.
 - **`CCT` and `Administrator`** — each requires its own password, checked against that row's `Password` cell in `StaffAccess` (see **important tradeoff** below).
 
-On success, the backend issues a signed **session token** carrying the position and its allowed `Pages`. Stored in `sessionStorage` (cleared on tab close), with an idle timeout (default 2 hours of inactivity) and a hard expiry at the next local midnight regardless of login time.
+On success, the backend issues a signed **session token** carrying the position and its allowed `Pages`. Stored in `localStorage` (survives a tab/app close, so an already-signed-in device — including a PWA relaunched fully offline — doesn't get bounced back to the login screen), with an idle timeout (default 2 hours of inactivity, the mechanism that actually bounds how long a shared device stays "signed in as" a position) and a hard expiry at the next local midnight regardless of login time.
 
 Every read/write requires **both** tokens, and the backend verifies both tokens' signatures and expiry, server-side, on every single call.
 
@@ -193,7 +193,7 @@ await Api.writeRow("CheckIns", {
 
 **Layer 1 — `gate.html`.** Passphrase + device type → signed **device token** in `localStorage`.
 
-**Layer 2 — `index.html`.** Calls `listPositions` (device token only) to populate the dropdown from `StaffAccess`. User picks a position; `CCT`/`Administrator` additionally require the matching `Password` cell's value. On success, a signed **session token** (position + pages) is stored in `sessionStorage`, with the usual idle timeout and midnight expiry.
+**Layer 2 — `index.html`.** Calls `listPositions` (device token only) to populate the dropdown from `StaffAccess`. User picks a position; `CCT`/`Administrator` additionally require the matching `Password` cell's value. On success, a signed **session token** (position + pages) is stored in `localStorage`, with the usual idle timeout and midnight expiry.
 
 Every `Api.getSheet(...)` / `Api.writeRow(...)` call attaches both tokens automatically. Rejected tokens redirect to the right gate via `js/api.js`.
 

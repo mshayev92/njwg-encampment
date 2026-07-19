@@ -70,9 +70,12 @@ window.APP_CONFIG = {
   UNIT_NAME: "NJWG Encampment",
   UNIT_SHORT: "NJWG",
 
-  // sessionStorage key for the per-person session (CAP ID + token).
-  // Cleared when the browser tab closes, or after IDLE_TIMEOUT_MINUTES
-  // of inactivity — see js/auth.js.
+  // localStorage key for the per-position session (position + token).
+  // Persists across browser/PWA restarts, same as DEVICE_KEY below, so a
+  // device that's already signed in can keep working (including fully
+  // offline) after being relaunched — cleared only by explicit logout or
+  // after IDLE_TIMEOUT_MINUTES of inactivity, not by closing the app —
+  // see js/auth.js.
   SESSION_KEY: "njwg_encampment_session",
 
   // localStorage key for the device gate (passphrase-unlocked device
@@ -81,9 +84,11 @@ window.APP_CONFIG = {
   DEVICE_KEY: "njwg_encampment_device",
 
   // Minutes of inactivity before the PER-PERSON session (not the device
-  // gate) auto-clears, requiring CAP ID re-entry. Keeps a device that's
-  // left logged in and unattended from staying "signed in as that
-  // person" indefinitely. Does not affect the device gate itself.
+  // gate) auto-clears, requiring a position to be re-selected. This is
+  // what keeps a device left logged in and unattended from staying
+  // "signed in as that position" indefinitely — now the ONLY thing that
+  // does, since the session itself persists across an app close/relaunch
+  // (see SESSION_KEY above). Does not affect the device gate itself.
   IDLE_TIMEOUT_MINUTES: 120,
 
   // Fixed encampment location for the Overview page's weather widget
