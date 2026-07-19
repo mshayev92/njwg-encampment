@@ -140,6 +140,19 @@
       justify-content: flex-end;
     }
 
+    .room-input {
+      width: 72px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      padding: var(--space-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-sunken);
+      color: var(--ink-900);
+      text-align: center;
+    }
+    .room-input:focus { border-color: var(--gold-500); outline: none; }
+
     /* ---- Flight leadership card ---- */
     .leadership-card {
       margin-bottom: var(--space-4);
@@ -598,7 +611,7 @@
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
-                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th>${canEditRoster ? "<th></th>" : ""}</tr>
+                <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th><th>Room</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
                 ${cadets.map(m => `
@@ -608,6 +621,9 @@
                     <td data-label="Rank">${esc(m.Rank) || "—"}</td>
                     <td data-label="Age">${esc(m.Age) || "—"}</td>
                     <td data-label="Sex">${esc(m.Sex) || "—"}</td>
+                    <td data-label="Room">
+                      <input type="text" class="room-input" inputmode="numeric" placeholder="—" aria-label="Room number for ${esc(m.Name)}" data-capid="${esc(m.CapId)}" value="${esc(m.Room || "")}">
+                    </td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
                         <button class="btn btn--ghost" data-action="row-menu" data-capid="${esc(m.CapId)}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
@@ -636,6 +652,18 @@
       if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
 
       if (members.length) wireWingmanCard(target, flight, members);
+
+      // Room assignment: unlike everything else on this table, ANY
+      // signed-in position can edit it — no edit-roster, no flight
+      // scoping (see assertRosterWriteAccess's Room exception in
+      // worker/src/index.js). Saves on blur/Enter (the "change" event),
+      // not per keystroke, and deliberately does NOT re-render the view
+      // afterward — nothing else on screen depends on a cadet's Room, so
+      // a full re-render would only risk disrupting focus/typing in a
+      // neighboring row's input for zero visible benefit.
+      target.querySelectorAll(".room-input").forEach(input => {
+        input.addEventListener("change", () => saveRoomAssignment(input.dataset.capid, input.value.trim()));
+      });
 
       target.querySelectorAll("[data-action='row-menu']").forEach(btn => {
         btn.addEventListener("click", (e) => {
@@ -778,7 +806,7 @@
     // sees in a write payload, so writing an object that still has .Name
     // on it would silently add a spurious "Name" column to the sheet. ----
 
-    const ROSTER_FIELDS = ["CapId", "FirstName", "LastName", "Rank", "Flight", "Age", "Sex", "Role", "Wingman"];
+    const ROSTER_FIELDS = ["CapId", "FirstName", "LastName", "Rank", "Flight", "Age", "Sex", "Role", "Wingman", "Room"];
 
     function toRosterRow(row) {
       const out = {};
@@ -786,7 +814,7 @@
       return out;
     }
 
-    /** Writes one roster row (stripped to real columns) and reconciles allRows/Api's cache with the optimistic result — the shared save path for leadership/wingman changes below. Does NOT re-render; call render(allRows) after the caller's own batch of changes settles. */
+    /** Writes one roster row (stripped to real columns) and reconciles allRows/Api's cache with the optimistic result — the shared save path for leadership/wingman/room changes below. Does NOT re-render; call render(allRows) after the caller's own batch of changes settles. */
     function persistRosterRow(row) {
       const payload = toRosterRow(row);
       Api.writeRow("Roster", payload, { matchColumn: "CapId" });
@@ -795,6 +823,22 @@
       if (idx >= 0) allRows[idx] = withName; else allRows.push(withName);
     }
 
+    /**
+     * Room assignment — open to ANY signed-in position (no edit-roster,
+     * no flight scoping), unlike everything else Roster writes. Skips
+     * the write entirely if the value didn't actually change (e.g. the
+     * field was merely focused and blurred), same "don't write a no-op"
+     * discipline as the rest of the app's optimistic writes.
+     */
+    function saveRoomAssignment(capId, room) {
+      const idx = allRows.findIndex(r => String(r.CapId) === String(capId));
+      if (idx < 0) return;
+      const current = allRows[idx];
+      if (String(current.Room || "") === String(room || "")) return;
+      persistRosterRow({ ...current, Room: room });
+      Api.setCachedRows("Roster", allRows);
+      Shell.showToast("Room updated.", { type: "success" });
+    }
 
     /**
      * Creates/edits (existingGroupId set) or disbands (selectedCapIds
@@ -989,7 +1033,7 @@
     // from, then any additional columns present in the data (Role,
     // Wingman among them).
     Shell.registerExport(() => {
-      const lead = ["Name", "FirstName", "LastName", "CapId", "Rank", "Flight", "Age", "Sex"];
+      const lead = ["Name", "FirstName", "LastName", "CapId", "Rank", "Flight", "Age", "Sex", "Room"];
       const extra = Array.from(allRows.reduce((set, r) => {
         Object.keys(r || {}).forEach(k => { if (!lead.includes(k)) set.add(k); });
         return set;
