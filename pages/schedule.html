@@ -288,7 +288,7 @@
                   <td data-label="Time" class="mono">${esc(item.Time) || "—"}${item === currentItem ? ` <span class="badge badge--gold" data-tooltip="Your current activity">Now</span>` : ""}</td>
                   <td data-label="Activity">${esc(item.Activity) || "—"}</td>
                   <td data-label="Location">${esc(item.Location) || "—"}</td>
-                  <td data-label="Flight">${item.Flight ? `<span class="badge badge--gold">${esc(item.Flight)}</span>` : "—"}</td>
+                  <td data-label="Flight">${item.Flight ? `<span class="badge" style="background:${Shell.flightColorTint(item.Flight)}; color:${Shell.flightColor(item.Flight)};">${esc(item.Flight)}</span>` : "—"}</td>
                   ${canEditSchedule ? `
                     <td data-label="" class="schedule-item-row">
                       <button class="btn btn--ghost" data-index="${scheduleRows.indexOf(item)}" data-action="row-menu" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>

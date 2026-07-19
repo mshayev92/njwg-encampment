@@ -13,7 +13,7 @@
 
 import {
   UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
-  HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS,
+  HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS, FLIGHT_STANDINGS_WEIGHTS_COLUMNS,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
   assertPageWriteAccess, ALLOWED_SHEETS,
@@ -865,6 +865,13 @@ async function handleWrite(env, body, session, ctx) {
       rowData = resolved.row;
       matchColumns = resolved.matchColumns;
     }
+  } else if (sheetName === "FlightStandingsWeights") {
+    // No nav page owns this sheet (it's not tied to a "page" the way
+    // assertPageWriteAccess's PAGE_WRITE_GATES model expects — everyone
+    // with the "overview" page can READ it, but only an Administrator
+    // can change it), so it gets the same kind of special case Roster
+    // does above instead of the generic page-gate check.
+    assertAdmin(session);
   } else {
     assertPageWriteAccess(sheetName, session);
   }
@@ -982,6 +989,13 @@ async function ensureAutoCreatedTab(env, sheetName) {
   }
   if (sheetName === "BlackFlagStatus") {
     await ensureSheetExists(env, "BlackFlagStatus", BLACK_FLAG_COLUMNS, [["singleton", false, "", ""]]);
+  }
+  if (sheetName === "FlightStandingsWeights") {
+    // Defaults match computeFlightStandings()'s own hardcoded fallback in
+    // pages/overview.html, so a device that reads this before anyone has
+    // ever saved custom weights (or before this tab even exists) sees the
+    // exact same scores either way.
+    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 30, 20, 20, 30, 20, "", ""]]);
   }
   if (sheetName === "Observations") {
     await ensureSheetExists(env, "Observations", OBSERVATION_COLUMNS);

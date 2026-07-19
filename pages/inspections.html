@@ -1178,7 +1178,7 @@
       return s.label ? `
         <div class="flight-avg-card__value">${esc(s.label)}</div>
         <div class="flight-avg-card__bar-track">
-          <div class="flight-avg-card__bar-fill" style="width:${s.pct ?? 0}%;"></div>
+          <div class="flight-avg-card__bar-fill" style="width:${s.pct ?? 0}%; background:${Shell.flightColor(s.flight)};"></div>
         </div>
         <div class="flight-avg-card__count">${s.count} cadet${s.count === 1 ? "" : "s"} scored</div>
       ` : `
@@ -1320,7 +1320,7 @@
         ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
         <div class="flight-grid">
           ${flightNames.map(flight => `
-            <button class="flight-tile" data-flight="${esc(flight)}">
+            <button class="flight-tile" data-flight="${esc(flight)}" style="box-shadow: inset 4px 0 0 0 ${Shell.flightColor(flight)};">
               <span class="flight-tile__name">${esc(flight)}</span>
               <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
             </button>
@@ -2185,7 +2185,7 @@
                 ${d.totalAvg !== null ? `
                   <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${items.length}</span></div>
                   <div class="flight-avg-card__bar-track">
-                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / items.length) * 100)}%;"></div>
+                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / items.length) * 100)}%; background:${Shell.flightColor(d.flight)};"></div>
                   </div>
                   <div class="flight-avg-card__count">${d.studentsInspected} cadet${d.studentsInspected === 1 ? "" : "s"} · ${d.count} scorecard${d.count === 1 ? "" : "s"}</div>
                 ` : `

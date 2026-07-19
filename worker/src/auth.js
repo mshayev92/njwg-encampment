@@ -16,7 +16,7 @@ import { getRuntimeConfig } from "./runtimeConfig.js";
 
 export const ALLOWED_SHEETS = [
   "Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations",
-  "HonorCadetRecommendations", "HonorFlightRecommendations"
+  "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"
 ];
 
 // Device token lifetimes, the KV read-cache TTL, and the per-token rate
@@ -53,7 +53,15 @@ export const SHEET_PERMISSIONS = {
   // see submitterPosition/Flight in the row shape. Page-level visibility
   // (whether "recommendations" is in a position's Pages) is the only gate.
   HonorCadetRecommendations:  { read: "any", write: "any" },
-  HonorFlightRecommendations: { read: "any", write: "any" }
+  HonorFlightRecommendations: { read: "any", write: "any" },
+  // Readable by any signed-in position (Overview needs it to compute
+  // Flight Standings for everyone), but writing is NOT gated by a page
+  // token at all — there's no "Overview" edit permission — it's gated by
+  // assertAdmin directly in handleWrite's FlightStandingsWeights special
+  // case below, the same way Roster gets a special case for its own
+  // narrower write rules. "any" here just means "not blocked by
+  // assertPermission before that admin check ever runs."
+  FlightStandingsWeights: { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
@@ -139,6 +147,18 @@ export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // directed note has actually been opened, not just delivered.
 export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition", "SeenAt"];
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
+// Singleton row (RecordKey "singleton", same convention as
+// BlackFlagStatus above) holding the weights pages/overview.html's
+// Flight Standings card blends into each flight's score. Deliberately a
+// SEPARATE sheet/mechanism from Recommendations' own per-device,
+// localStorage-only award-ranking weights (njwg_award_weights_v2) — that
+// one is a personal judgment call for picking an Honor Cadet/Flight;
+// this one is shared across every device so Standings reads the same
+// way for everyone, and is only editable by an Administrator (see
+// handleWrite's FlightStandingsWeights special case in index.js).
+// Values are the same 0-100-ish shares computeFlightStandings() in
+// overview.html already used as hardcoded defaults.
+export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "PT", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the
 // same tag on the same student twice in a week records two separate

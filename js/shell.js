@@ -1145,6 +1145,42 @@ const Shell = (() => {
     return flightMatchesAudience_(sessionFlights_(), flight);
   }
 
+  // ---- Flight color (see APP_CONFIG.FLIGHT_COLORS) -----------------------
+
+  function hexToRgb_(hex) {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(String(hex || ""));
+    return m ? { r: parseInt(m[1], 16), g: parseInt(m[2], 16), b: parseInt(m[3], 16) } : null;
+  }
+
+  /**
+   * A per-flight accent color — a configured value from
+   * APP_CONFIG.FLIGHT_COLORS when the flight name is listed there, or a
+   * deterministic (same name always produces the same color, but not
+   * independently tunable) hue derived from the name itself otherwise,
+   * so a squadron or a custom flight name still gets SOME distinct
+   * color rather than every unlisted flight looking identical. Blank/
+   * missing flight names fall back to a neutral gray — "no flight" isn't
+   * an identity to color.
+   */
+  function flightColor_(flight) {
+    const key = String(flight || "").trim().toLowerCase();
+    if (!key) return "#94a3b8";
+    const configured = (window.APP_CONFIG && window.APP_CONFIG.FLIGHT_COLORS) || {};
+    if (configured[key]) return configured[key];
+    let hash = 0;
+    for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+    return `hsl(${hash % 360}, 55%, 45%)`;
+  }
+
+  /** The same flight color as flightColor_, at low opacity — for a tinted background behind that color's own text/border, matching the app's existing tint-pair convention (--gold-500/--gold-100, etc.). */
+  function flightColorTint_(flight) {
+    const color = flightColor_(flight);
+    const rgb = hexToRgb_(color);
+    if (rgb) return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`;
+    // hsl(...) fallback from the hash-derived case above.
+    return color.replace("hsl(", "hsla(").replace(/\)$/, ", 0.15)");
+  }
+
   /** Flattens a rich-text/HTML value to plain searchable text. */
   function htmlToText_(html) {
     if (!html) return "";
@@ -3001,6 +3037,7 @@ const Shell = (() => {
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems, parseScheduleTime: parseScheduleTime_,
     flightMatchesAudience: flightMatchesAudience_,
+    flightColor: flightColor_, flightColorTint: flightColorTint_,
     cadetDisplayName: cadetDisplayName_, isStaffRosterRow: isStaffRosterRow_,
     rosterNameMatches: rosterNameMatches_, normalizeRosterRows: normalizeRosterRows_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,

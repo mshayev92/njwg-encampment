@@ -120,7 +120,7 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations"],
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"],
 
   // Which sheets each page actually reads. Used to warm ONLY the sheets a
   // signed-in position could actually reach (see accessiblePrefetchSheets_
@@ -130,7 +130,7 @@ window.APP_CONFIG = {
   // Keys are NAV_ITEMS ids; a page absent here contributes no sheets.
   // When a new page starts reading a sheet, add it here too.
   PAGE_SHEETS: {
-    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Observations", "BlackFlagStatus"],
+    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Observations", "BlackFlagStatus", "FlightStandingsWeights"],
     schedule:        ["Schedule"],
     roster:          ["Roster"],
     inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods"],
@@ -163,5 +163,31 @@ window.APP_CONFIG = {
     // "squadron 2": ["Charlie", "Delta"],
     // "squadron 3": ["Echo", "Foxtrot"],
     // "squadron 4": ["Golf", "Hotel"],
+  },
+
+  // A per-flight accent color, echoing the convention (already used in
+  // the Google Sheet itself — the Flight column's cells are colored per
+  // flight) in the app's own UI: Overview's Flight Standings bars and
+  // Today's Inspections breakdown, the flight tiles on Roster/
+  // Inspections/Observations, and Schedule's audience badge (see
+  // Shell.flightColor). The Sheets API this app uses (values.get/
+  // values:batchGet) only ever returns cell VALUES, never cell
+  // formatting — reading the sheet's actual background colors would need
+  // a completely different, heavier API call, so these are a plain,
+  // editable palette instead. EDIT THESE to match your actual sheet's
+  // colors exactly if you want them to line up. Keys are lowercased
+  // flight names; any flight name not listed here still gets a color —
+  // Shell.flightColor falls back to a deterministic (but not editable)
+  // hue derived from the name itself, so a squadron or a custom flight
+  // name is never left uncolored, just not exactly tunable.
+  FLIGHT_COLORS: {
+    alpha:   "#2563eb",
+    bravo:   "#dc2626",
+    charlie: "#16a34a",
+    delta:   "#d97706",
+    echo:    "#7c3aed",
+    foxtrot: "#0891b2",
+    golf:    "#db2777",
+    hotel:   "#65a30d"
   }
 };
