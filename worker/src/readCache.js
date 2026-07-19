@@ -2,24 +2,27 @@
  * KV-backed cache of a sheet's full getAllValues() result — the same
  * purpose as getCachedSheetValues_ in the old Code.gs, just backed by
  * Workers KV instead of Apps Script's CacheService. Reads are the hot
- * path (every page load warms several sheets), so within
- * READ_CACHE_TTL_SECONDS a repeat read is served from KV instead of
- * re-hitting the Sheets API. Writes invalidate the affected sheet's
- * entry immediately (see invalidateSheetCache), so nobody reads stale
- * data past their own write.
+ * path (every page load warms several sheets), so within the current
+ * readCacheTtlSeconds setting (admin-adjustable — see runtimeConfig.js)
+ * a repeat read is served from KV instead of re-hitting the Sheets API.
+ * Writes invalidate the affected sheet's entry immediately (see
+ * invalidateSheetCache), so nobody reads stale data past their own write.
  */
 
 import { getAllValues, batchGetValues, getSpreadsheetMeta } from "./sheets.js";
-import { READ_CACHE_TTL_SECONDS } from "./auth.js";
+import { getRuntimeConfig } from "./runtimeConfig.js";
 
 function cacheKeyFor(sheetName) {
   return "sheetvals:" + sheetName;
 }
 
-function readCacheTtl() {
+async function readCacheTtl(env) {
+  const { readCacheTtlSeconds } = await getRuntimeConfig(env);
   // Workers KV rejects any expirationTtl under 60s — floor it there (see
-  // the note in getCachedSheetValues below).
-  return Math.max(60, READ_CACHE_TTL_SECONDS);
+  // the note in getCachedSheetValues below). getRuntimeConfig is itself
+  // isolate-cached (runtimeConfig.js), so this doesn't add a KV read on
+  // every call.
+  return Math.max(60, readCacheTtlSeconds);
 }
 
 // sheetName -> in-flight Promise<values[][]>, isolate-local. Two requests
@@ -47,12 +50,13 @@ export async function getCachedSheetValues(env, sheetName) {
     // app deals with, so unlike the old 100KB CacheService limit this
     // essentially never needs a fallback path.
     //
-    // TTL comes from READ_CACHE_TTL_SECONDS (see the long note on it in
-    // auth.js for why it's deliberately minutes, not seconds — writes
-    // invalidate immediately, so this only bounds direct-sheet-edit
-    // visibility, and its length is the main lever on KV write volume).
-    // readCacheTtl() still floors it at KV's 60s minimum as a safety net.
-    await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: readCacheTtl() });
+    // TTL comes from the admin-adjustable readCacheTtlSeconds (see the
+    // long note on it in auth.js for why it's deliberately minutes, not
+    // seconds — writes invalidate immediately, so this only bounds
+    // direct-sheet-edit visibility, and its length is the main lever on
+    // KV write volume). readCacheTtl() still floors it at KV's 60s
+    // minimum as a safety net.
+    await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: await readCacheTtl(env) });
     return values;
   })();
   inFlightFetches.set(sheetName, promise);
@@ -103,7 +107,7 @@ export async function getCachedSheetValuesBatch(env, sheetNames) {
     if (existing.length) {
       // 3. ONE Sheets API call for every cache-missed sheet.
       const fetched = await batchGetValues(env, existing);
-      const ttl = readCacheTtl();
+      const ttl = await readCacheTtl(env);
       await Promise.all(existing.map(async (name) => {
         const values = fetched[name] || [];
         result[name] = values;

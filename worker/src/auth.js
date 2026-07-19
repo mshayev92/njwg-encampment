@@ -10,6 +10,8 @@
  * needs to be internally consistent with itself.
  */
 
+import { getRuntimeConfig } from "./runtimeConfig.js";
+
 // ---- CONFIG (mirrors Code.gs) ---------------------------------------------
 
 export const ALLOWED_SHEETS = [
@@ -17,8 +19,11 @@ export const ALLOWED_SHEETS = [
   "HonorCadetRecommendations", "HonorFlightRecommendations"
 ];
 
-export const DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL = 24 * 14;
-export const DEVICE_TOKEN_LIFETIME_HOURS_SHARED = 8;
+// Device token lifetimes, the KV read-cache TTL, and the per-token rate
+// limit all used to be plain constants here. They're now admin-adjustable
+// at runtime — see runtimeConfig.js (getRuntimeConfig/DEFAULT_RUNTIME_CONFIG)
+// and pages/admin.html's "Worker Settings" tab — with the exact same
+// default values these constants used to hold.
 
 export const SHEET_PERMISSIONS = {
   Roster:             { read: "any", write: "page" },
@@ -57,14 +62,12 @@ export const PAGE_WRITE_GATES = {
   InspectionPeriods: { viewPage: "inspections",    editPage: "edit-inspections" }
 };
 
-export const RATE_LIMIT_PER_MINUTE = 60;
-
-// Backend (KV) read-cache lifetime. This is the single biggest driver of
-// KV WRITE volume: every time a sheet's cache entry expires and is then
-// read, the Worker re-fetches it from Sheets and re-`put`s it into KV, so
-// under continuous polling from open devices the write rate is ~ (number
-// of sheets) / TTL. It used to be 20s (floored to KV's 60s minimum), i.e.
-// each warm sheet repopulated ~every 60s.
+// Backend (KV) read-cache lifetime (admin-adjustable default: 5 minutes;
+// see runtimeConfig.js). This is the single biggest driver of KV WRITE
+// volume: every time a sheet's cache entry expires and is then read, the
+// Worker re-fetches it from Sheets and re-`put`s it into KV, so under
+// continuous polling from open devices the write rate is ~ (number of
+// sheets) / TTL.
 //
 // Raising it does NOT make app-driven changes stale: EVERY write/delete
 // calls invalidateSheetCache (readCache.js), deleting the affected sheet's
@@ -74,10 +77,7 @@ export const RATE_LIMIT_PER_MINUTE = 60;
 // ONLY thing this TTL bounds is how long an edit made DIRECTLY in the
 // Google Sheet (bypassing the app entirely, e.g. an admin hand-editing a
 // tab) can take to appear — a rare escape hatch, since Roster/Schedule/
-// StaffAccess all have in-app editors that invalidate on save. Five
-// minutes trades a ~5x reduction in repopulation writes for that rare
-// case; raise it further if direct-sheet edits are never used.
-export const READ_CACHE_TTL_SECONDS = 300;
+// StaffAccess all have in-app editors that invalidate on save.
 
 // InspectionPeriodId ties a scored entry back to the InspectionPeriods row
 // it was filed under (blank for an ad-hoc entry logged with nothing
@@ -291,13 +291,18 @@ export function nextMidnight() {
 // counter per rate-limit key and enforces the cap against that exact
 // count — the accept/reject decision never depends on KV. KV is used
 // only to *persist* a key's count, and only once that count is heavy
-// enough (>= RATE_LIMIT_COORD_THRESHOLD, half the cap) that coordinating
-// across isolates / surviving an isolate eviction actually matters.
+// enough (>= half the cap) that coordinating across isolates / surviving
+// an isolate eviction actually matters.
+//
+// The cap itself (rateLimitPerMinute, admin-adjustable default 60 — see
+// runtimeConfig.js) is read once per call via getRuntimeConfig, which is
+// isolate-cached for 60s, so tuning it live doesn't add a KV read to
+// every request either.
 //
 // The upshot for write volume: normal light traffic — a staff device
-// doing a handful of requests a minute, nowhere near 60 — never writes
-// to KV at all. That's the overwhelming majority of requests, so the
-// rate limiter's KV writes drop to essentially zero in steady state.
+// doing a handful of requests a minute, nowhere near the cap — never
+// writes to KV at all. That's the overwhelming majority of requests, so
+// the rate limiter's KV writes drop to essentially zero in steady state.
 // Writes only start once a single key is genuinely bursting toward the
 // cap, and even then they're throttled to every RATE_LIMIT_FLUSH_EVERY
 // increments; once a key is blocked at the cap it writes nothing further
@@ -306,27 +311,28 @@ export function nextMidnight() {
 // What this trades away: enforcement is now fundamentally per-isolate,
 // with KV as a best-effort shared floor for heavy keys. If requests for
 // one key are spread across several isolates in the same 60s window,
-// each isolate enforces its own 60/min and only inherits another
-// isolate's count when it (re)seeds at the start of its window, so the
-// effective cap can rise toward 60 x (isolates handling that key). For
-// this app's traffic — a few dozen staff devices, not a public-facing
-// service under adversarial distributed load — that's an acceptable
-// loosening of precision on a soft cap: it still hard-caps any single
-// runaway/abusive client per isolate, and heavy keys still persist so a
-// burst can't be reset for free by isolate churn. It's the same class of
-// caveat the old non-atomic read-then-write already carried (and the old
-// CacheService limiter in Code.gs).
+// each isolate enforces its own cap and only inherits another isolate's
+// count when it (re)seeds at the start of its window, so the effective
+// cap can rise toward cap x (isolates handling that key). For this app's
+// traffic — a few dozen staff devices, not a public-facing service under
+// adversarial distributed load — that's an acceptable loosening of
+// precision on a soft cap: it still hard-caps any single runaway/abusive
+// client per isolate, and heavy keys still persist so a burst can't be
+// reset for free by isolate churn. It's the same class of caveat the old
+// non-atomic read-then-write already carried (and the old CacheService
+// limiter in Code.gs).
 //
 // This is Workers-specific (it leans on isolate-lifetime module state)
 // and deliberately NOT ported to Code.gs: Apps Script's CacheService
 // isn't write-count-limited the way free-plan Workers KV is, so there's
 // no equivalent quota problem to solve there.
-const RATE_LIMIT_COORD_THRESHOLD = Math.floor(RATE_LIMIT_PER_MINUTE / 2);
 const RATE_LIMIT_FLUSH_EVERY = 5;
 const rateLimitMemory = new Map(); // cacheKey -> { count, windowStart, unflushed }
 
 export async function checkRateLimit(env, key) {
   if (!key) return;
+  const { rateLimitPerMinute } = await getRuntimeConfig(env);
+  const coordThreshold = Math.floor(rateLimitPerMinute / 2);
   const cacheKey = "rl:" + (await hashString(String(key)));
   const now = Date.now();
 
@@ -341,7 +347,7 @@ export async function checkRateLimit(env, key) {
     rateLimitMemory.set(cacheKey, entry);
   }
 
-  if (entry.count >= RATE_LIMIT_PER_MINUTE) {
+  if (entry.count >= rateLimitPerMinute) {
     throw new Error("Too many requests. Please wait a moment and try again.");
   }
 
@@ -352,8 +358,8 @@ export async function checkRateLimit(env, key) {
   // exact request that reaches the cap, so a concurrent isolate can see
   // the block promptly). Everything below the threshold stays purely
   // in-memory and costs zero KV writes.
-  const heavy = entry.count >= RATE_LIMIT_COORD_THRESHOLD;
-  const reachedCap = entry.count >= RATE_LIMIT_PER_MINUTE;
+  const heavy = entry.count >= coordThreshold;
+  const reachedCap = entry.count >= rateLimitPerMinute;
   if (heavy && (entry.unflushed >= RATE_LIMIT_FLUSH_EVERY || reachedCap)) {
     await env.NJWG_KV.put(cacheKey, String(entry.count), { expirationTtl: 60 });
     entry.unflushed = 0;
