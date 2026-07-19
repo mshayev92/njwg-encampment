@@ -926,6 +926,23 @@ html.nav-rail-collapsed .nav-rail__crest {
 .toast--error { box-shadow: inset 0 0 0 1px var(--red-600), var(--shadow-lg); }
 .toast--success { box-shadow: inset 0 0 0 1px var(--green-600), var(--shadow-lg); }
 
+/* Undo action inside a toast (see Shell.showUndoToast) — a plain
+   underlined text button, not a full .btn, since it sits inline with the
+   toast's own message rather than as a separate control. */
+.toast__undo-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--gold-500);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.toast__undo-btn:hover { color: var(--gold-600); }
+
 @keyframes toast-in {
   from { opacity: 0; transform: translate(-50%, 8px); }
   to { opacity: 1; transform: translate(-50%, 0); }
@@ -2153,4 +2170,37 @@ button.date-field__day:hover {
   /* The announcements panel's own sticky header now doubles as the sheet
      header; nudge it clear of the grab handle. */
   .announcements-popover__header { padding-top: var(--space-2); }
+}
+
+/* ---- Print (see the header's Print button, wired in js/shell.js) ------
+   Generic on purpose — no per-page print stylesheet. Hides every piece
+   of interactive chrome (nav, header controls, forms, action buttons,
+   floating overlays) so whatever data is currently on screen — the
+   Roster table, a day's Schedule, a Recommendation's history — prints
+   as a clean sheet instead of the full app shell. Forces light colors
+   regardless of the active theme, since dark-mode colors on paper waste
+   ink and often print illegibly. */
+@media print {
+  .nav-rail, .app-header, .page-header,
+  #schedule-form-container, #roster-form-container,
+  .roster-toolbar, .btn, .schedule-item-row, .toast,
+  .modal-overlay, .search-overlay, .announcements-popover, .theme-menu,
+  .profile-menu, .context-menu, .tooltip-bubble {
+    display: none !important;
+  }
+  html, body, .app-shell, .app-main {
+    display: block !important;
+    background: #fff !important;
+    color: #000 !important;
+    margin: 0;
+  }
+  .card, .data-table, .note-card {
+    box-shadow: none !important;
+    border: 1px solid #999 !important;
+    background: #fff !important;
+  }
+  .data-table th, .data-table td, .card, .card-title, h1, h2, h3 {
+    color: #000 !important;
+  }
+  a { color: #000 !important; text-decoration: none !important; }
 }

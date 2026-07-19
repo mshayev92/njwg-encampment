@@ -133,8 +133,11 @@ export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // name, blank otherwise — pages/notes.html uses it to scope a note's
 // visibility to positions allowed to see that flight, same as
 // Inspections/Roster/Overview (blank Flight = visible to everyone,
-// same as a note with no cadet tied to it).
-export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition"];
+// same as a note with no cadet tied to it). SeenAt is blank until the
+// ToPosition recipient's own device actually renders this note (see
+// maybeMarkNoteSeen_ in pages/notes.html) — lets the AUTHOR see whether a
+// directed note has actually been opened, not just delivered.
+export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition", "SeenAt"];
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the

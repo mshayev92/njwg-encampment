@@ -112,6 +112,7 @@
 
     <main class="app-main">
       <div class="page-header" style="justify-content: flex-end;">
+        <button class="btn btn--ghost" id="import-schedule-csv-btn" style="display:none;" data-tooltip="Add a whole day's activities at once from a CSV file">Import CSV</button>
         <button class="btn btn--ghost" id="add-item-btn" style="display:none;">+ Add Item</button>
         <button class="btn btn--ghost" id="add-schedule-btn" style="display:none;">+ New Schedule</button>
       </div>
@@ -145,6 +146,7 @@
     const contentEl = document.getElementById("schedule-content");
     const addItemBtn = document.getElementById("add-item-btn");
     const addScheduleBtn = document.getElementById("add-schedule-btn");
+    const importCsvBtn = document.getElementById("import-schedule-csv-btn");
     const formContainer = document.getElementById("schedule-form-container");
     const esc = Shell.escapeHtml;
 
@@ -360,6 +362,7 @@
     function render(rows) {
       addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
       addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+      importCsvBtn.style.display = canEditSchedule ? "inline-flex" : "none";
 
       if (!rows.length) {
         scheduleTabsBarEl.style.display = "none";
@@ -606,6 +609,61 @@
     }
 
     /**
+     * Bulk add from a CSV (see Shell.pickAndParseCsv) — the counterpart
+     * to staging rows one at a time through the Add form, for typing up
+     * a whole day (or several) faster than the form allows. Expected
+     * columns: Date (YYYY-MM-DD), Time, Activity, Location, Audience
+     * (a Flight/Squadron name, or blank for "All"). Date and Activity are
+     * required per row, same as the form; rows missing either are
+     * skipped and counted, not fatal to the rest of the import. Each row
+     * upserts via matchColumnsFor (Date/Time/Activity), so re-importing a
+     * corrected file safely updates matching rows instead of duplicating
+     * them.
+     */
+    async function importScheduleCsv() {
+      let parsed;
+      try {
+        parsed = await Shell.pickAndParseCsv();
+      } catch (err) {
+        Shell.showToast(err.message || "Couldn't read that file.", { type: "error" });
+        return;
+      }
+      if (!parsed) return; // picker was canceled
+
+      let imported = 0;
+      let skipped = 0;
+      parsed.forEach((raw) => {
+        const date = String(raw.Date || "").trim();
+        const activity = String(raw.Activity || "").trim();
+        if (!date || !activity) { skipped++; return; }
+
+        const row = {
+          Date: date,
+          Day: weekdayFromDate(date),
+          Time: String(raw.Time || "").trim(),
+          Activity: activity,
+          Location: String(raw.Location || "").trim(),
+          Flight: String(raw.Audience || raw.Flight || "").trim()
+        };
+        Api.writeRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
+        scheduleRows.push(row);
+        imported++;
+      });
+
+      if (!imported) {
+        Shell.showToast(skipped ? `Nothing imported — all ${skipped} row${skipped === 1 ? "" : "s"} were missing a Date or Activity.` : "The file had no rows to import.", { type: "error" });
+        return;
+      }
+
+      Api.setCachedRows("Schedule", scheduleRows);
+      render(scheduleRows);
+      Shell.showToast(
+        `Imported ${imported} schedule item${imported === 1 ? "" : "s"}.` + (skipped ? ` Skipped ${skipped} row${skipped === 1 ? "" : "s"} missing a Date or Activity.` : ""),
+        { type: "success" }
+      );
+    }
+
+    /**
      * Optimistic save: updates the in-memory scheduleRows and re-renders
      * INSTANTLY, then fires the real write in the background (Api's
      * queue) rather than awaiting the network round-trip before showing
@@ -651,19 +709,30 @@
       render(scheduleRows);
     }
 
-    async function deleteItem(row) {
-      const confirmed = await Shell.confirm({
-        title: "Remove schedule item?",
-        message: `Remove “${esc(row.Activity)}” on ${esc(groupLabel(row.Date, row))}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
-        confirmLabel: "Remove",
-      });
-      if (!confirmed) return;
-
-      Api.deleteRow("Schedule", row, { matchColumns: matchColumnsFor(row) });
+    /**
+     * Removes locally and re-renders instantly, then gives a few seconds
+     * to Undo before the delete actually reaches the server — see
+     * Shell.showUndoToast. Replaces the old "confirm, then delete
+     * immediately" pattern; a brief cancelable window catches the far
+     * more common mistake (deleting the wrong row) better than an
+     * upfront "are you sure?" ever did.
+     */
+    function deleteItem(row) {
       scheduleRows = scheduleRows.filter(r => r !== row);
       Api.setCachedRows("Schedule", scheduleRows);
-      Shell.showToast("Item removed.", { type: "success" });
       render(scheduleRows);
+
+      Shell.showUndoToast(
+        `Removed “${row.Activity}”.`,
+        () => Api.deleteRow("Schedule", row, { matchColumns: matchColumnsFor(row) }),
+        {
+          onUndo: () => {
+            scheduleRows.push(row);
+            Api.setCachedRows("Schedule", scheduleRows);
+            render(scheduleRows);
+          }
+        }
+      );
     }
 
     addItemBtn.addEventListener("click", () => {
@@ -673,6 +742,7 @@
       openAddForm(active ? active.date : "");
     });
     addScheduleBtn.addEventListener("click", () => openAddForm(""));
+    importCsvBtn.addEventListener("click", importScheduleCsv);
     if (canEditSchedule) loadAudienceOptions();
 
     // Instant-then-revalidate load, spinner, error state, and Refresh

@@ -775,20 +775,30 @@
 
     function wireHistoryDeleteHandlers() {
       contentEl.querySelectorAll("[data-delete-id]").forEach(btn => {
-        btn.addEventListener("click", async () => {
+        btn.addEventListener("click", () => {
           const id = btn.dataset.deleteId;
-          const confirmed = await Shell.confirm({
-            title: "Remove this observation?",
-            message: "This can't be undone.",
-            confirmLabel: "Remove"
-          });
-          if (!confirmed) return;
-
-          Api.deleteRow("Observations", { Id: id }, { matchColumns: ["Id"] });
+          // Removes locally and re-renders instantly, then gives a few
+          // seconds to Undo before the delete actually reaches the
+          // server (see Shell.showUndoToast) — replaces the old upfront
+          // "are you sure?" confirm.
+          const removedIndex = observationRows.findIndex(o => String(o.Id) === String(id));
+          const removed = observationRows[removedIndex];
           observationRows = observationRows.filter(o => String(o.Id) !== String(id));
           Api.setCachedRows("Observations", observationRows);
           refreshStudentDetailInPlace();
-          Shell.showToast("Removed.", { type: "success" });
+
+          Shell.showUndoToast(
+            "Observation removed.",
+            () => Api.deleteRow("Observations", { Id: id }, { matchColumns: ["Id"] }),
+            {
+              onUndo: () => {
+                if (!removed) return;
+                observationRows.splice(removedIndex, 0, removed);
+                Api.setCachedRows("Observations", observationRows);
+                refreshStudentDetailInPlace();
+              }
+            }
+          );
         });
       });
     }

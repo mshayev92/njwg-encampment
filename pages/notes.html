@@ -416,6 +416,36 @@
       `;
     }
 
+    /** True when THIS session authored `note` — drives the Seen/Sent badge below, distinct from isNoteToMe (the RECIPIENT's own view). */
+    function isMyNote(note) {
+      const me = String(session?.Position || "").trim().toLowerCase();
+      return !!me && String(note.AuthorPosition || "").trim().toLowerCase() === me;
+    }
+
+    /**
+     * The directed-note badge has three distinct audiences, each seeing
+     * something different about the SAME note:
+     *   - the recipient (isNoteToMe): "→ Sent to you" — unchanged.
+     *   - the author, viewing their OWN sent note (isMyNote): whether the
+     *     recipient has actually opened it yet (SeenAt — see
+     *     maybeMarkNoteSeen_ below, which is what sets it), closing a gap
+     *     push notifications alone don't cover (a push confirms delivery
+     *     to the OS, not that a person actually read it).
+     *   - anyone else who can merely see this note (e.g. it's tied to a
+     *     flight they're allowed to view) but is neither party: the
+     *     existing plain "→ ToPosition" muted tag.
+     */
+    function directedNoteBadge(n, toMe) {
+      if (toMe) return `<div class="note-card__to-badge">→ Sent to you</div>`;
+      if (!n.ToPosition) return "";
+      if (isMyNote(n)) {
+        return n.SeenAt
+          ? `<div class="note-card__to-badge" data-tooltip="Seen ${esc(Shell.formatDateTime(n.SeenAt))}">✓ Seen by ${esc(n.ToPosition)}</div>`
+          : `<div class="note-card__to-badge note-card__to-badge--muted">→ Sent to ${esc(n.ToPosition)} · not seen yet</div>`;
+      }
+      return `<div class="note-card__to-badge note-card__to-badge--muted">→ ${esc(n.ToPosition)}</div>`;
+    }
+
     function renderNoteCard(n) {
       // The signed-in author's OWN position is very often literally the
       // flight name itself (a flight leader signs in as "Alpha", say),
@@ -428,7 +458,7 @@
       const toMe = isNoteToMe(n);
       return `
         <div class="note-card${toMe ? " note-card--to-me" : ""}">
-          ${toMe ? `<div class="note-card__to-badge">→ Sent to you</div>` : (n.ToPosition ? `<div class="note-card__to-badge note-card__to-badge--muted">→ ${esc(n.ToPosition)}</div>` : "")}
+          ${directedNoteBadge(n, toMe)}
           <div class="note-card__header">
             <div class="note-card__meta">
               <span class="note-card__author">${esc(n.AuthorPosition || "—")}</span>
@@ -446,6 +476,32 @@
       `;
     }
 
+    // Ids already marked seen THIS page load — guards against firing the
+    // write-back more than once per note before the optimistic cache
+    // update round-trips (render() can run several times in a row, e.g.
+    // once from cache then again when the background revalidation lands).
+    const markedSeenIds_ = new Set();
+
+    /**
+     * Records that I (the signed-in RECIPIENT of a directed note) have
+     * now actually seen it — a plain write-back of the note's own row
+     * with SeenAt added, same reconstruct-and-rewrite shape every other
+     * optimistic write on this page already uses. This is what
+     * directedNoteBadge() above reads back on the AUTHOR's device/session
+     * to show "Seen" instead of "not seen yet"; it has no effect on MY
+     * OWN view of my own inbox; the "→ Sent to you" badge does not read
+     * SeenAt at all.
+     */
+    function maybeMarkNoteSeen_(n) {
+      if (n.SeenAt || markedSeenIds_.has(String(n.Id))) return;
+      markedSeenIds_.add(String(n.Id));
+      const seenRow = { ...n, SeenAt: new Date().toISOString() };
+      Api.writeRow("Notes", seenRow, { matchColumns: ["Id"] });
+      const idx = notes.findIndex(x => String(x.Id) === String(n.Id));
+      if (idx >= 0) notes[idx] = seenRow;
+      Api.setCachedRows("Notes", notes);
+    }
+
     function renderFeed() {
       const sorted = notes
         .filter(isNoteVisible)
@@ -456,6 +512,10 @@
       if (!sorted.length) {
         return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
       }
+      // Mark seen AFTER building `sorted` (not during renderNoteCard's own
+      // map, which just builds HTML strings) — this note is visibly open
+      // on my screen right now, so silently write back that I've seen it.
+      sorted.filter(isNoteToMe).forEach(maybeMarkNoteSeen_);
       return `
         <div class="note-feed">
           ${sorted.map(renderNoteCard).join("")}
@@ -512,15 +572,15 @@
       render();
     }
 
-    async function deleteNote(id) {
-      const confirmed = await Shell.confirm({
-        title: "Delete note?",
-        message: "This can't be undone.",
-        confirmLabel: "Delete",
-      });
-      if (!confirmed) return;
-
-      Api.deleteRow("Notes", { Id: id }, { matchColumns: ["Id"] });
+    /**
+     * Removes locally and re-renders instantly, then gives a few seconds
+     * to Undo before the delete actually reaches the server (see
+     * Shell.showUndoToast) — replaces the old upfront "are you sure?"
+     * confirm.
+     */
+    function deleteNote(id) {
+      const removedIndex = notes.findIndex(n => String(n.Id) === String(id));
+      const removed = notes[removedIndex];
       notes = notes.filter(n => String(n.Id) !== String(id));
       if (editingNoteId === id) editingNoteId = null;
       // Reconcile Api's cache with this optimistic result now, not after
@@ -528,7 +588,19 @@
       // call in postNote() below.
       Api.setCachedRows("Notes", notes);
       render();
-      Shell.showToast("Note deleted.", { type: "success" });
+
+      Shell.showUndoToast(
+        "Note removed.",
+        () => Api.deleteRow("Notes", { Id: id }, { matchColumns: ["Id"] }),
+        {
+          onUndo: () => {
+            if (!removed) return;
+            notes.splice(removedIndex, 0, removed);
+            Api.setCachedRows("Notes", notes);
+            render();
+          }
+        }
+      );
     }
 
     /**
