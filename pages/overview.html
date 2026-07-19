@@ -691,7 +691,10 @@
       const todaysPeriods = periods.filter(p => p.Date === todayStr);
       if (!todaysPeriods.length) return "";
 
-      const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && (String(r.CapId || "").trim() || String(r.Name || "").trim()));
+      // Flight Commander/Sergeant roster rows (Role populated) are flight
+      // staff, not cadets — excluded from this inspection-completion
+      // percentage (see Shell.isStaffRosterRow).
+      const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && (String(r.CapId || "").trim() || String(r.Name || "").trim()) && !Shell.isStaffRosterRow(r));
       if (!cadets.length) return "";
 
       const rowsByCategory = { uniform: uniformRows, room: roomRows, pt: ptRows };
@@ -821,13 +824,13 @@
       // on any page after the first, since Shell.init warms it), then
       // silently refresh in the background.
       const { data: cached, ready } = Api.getSheetCached("Roster", (fresh) => {
-        lastRosterRows = fresh.rows || [];
+        lastRosterRows = Shell.normalizeRosterRows(fresh.rows || []);
         renderAll();
       });
 
       const rosterHadCache = !!cached;
       if (cached) {
-        lastRosterRows = cached.rows || [];
+        lastRosterRows = Shell.normalizeRosterRows(cached.rows || []);
         rosterLoaded = true;
       }
 

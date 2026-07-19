@@ -139,6 +139,114 @@
       display: flex;
       justify-content: flex-end;
     }
+
+    .role-badge {
+      display: inline-block;
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      padding: 2px var(--space-2);
+      border-radius: 999px;
+      background: var(--gold-100);
+      color: var(--gold-600);
+      margin-left: var(--space-2);
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    /* ---- Flight leadership card ---- */
+    .leadership-card {
+      margin-bottom: var(--space-4);
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: var(--space-4);
+    }
+    .leadership-slot__label {
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+      margin-bottom: var(--space-1);
+    }
+    .leadership-slot__value {
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--heading);
+    }
+    .leadership-slot__value--empty {
+      font-family: var(--font-body);
+      font-size: var(--fs-sm);
+      color: var(--ink-400);
+      font-style: italic;
+    }
+    .leadership-slot select { margin-top: var(--space-2); width: 100%; }
+
+    /* ---- Wingman teams card ---- */
+    .wingman-card { margin-bottom: var(--space-5); }
+    .wingman-groups {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-3);
+      margin-bottom: var(--space-4);
+    }
+    .wingman-group {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: var(--space-3) var(--space-4);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      flex-wrap: wrap;
+    }
+    .wingman-group__members {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      align-items: center;
+    }
+    .wingman-group__chip {
+      font-size: var(--fs-xs);
+      padding: var(--space-1) var(--space-3);
+      border-radius: 999px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      color: var(--ink-900);
+    }
+    .wingman-group__actions { display: flex; gap: var(--space-2); flex-shrink: 0; }
+    .wingman-picker {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2);
+    }
+    .wingman-picker__list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+    }
+    .wingman-picker__option {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      font-size: var(--fs-sm);
+      padding: var(--space-2) var(--space-3);
+      border-radius: var(--radius-md);
+      border: 1px solid var(--line);
+      background: var(--surface);
+      cursor: pointer;
+    }
+    .wingman-picker__option:has(input:checked) {
+      border-color: var(--gold-500);
+      background: var(--gold-100);
+    }
+    .wingman-picker__hint {
+      font-size: var(--fs-xs);
+      color: var(--ink-600);
+    }
+    .wingman-empty {
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+    }
   </style>
 </head>
 <body>
@@ -219,6 +327,18 @@
     const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : []).filter(Boolean);
     const ownFlights = sessionFlightList.filter(f => f.toLowerCase() !== "all");
 
+    // Wingman assignment is scoped tighter than roster editing in general:
+    // only a position whose session is scoped to exactly ONE flight (a
+    // Flight Commander-type "flight profile") may create/edit/remove
+    // wingman groups — a squadron position (two owned flights) or CCT/
+    // Administrator (no owned flight) still sees the groups read-only,
+    // same as anyone without edit-roster at all. This mirrors the "own
+    // flight(s) first" ownFlights list already computed above.
+    const isFlightProfile = ownFlights.length === 1;
+    const canEditWingman = canEditRoster && isFlightProfile;
+
+    const ROLE_LABELS = { FlightComm: "Flight Commander", FlightSgt: "Flight Sergeant" };
+
     let allRows = [];
     let editingCapId = null; // CapId string being edited, or null for "adding new"
     // Null = showing the default view (this position's own flight(s) up
@@ -227,6 +347,13 @@
     // string = showing that flight's member list ("Unassigned" for rows
     // with no Flight value).
     let selectedFlight = null;
+    // CapIds currently checked in an open wingman group editor/creator —
+    // reset whenever that picker opens or closes. Keyed by flight since
+    // renderDefaultView can show more than one flight's detail at once
+    // (a squadron position's two own flights), each with its own
+    // independent in-progress selection.
+    let wingmanPicker = null; // { flight, groupId } | null — which picker (if any) is open, and for which existing group (null = creating new)
+    const wingmanSelection = new Set();
 
     /** A DOM-safe id fragment derived from a flight name, for the per-own-flight section containers below. */
     function flightDomId(flight) {
@@ -244,6 +371,11 @@
           (groups[flight] = groups[flight] || []).push(row);
           return groups;
         }, {});
+    }
+
+    /** Cadet-only count for a flight's tile ("N cadets") — Flight Commander/Sergeant staff rows don't count as cadets. */
+    function cadetCount(members) {
+      return members.filter(m => !Shell.isStaffRosterRow(m)).length;
     }
 
     function renderFlightGrid(rows) {
@@ -264,7 +396,7 @@
           ${flightNames.map(flight => `
             <button class="flight-tile" data-flight="${esc(flight)}">
               <span class="flight-tile__name">${esc(flight)}</span>
-              <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+              <span class="flight-tile__count">${cadetCount(grouped[flight])} cadet${cadetCount(grouped[flight]) === 1 ? "" : "s"}</span>
             </button>
           `).join("")}
         </div>`;
@@ -287,6 +419,183 @@
      * TO from there; shown as normal when drilling into any flight
      * (including someone else's) from that grid.
      */
+    /**
+     * Rank + name for a Flight Commander/Sergeant slot, plus (for an
+     * edit-roster position) a <select> of every member of the flight to
+     * reassign it — see setFlightRole below for what a change does.
+     */
+    function renderLeadershipSlot(label, holder, role, members) {
+      return `
+        <div class="leadership-slot">
+          <div class="leadership-slot__label">${esc(label)}</div>
+          ${holder
+            ? `<div class="leadership-slot__value">${esc([holder.Rank, holder.Name].filter(Boolean).join(" "))}</div>`
+            : `<div class="leadership-slot__value leadership-slot__value--empty">Not yet assigned</div>`}
+          ${canEditRoster ? `
+            <select data-leadership-role="${esc(role)}" aria-label="Assign ${esc(label)}">
+              <option value="">— Not assigned —</option>
+              ${members.map(m => `<option value="${esc(m.CapId)}" ${holder && String(m.CapId) === String(holder.CapId) ? "selected" : ""}>${esc(m.Name)}</option>`).join("")}
+            </select>
+          ` : ""}
+        </div>`;
+    }
+
+    /** Flight Commander / Flight Sergeant, detected from Role — see ROLE_LABELS. Prominently above the roster table, per-flight. */
+    function renderLeadershipCard(flight, members) {
+      const commander = members.find(m => m.Role === "FlightComm");
+      const sergeant = members.find(m => m.Role === "FlightSgt");
+      return `
+        <div class="card leadership-card">
+          ${renderLeadershipSlot("Flight Commander", commander, "FlightComm", members)}
+          ${renderLeadershipSlot("Flight Sergeant", sergeant, "FlightSgt", members)}
+        </div>`;
+    }
+
+    function wireLeadershipCard(target, flight) {
+      target.querySelectorAll("[data-leadership-role]").forEach(sel => {
+        Shell.enhanceSelect(sel);
+        sel.addEventListener("change", () => setFlightRole(flight, sel.dataset.leadershipRole, sel.value));
+      });
+    }
+
+    /** { groupId: [members] } for a flight's members — Wingman is a shared free-text id written to every member of a team. */
+    function wingmanGroups(members) {
+      const groups = {};
+      members.forEach(m => {
+        const g = String(m.Wingman || "").trim();
+        if (g) (groups[g] = groups[g] || []).push(m);
+      });
+      return groups;
+    }
+
+    /**
+     * The 2-3-cadet picker used both to CREATE a new team (editingGroupId
+     * null) and to EDIT an existing one (pre-checked with its current
+     * members). Candidates are cadets (never flight staff — see
+     * Shell.isStaffRosterRow) who are either currently unassigned or
+     * already in the team being edited, so editing a team doesn't hide
+     * its own members just because they're "already assigned."
+     */
+    function renderWingmanPicker(members, editingGroupId, groups) {
+      const currentGroupCapIds = editingGroupId ? (groups[editingGroupId] || []).map(m => String(m.CapId)) : [];
+      const candidates = members.filter(m =>
+        !Shell.isStaffRosterRow(m) &&
+        (!String(m.Wingman || "").trim() || currentGroupCapIds.includes(String(m.CapId)))
+      );
+      return `
+        <div class="wingman-picker" style="margin-top: var(--space-3);">
+          <div class="wingman-picker__hint">Select 2–3 cadets for this team.</div>
+          <div class="wingman-picker__list">
+            ${candidates.map(m => `
+              <label class="wingman-picker__option">
+                <input type="checkbox" value="${esc(m.CapId)}" ${wingmanSelection.has(String(m.CapId)) ? "checked" : ""}>
+                ${esc(m.Name)}
+              </label>
+            `).join("")}
+          </div>
+          <div style="display:flex; gap: var(--space-3);">
+            <button class="btn btn--primary" id="wingman-save-btn">${editingGroupId ? "Save Team" : "Create Team"}</button>
+            <button class="btn btn--ghost" id="wingman-cancel-btn">Cancel</button>
+          </div>
+        </div>`;
+    }
+
+    /**
+     * Wingman team groups for this flight — read-only for everyone except
+     * an "edit-roster" position scoped to exactly this one flight (a
+     * Flight Commander-type position; see canEditWingman). Kept as its
+     * own card, separate from the leadership card and the roster table,
+     * so it reads as one clear idea (cadet pairs/trios) rather than more
+     * columns crammed into the table.
+     */
+    function renderWingmanCard(flight, members) {
+      const groups = wingmanGroups(members);
+      const groupIds = Object.keys(groups);
+      const openHere = wingmanPicker && wingmanPicker.flight === flight;
+
+      return `
+        <div class="card wingman-card">
+          <h3 class="section-label">Wingman Teams</h3>
+          ${groupIds.length ? `
+            <div class="wingman-groups">
+              ${groupIds.map(gid => `
+                <div class="wingman-group">
+                  <div class="wingman-group__members">
+                    ${groups[gid].map(m => `<span class="wingman-group__chip">${esc(m.Name)}</span>`).join("")}
+                  </div>
+                  ${canEditWingman ? `
+                    <div class="wingman-group__actions">
+                      <button class="btn btn--ghost" data-wingman-edit="${esc(gid)}" style="padding: var(--space-1) var(--space-3);">Edit</button>
+                      <button class="btn btn--ghost" data-wingman-disband="${esc(gid)}" style="padding: var(--space-1) var(--space-3); color: var(--red-600);">Disband</button>
+                    </div>
+                  ` : ""}
+                </div>
+              `).join("")}
+            </div>
+          ` : `<p class="wingman-empty">No wingman teams yet.</p>`}
+          ${canEditWingman ? (openHere
+            ? renderWingmanPicker(members, wingmanPicker.groupId, groups)
+            : `<button class="btn btn--ghost" id="wingman-new-btn">+ New Wingman Team</button>`
+          ) : ""}
+        </div>`;
+    }
+
+    function wireWingmanCard(target, flight, members) {
+      const groups = wingmanGroups(members);
+
+      target.querySelectorAll("[data-wingman-edit]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const gid = btn.dataset.wingmanEdit;
+          wingmanSelection.clear();
+          (groups[gid] || []).forEach(m => wingmanSelection.add(String(m.CapId)));
+          wingmanPicker = { flight, groupId: gid };
+          render(allRows);
+        });
+      });
+
+      target.querySelectorAll("[data-wingman-disband]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const gid = btn.dataset.wingmanDisband;
+          const confirmed = await Shell.confirm({
+            title: "Disband wingman team?",
+            message: "This removes the wingman assignment for every cadet in this team.",
+            confirmLabel: "Disband"
+          });
+          if (confirmed) saveWingmanGroup(flight, gid, []);
+        });
+      });
+
+      const newBtn = target.querySelector("#wingman-new-btn");
+      if (newBtn) newBtn.addEventListener("click", () => {
+        wingmanSelection.clear();
+        wingmanPicker = { flight, groupId: null };
+        render(allRows);
+      });
+
+      target.querySelectorAll('.wingman-picker__option input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener("change", () => {
+          if (cb.checked) wingmanSelection.add(cb.value); else wingmanSelection.delete(cb.value);
+        });
+      });
+
+      const saveBtn = target.querySelector("#wingman-save-btn");
+      if (saveBtn) saveBtn.addEventListener("click", () => {
+        const selected = Array.from(wingmanSelection);
+        if (selected.length < 2 || selected.length > 3) {
+          Shell.showToast("A wingman team needs 2 or 3 cadets.", { type: "error" });
+          return;
+        }
+        saveWingmanGroup(flight, wingmanPicker.groupId, selected);
+      });
+
+      const cancelBtn = target.querySelector("#wingman-cancel-btn");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => {
+        wingmanPicker = null;
+        wingmanSelection.clear();
+        render(allRows);
+      });
+    }
+
     function renderFlightDetail(rows, flight, { showBack = true, container = null } = {}) {
       const target = container || contentEl;
       const members = rows.filter(m => (m.Flight || "Unassigned") === flight);
@@ -297,6 +606,7 @@
           <h2>${esc(flight)}</h2>
           ${canEditRoster ? `<button class="btn btn--ghost" id="add-cadet-btn" style="margin-left:auto;">+ Add Cadet</button>` : ""}
         </div>
+        ${members.length ? renderLeadershipCard(flight, members) : ""}
         ${members.length ? `
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
@@ -307,7 +617,7 @@
                 ${members.map(m => `
                   <tr>
                     <td data-label="CAP ID" class="mono">${esc(m.CapId) || "—"}</td>
-                    <td data-label="Name">${esc(m.Name) || "—"}</td>
+                    <td data-label="Name">${esc(m.Name) || "—"}${m.Role && ROLE_LABELS[m.Role] ? `<span class="role-badge">${esc(ROLE_LABELS[m.Role])}</span>` : ""}</td>
                     <td data-label="Rank">${esc(m.Rank) || "—"}</td>
                     <td data-label="Age">${esc(m.Age) || "—"}</td>
                     <td data-label="Sex">${esc(m.Sex) || "—"}</td>
@@ -327,6 +637,7 @@
             <p>No cadets in this flight.</p>
           </div>
         `}
+        ${members.length ? renderWingmanCard(flight, members) : ""}
       `;
 
       // Scoped to `target`, not document.getElementById — a squadron
@@ -336,6 +647,11 @@
       // would only ever find the first section's button.
       const addBtn = target.querySelector("#add-cadet-btn");
       if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
+
+      if (members.length) {
+        wireLeadershipCard(target, flight);
+        wireWingmanCard(target, flight, members);
+      }
 
       target.querySelectorAll("[data-action='row-menu']").forEach(btn => {
         btn.addEventListener("click", (e) => {
@@ -407,7 +723,7 @@
             ${otherFlightNames.map(flight => `
               <button class="flight-tile" data-flight="${esc(flight)}">
                 <span class="flight-tile__name">${esc(flight)}</span>
-                <span class="flight-tile__count">${grouped[flight].length} cadet${grouped[flight].length === 1 ? "" : "s"}</span>
+                <span class="flight-tile__count">${cadetCount(grouped[flight])} cadet${cadetCount(grouped[flight]) === 1 ? "" : "s"}</span>
               </button>
             `).join("")}
           </div>
@@ -447,7 +763,7 @@
     }
 
     function applyFilter() {
-      const q = searchInput.value.trim().toLowerCase();
+      const q = searchInput.value.trim();
 
       if (!q) {
         selectedFlight = null;
@@ -458,14 +774,101 @@
       // A search query jumps straight to matching cadets/flights, but
       // still surfaces results grouped as flight tiles rather than
       // exposing names directly — clicking a tile still requires a
-      // second click to see the members inside it.
+      // second click to see the members inside it. Name matching goes
+      // through Shell.rosterNameMatches so "First Last", "Last, First",
+      // and a partial of either name alone all work — not just a plain
+      // substring of the combined display string.
       selectedFlight = null;
+      const qLower = q.toLowerCase();
       const filtered = allRows.filter(m =>
-        String(m.Name).toLowerCase().includes(q) ||
-        String(m.CapId).toLowerCase().includes(q) ||
-        String(m.Flight).toLowerCase().includes(q)
+        Shell.rosterNameMatches(m, q) ||
+        String(m.CapId).toLowerCase().includes(qLower) ||
+        String(m.Flight).toLowerCase().includes(qLower)
       );
       renderFlightGrid(filtered);
+    }
+
+    // ---- Roster row writes: never leak the computed .Name field (see
+    // Shell.normalizeRosterRows) back into a write — the Roster sheet has
+    // no Name column, and the worker auto-creates any new header key it
+    // sees in a write payload, so writing an object that still has .Name
+    // on it would silently add a spurious "Name" column to the sheet. ----
+
+    const ROSTER_FIELDS = ["CapId", "FirstName", "LastName", "Rank", "Flight", "Age", "Sex", "Role", "Wingman"];
+
+    function toRosterRow(row) {
+      const out = {};
+      ROSTER_FIELDS.forEach(f => { out[f] = row[f] != null ? row[f] : ""; });
+      return out;
+    }
+
+    /** Writes one roster row (stripped to real columns) and reconciles allRows/Api's cache with the optimistic result — the shared save path for leadership/wingman changes below. Does NOT re-render; call render(allRows) after the caller's own batch of changes settles. */
+    function persistRosterRow(row) {
+      const payload = toRosterRow(row);
+      Api.writeRow("Roster", payload, { matchColumn: "CapId" });
+      const idx = allRows.findIndex(r => String(r.CapId) === String(row.CapId));
+      const withName = { ...payload, Name: Shell.cadetDisplayName(payload) };
+      if (idx >= 0) allRows[idx] = withName; else allRows.push(withName);
+    }
+
+    /**
+     * Reassigns a flight's Flight Commander or Flight Sergeant. Clears
+     * whoever else in the flight currently holds that Role (a role can
+     * only ever have one holder) before assigning the new one — a blank
+     * capId just clears the role entirely ("— Not assigned —").
+     */
+    function setFlightRole(flight, role, capId) {
+      const members = groupByFlight(allRows)[flight] || [];
+      let changed = false;
+      members.forEach(m => {
+        if (m.Role === role && String(m.CapId) !== String(capId)) {
+          persistRosterRow({ ...m, Role: "" });
+          changed = true;
+        }
+      });
+      if (capId) {
+        const target = members.find(m => String(m.CapId) === String(capId));
+        if (target && target.Role !== role) {
+          persistRosterRow({ ...target, Role: role });
+          changed = true;
+        }
+      }
+      if (!changed) return;
+      Api.setCachedRows("Roster", allRows);
+      Shell.showToast(`${ROLE_LABELS[role]} updated.`, { type: "success" });
+      render(allRows);
+    }
+
+    /**
+     * Creates/edits (existingGroupId set) or disbands (selectedCapIds
+     * empty) a wingman team: every member's Wingman column becomes the
+     * shared group id, and anyone who was in this group but got
+     * unchecked has theirs cleared. groupId is a fresh id the first time
+     * a team is created, then stays stable across edits.
+     */
+    function saveWingmanGroup(flight, existingGroupId, selectedCapIds) {
+      const groupId = existingGroupId || `wg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const members = groupByFlight(allRows)[flight] || [];
+      const selectedSet = new Set(selectedCapIds.map(String));
+
+      members.forEach(m => {
+        const cap = String(m.CapId);
+        const currentGroup = String(m.Wingman || "").trim();
+        const shouldBeInGroup = selectedSet.has(cap);
+        const wasInThisGroup = existingGroupId && currentGroup === existingGroupId;
+
+        if (shouldBeInGroup && currentGroup !== groupId) {
+          persistRosterRow({ ...m, Wingman: groupId });
+        } else if (!shouldBeInGroup && wasInThisGroup) {
+          persistRosterRow({ ...m, Wingman: "" });
+        }
+      });
+
+      Api.setCachedRows("Roster", allRows);
+      wingmanPicker = null;
+      wingmanSelection.clear();
+      Shell.showToast(selectedCapIds.length ? "Wingman team saved." : "Wingman team disbanded.", { type: "success" });
+      render(allRows);
     }
 
     // ---- Add / edit / delete ----
@@ -480,7 +883,8 @@
           </h3>
           <div class="roster-form">
             <div class="field"><label for="f-capid">CAP ID</label><input id="f-capid" value="${esc(student?.CapId || "")}" ${student ? "readonly" : ""}></div>
-            <div class="field"><label for="f-name">Name</label><input id="f-name" value="${esc(student?.Name || "")}"></div>
+            <div class="field"><label for="f-first">First Name</label><input id="f-first" value="${esc(student?.FirstName || "")}"></div>
+            <div class="field"><label for="f-last">Last Name</label><input id="f-last" value="${esc(student?.LastName || "")}"></div>
             <div class="field"><label for="f-rank">Rank</label><input id="f-rank" value="${esc(student?.Rank || "")}"></div>
             <div class="field"><label for="f-flight">Flight</label><input id="f-flight" value="${esc(student?.Flight || flightContext || "")}"></div>
             <div class="field"><label for="f-age">Age</label><input id="f-age" type="number" min="10" max="18" value="${esc(student?.Age || "")}"></div>
@@ -515,19 +919,32 @@
      * fires the real write in the background. See the sync indicator
      * in the header for whether it actually landed — this function
      * doesn't wait to find out before showing success.
+     *
+     * Role and Wingman aren't on this form at all — they're single-
+     * holder/single-team-membership fields managed exclusively through
+     * the leadership dropdowns and wingman picker (setFlightRole /
+     * saveWingmanGroup above), which enforce "only one Flight Commander"
+     * and "only in one team at a time." Letting this generic form also
+     * set them would open a second, uncoordinated path to the same data
+     * and risk two people ending up simultaneously marked Flight
+     * Commander. Editing an existing row here preserves whatever Role/
+     * Wingman it already has (see the ...existing spread below).
      */
     function saveStudent() {
+      const existing = editingCapId ? allRows.find(r => String(r.CapId) === editingCapId) : null;
       const row = {
+        ...(existing ? toRosterRow(existing) : {}),
         CapId: document.getElementById("f-capid").value.trim(),
-        Name: document.getElementById("f-name").value.trim(),
+        FirstName: document.getElementById("f-first").value.trim(),
+        LastName: document.getElementById("f-last").value.trim(),
         Rank: document.getElementById("f-rank").value.trim(),
         Flight: document.getElementById("f-flight").value.trim(),
         Age: document.getElementById("f-age").value.trim(),
         Sex: document.getElementById("f-sex").value.trim()
       };
 
-      if (!row.CapId || !row.Name) {
-        Shell.showToast("CAP ID and Name are required.", { type: "error" });
+      if (!row.CapId || (!row.FirstName && !row.LastName)) {
+        Shell.showToast("CAP ID and at least a first or last name are required.", { type: "error" });
         return;
       }
 
@@ -539,14 +956,7 @@
         return;
       }
 
-      Api.writeRow("Roster", row, { matchColumn: "CapId" });
-
-      if (editingCapId) {
-        const idx = allRows.findIndex(r => String(r.CapId) === editingCapId);
-        if (idx >= 0) allRows[idx] = row;
-      } else {
-        allRows.push(row);
-      }
+      persistRosterRow(row);
       // Reconcile Api's cache with this optimistic result immediately —
       // writeRow() only marks the sheet's cache stale, it doesn't know
       // what the new rows look like. Without this, the next background
@@ -586,12 +996,12 @@
      */
     function load() {
       const { data: cached, ready } = Api.getSheetCached("Roster", (fresh) => {
-        allRows = fresh.rows || [];
+        allRows = Shell.normalizeRosterRows(fresh.rows || []);
         render(allRows);
       });
 
       if (cached) {
-        allRows = cached.rows || [];
+        allRows = Shell.normalizeRosterRows(cached.rows || []);
         selectedFlight = null;
         render(allRows);
       } else {
@@ -599,7 +1009,7 @@
       }
 
       return ready.then((data) => {
-        allRows = data.rows || [];
+        allRows = Shell.normalizeRosterRows(data.rows || []);
         if (!cached) { selectedFlight = null; render(allRows); }
       }).catch((err) => {
         if (!cached) {
@@ -616,10 +1026,13 @@
     searchInput.addEventListener("input", applyFilter);
     Shell.registerRefresh(load);
 
-    // Export the full roster. Lead with the common identity columns, then
-    // any additional columns present in the data.
+    // Export the full roster. Lead with the common identity columns —
+    // Name first (the combined "LastName, FirstName" display string,
+    // same as before) followed by the FirstName/LastName it's built
+    // from, then any additional columns present in the data (Role,
+    // Wingman among them).
     Shell.registerExport(() => {
-      const lead = ["Name", "CapId", "Rank", "Flight", "Age", "Sex"];
+      const lead = ["Name", "FirstName", "LastName", "CapId", "Rank", "Flight", "Age", "Sex"];
       const extra = Array.from(allRows.reduce((set, r) => {
         Object.keys(r || {}).forEach(k => { if (!lead.includes(k)) set.add(k); });
         return set;
