@@ -336,6 +336,49 @@
       color: var(--ink-600);
       font-size: var(--fs-sm);
     }
+
+    /* ---- Flight Standings (see computeFlightStandings/renderFlightStandingsCard) ---- */
+    .standings-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) 0;
+    }
+    .standings-row + .standings-row { border-top: 1px solid var(--line); }
+
+    .standings-row__rank {
+      font-family: var(--font-display);
+      font-size: var(--fs-md);
+      color: var(--ink-600);
+      width: 22px;
+      flex-shrink: 0;
+      text-align: center;
+    }
+    .standings-row--top .standings-row__rank { color: var(--gold-600); }
+
+    .standings-row__body { flex: 1; min-width: 0; }
+
+    .standings-row__name {
+      font-size: var(--fs-sm);
+      font-weight: 600;
+      color: var(--ink-900);
+      margin-bottom: var(--space-1);
+    }
+
+    .standings-row__count {
+      font-weight: 400;
+      color: var(--ink-600);
+      font-size: var(--fs-2xs);
+    }
+
+    .standings-row__score {
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      color: var(--ink-600);
+      width: 34px;
+      text-align: right;
+      flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
@@ -724,6 +767,120 @@
         </div>`;
     }
 
+    // ---- Flight Standings --------------------------------------------------
+    //
+    // A single blended score per flight from data the app already collects
+    // every day — Uniform/Room/PT inspection results, positive vs. concern
+    // Observations — so that routine logging surfaces as something worth
+    // glancing at, not just raw records nobody sees until Trends or an
+    // awards review. Uses only sheets this page already loads for the
+    // cards above; no extra fetch, no extra Worker/KV cost.
+    //
+    // Deliberately a FIXED formula, NOT the tunable weights Recommendations'
+    // own Weekly Standings uses (see RANKING_METRICS there) — those are a
+    // reviewer's personal judgment call for picking an Honor Flight and are
+    // stored per-device; this is meant to read exactly the same way for
+    // every position, every time, with no hidden per-device configuration.
+
+    const STANDINGS_UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
+    const STANDINGS_ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
+
+    // Uniform/Room/PT are each already a natural 0-1 rate (points scored
+    // out of the possible total) — weighted and summed AS-IS, on their own
+    // absolute scale, not relative to other flights, so a flight scoring
+    // 92% reads as 92%, not merely "better than the others this week."
+    // Positive/concern Observations have no natural upper bound (it's
+    // whatever staff happened to log), so those two are normalized against
+    // the highest per-cadet rate among the flights actually being compared
+    // — the same normalize-against-cohort-max approach Recommendations
+    // uses for its own unbounded metrics.
+    const STANDINGS_WEIGHTS = { uniform: 30, room: 20, pt: 20, posObs: 30, concernObs: 20 };
+
+    function num_(v) { return Number(v) || 0; }
+    function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
+
+    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows) {
+      // Flight Commander/Sergeant roster rows (Role populated) are flight
+      // staff, not cadets — excluded, same as every other per-cadet
+      // computation on this page.
+      const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r));
+      if (!cadets.length) return [];
+
+      const byCap = {};
+      cadets.forEach(c => {
+        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], ptPassed: 0, ptAttempted: 0, posObs: 0, concernObs: 0 };
+      });
+
+      uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num_(r.TotalPoints) / STANDINGS_UNIFORM_ITEM_COUNT); });
+      roomRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.room.push(num_(r.TotalPoints) / STANDINGS_ROOM_ITEM_COUNT); });
+      ptRows.forEach(r => {
+        const e = byCap[String(r.StudentCapId)];
+        if (e) { e.ptPassed += num_(r.TotalPoints); e.ptAttempted += num_(r.ItemsAttempted); }
+      });
+      observationRows.forEach(r => {
+        const e = byCap[String(r.StudentCapId)];
+        if (!e) return;
+        const s = String(r.Sentiment).toLowerCase();
+        if (s === "positive") e.posObs++;
+        else if (s === "concern") e.concernObs++;
+      });
+
+      const byFlight = {};
+      Object.values(byCap).forEach(c => { (byFlight[c.flight] = byFlight[c.flight] || []).push(c); });
+
+      const flights = Object.keys(byFlight).sort().map(flight => {
+        const members = byFlight[flight];
+        const ptTotals = members.reduce((acc, m) => ({ passed: acc.passed + m.ptPassed, attempted: acc.attempted + m.ptAttempted }), { passed: 0, attempted: 0 });
+        return {
+          flight,
+          cadetCount: members.length,
+          uniformAvg: mean_(members.flatMap(m => m.uniform)),
+          roomAvg: mean_(members.flatMap(m => m.room)),
+          ptRate: ptTotals.attempted ? ptTotals.passed / ptTotals.attempted : null,
+          posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length,
+          concernPerCadet: members.reduce((s, m) => s + m.concernObs, 0) / members.length
+        };
+      });
+      if (!flights.length) return [];
+
+      const maxPos = Math.max(0, ...flights.map(f => f.posPerCadet));
+      const maxConcern = Math.max(0, ...flights.map(f => f.concernPerCadet));
+
+      return flights.map(f => {
+        const posNorm = maxPos > 0 ? f.posPerCadet / maxPos : 0;
+        const concernNorm = maxConcern > 0 ? f.concernPerCadet / maxConcern : 0;
+        const score = Math.max(0, Math.round(
+          STANDINGS_WEIGHTS.uniform * (f.uniformAvg || 0) +
+          STANDINGS_WEIGHTS.room * (f.roomAvg || 0) +
+          STANDINGS_WEIGHTS.pt * (f.ptRate || 0) +
+          STANDINGS_WEIGHTS.posObs * posNorm -
+          STANDINGS_WEIGHTS.concernObs * concernNorm
+        ));
+        return { ...f, score };
+      }).sort((a, b) => b.score - a.score);
+    }
+
+    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, observationRows) {
+      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows);
+      if (!standings.length) return "";
+
+      return `
+        <div class="card">
+          <h2 class="card-title">Flight Standings</h2>
+          <p style="font-size: var(--fs-2xs); color: var(--ink-600); margin: calc(-1 * var(--space-2)) 0 var(--space-3);">Blended from Uniform/Room/PT inspection results and Observations logged so far.</p>
+          ${standings.map((f, i) => `
+            <div class="standings-row${i === 0 && f.score > 0 ? " standings-row--top" : ""}">
+              <div class="standings-row__rank">${i + 1}</div>
+              <div class="standings-row__body">
+                <div class="standings-row__name">${esc(f.flight)} <span class="standings-row__count">${f.cadetCount} cadet${f.cadetCount === 1 ? "" : "s"}</span></div>
+                <div class="progress"><div class="progress__fill" style="width:${f.score}%;"></div></div>
+              </div>
+              <div class="standings-row__score">${f.score}</div>
+            </div>
+          `).join("")}
+        </div>`;
+    }
+
     /**
      * "Observations This Week" — a chronological glance at what's
      * actually been logged lately (scoped to allowed flights), plus a
@@ -813,6 +970,7 @@
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
+          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastObservationRows || [])}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
