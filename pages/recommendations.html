@@ -302,6 +302,10 @@
     function groupByFlight(rows) {
       return rows
         .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        // Flight Commander/Sergeant roster rows (Role populated) are
+        // flight staff, not cadets — never eligible for an Honor Cadet
+        // nomination (see Shell.isStaffRosterRow).
+        .filter(r => !Shell.isStaffRosterRow(r))
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);
@@ -1020,7 +1024,10 @@
      * contributes nothing rather than counting as a zero score.
      */
     function cadetRawMetrics() {
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight));
+      // Flight Commander/Sergeant roster rows (Role populated) are staff,
+      // not cadets — excluded from this per-cadet standings computation
+      // (see Shell.isStaffRosterRow).
+      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r));
       const byCap = {};
       cadets.forEach(c => {
         byCap[String(c.CapId)] = { uniform: [], room: [], ptPassed: 0, ptAttempted: 0, posObs: 0, concernObs: 0, hcRecs: 0 };
@@ -1318,7 +1325,7 @@
 
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
-        rosterRows = fresh.rows || [];
+        rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
         renderContent();
       });
       const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
@@ -1355,7 +1362,7 @@
       const allCachedNow = !!(rosterHandle.data && hcHandle.data && hfHandle.data);
 
       if (allCachedNow) {
-        rosterRows = rosterHandle.data.rows || [];
+        rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         honorCadetRows = hcHandle.data.rows || [];
         honorFlightRows = hfHandle.data.rows || [];
         renderContent();
@@ -1365,7 +1372,7 @@
 
       return Promise.all([rosterHandle.ready, hcHandle.ready, hfHandle.ready])
         .then(([rosterData, hcData, hfData]) => {
-          rosterRows = rosterData.rows || [];
+          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
           honorCadetRows = hcData.rows || [];
           honorFlightRows = hfData.rows || [];
           if (!allCachedNow) renderContent();

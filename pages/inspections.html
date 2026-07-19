@@ -813,6 +813,11 @@
         // was showing up as a phantom flight with one uninspectable
         // "—" cadet (see the student-list card with no real name).
         .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        // Flight Commander/Sergeant roster rows (Role populated) are
+        // flight STAFF, not cadets — they have no Age/Sex and never get
+        // scored, so they must never appear as an inspectable "student"
+        // tile here (see Shell.isStaffRosterRow).
+        .filter(r => !Shell.isStaffRosterRow(r))
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);
@@ -2295,7 +2300,7 @@
 
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
-        rosterRows = fresh.rows || [];
+        rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
         renderActiveView();
       });
       const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => {
@@ -2336,7 +2341,7 @@
       const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && ptHandle.data && periodsHandle.data);
 
       if (allCachedNow) {
-        rosterRows = rosterHandle.data.rows || [];
+        rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         reindexInspections("uniform", uniformHandle.data.rows || []);
         reindexInspections("room", roomHandle.data.rows || []);
         reindexInspections("pt", ptHandle.data.rows || []);
@@ -2350,7 +2355,7 @@
 
       return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, ptHandle.ready, periodsHandle.ready])
         .then(([rosterData, uniformData, roomData, ptData, periodsData]) => {
-          rosterRows = rosterData.rows || [];
+          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
           reindexInspections("pt", ptData.rows || []);

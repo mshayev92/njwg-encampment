@@ -830,6 +830,72 @@ const Shell = (() => {
     showToast(`Exported ${result.rows.length} row${result.rows.length === 1 ? "" : "s"}.`, { type: "success" });
   }
 
+  // ---- Roster name/role helpers -----------------------------------------
+  //
+  // The Roster sheet stores a cadet's name as separate FirstName/LastName
+  // columns (plus a Role column, populated only for the two flight-staff
+  // entries — see isStaffRosterRow_ below). Every page that reads Roster
+  // needs the SAME "LastName, FirstName" display string and the SAME
+  // flexible name search, so both live here once rather than being
+  // reimplemented per page.
+
+  /**
+   * "LastName, FirstName" — the one display format used everywhere a
+   * cadet's name appears (tables, scorecards, StudentName columns
+   * written into other sheets, CSV export, search results). Falls back
+   * to whichever of the two parts is present if only one is, and to a
+   * legacy combined `Name` field if a row somehow still has one instead
+   * of FirstName/LastName (defensive — every current row has been
+   * migrated, but this keeps a stray old-shaped row from rendering
+   * blank instead of falling back to whatever it actually has).
+   */
+  function cadetDisplayName_(row) {
+    const first = String((row && row.FirstName) || "").trim();
+    const last = String((row && row.LastName) || "").trim();
+    if (last && first) return `${last}, ${first}`;
+    if (last || first) return last || first;
+    return String((row && row.Name) || "").trim();
+  }
+
+  /** True for a Roster row that's a flight-staff entry (Role populated), not a cadet. */
+  function isStaffRosterRow_(row) {
+    return !!String((row && row.Role) || "").trim();
+  }
+
+  /**
+   * Does `row`'s name match a free-typed `query`, accepting "First Last",
+   * "Last, First", or a plain partial substring of either name alone?
+   * Used by both Roster's own search box (pages/roster.html) and the
+   * global search's Roster source below, so both accept the same query
+   * shapes. An empty query always matches (the "show everything" case).
+   */
+  function rosterNameMatches_(row, query) {
+    const q = String(query || "").trim().toLowerCase();
+    if (!q) return true;
+    const first = String((row && row.FirstName) || "").trim().toLowerCase();
+    const last = String((row && row.LastName) || "").trim().toLowerCase();
+    if (!first && !last) {
+      // Legacy fallback row with only a combined Name — plain substring.
+      return String((row && row.Name) || "").toLowerCase().includes(q);
+    }
+    const firstLast = [first, last].filter(Boolean).join(" ");
+    const lastCommaFirst = last && first ? `${last}, ${first}` : (last || first);
+    return first.includes(q) || last.includes(q) || firstLast.includes(q) || lastCommaFirst.includes(q);
+  }
+
+  /**
+   * Maps freshly-fetched Roster rows to add a computed `.Name` field
+   * ("LastName, FirstName" — see cadetDisplayName_) so every OTHER page
+   * that reads Roster (Inspections, Observations, Recommendations, Notes,
+   * Overview) can keep displaying/writing `row.Name` exactly as before,
+   * unaware the sheet itself now stores FirstName/LastName separately.
+   * Call this once, right where each page assigns its local roster rows
+   * variable from Api's fetch result.
+   */
+  function normalizeRosterRows_(rows) {
+    return (rows || []).map((r) => ({ ...r, Name: cadetDisplayName_(r) }));
+  }
+
   // ---- Cross-sheet search (client-side, over already-cached sheets) -----
   //
   // Searches only sheets whose corresponding PAGE this position is
@@ -844,8 +910,13 @@ const Shell = (() => {
     {
       sheet: "Roster", page: "roster", label: "Roster", href: "pages/roster.html",
       flightField: "Flight",
-      fields: ["Name", "CapId", "Rank", "Flight"],
-      title: (r) => r.Name || r.CapId || "—",
+      fields: ["CapId", "Rank", "Flight"],
+      // Name matching goes through rosterNameMatches_ (see `matches`
+      // below) instead of a plain substring over a `Name` field — the
+      // raw cached row only has FirstName/LastName, and this accepts
+      // "First Last" / "Last, First" / a partial of either.
+      matches: (r, q) => rosterNameMatches_(r, q) || ["CapId", "Rank", "Flight"].some((f) => String(r[f] || "").toLowerCase().includes(q)),
+      title: (r) => cadetDisplayName_(r) || r.CapId || "—",
       meta: (r) => [r.Rank, r.CapId, r.Flight].filter(Boolean).join(" · ")
     },
     {
@@ -979,10 +1050,13 @@ const Shell = (() => {
           if (!blankOk && !isFlightAllowed_(flight)) continue;
         }
 
-        const haystack = src.fields
-          ? src.fields.map((f) => row[f]).join(" ")
-          : Object.values(row).join(" ");
-        if (String(haystack).toLowerCase().includes(q)) {
+        // A source can supply its own `matches(row, q)` predicate (Roster
+        // does, for name-shape-flexible matching — see rosterNameMatches_)
+        // instead of the default plain substring-over-fields check.
+        const isMatch = src.matches
+          ? src.matches(row, q)
+          : String(src.fields ? src.fields.map((f) => row[f]).join(" ") : Object.values(row).join(" ")).toLowerCase().includes(q);
+        if (isMatch) {
           matches.push(row);
           if (matches.length >= 8) break; // cap per source
         }
@@ -2727,6 +2801,8 @@ const Shell = (() => {
     registerExport, exportCsv, openSearch: openSearch_,
     currentAndNextScheduleItems, parseScheduleTime: parseScheduleTime_,
     flightMatchesAudience: flightMatchesAudience_,
+    cadetDisplayName: cadetDisplayName_, isStaffRosterRow: isStaffRosterRow_,
+    rosterNameMatches: rosterNameMatches_, normalizeRosterRows: normalizeRosterRows_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
     formatDateTime: formatDateTime_, formatTime: formatTime_,
     animateIn, enhanceTabs

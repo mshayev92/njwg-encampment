@@ -404,6 +404,10 @@
       return rows
         .filter(r => isFlightAllowed(r.Flight))
         .filter(r => String(r.CapId || "").trim() || String(r.Name || "").trim())
+        // Flight Commander/Sergeant roster rows (Role populated) are
+        // flight staff, not cadets — exclude them from the loggable
+        // student list (see Shell.isStaffRosterRow).
+        .filter(r => !Shell.isStaffRosterRow(r))
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);
@@ -898,7 +902,7 @@
 
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
-        rosterRows = fresh.rows || [];
+        rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
         renderActiveTab();
       });
       const obsHandle = Api.getSheetCached("Observations", (fresh) => {
@@ -909,7 +913,7 @@
       const allCachedNow = !!(rosterHandle.data && obsHandle.data);
 
       if (allCachedNow) {
-        rosterRows = rosterHandle.data.rows || [];
+        rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         observationRows = obsHandle.data.rows || [];
         revealTabsBar();
         renderActiveTab();
@@ -919,7 +923,7 @@
 
       return Promise.all([rosterHandle.ready, obsHandle.ready])
         .then(([rosterData, obsData]) => {
-          rosterRows = rosterData.rows || [];
+          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
           observationRows = obsData.rows || [];
           if (!allCachedNow) {
             selectedFlight = null;

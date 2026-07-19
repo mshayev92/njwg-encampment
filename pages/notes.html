@@ -653,7 +653,7 @@
 
     async function load() {
       const r = Api.getSheetCached("Roster", (fresh) => {
-        rosterRows = fresh.rows || [];
+        rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
         rosterLoaded = true;
         renderIfReady();
       });
@@ -663,7 +663,7 @@
         renderIfReady();
       });
 
-      if (r.data) { rosterRows = r.data.rows || []; rosterLoaded = true; }
+      if (r.data) { rosterRows = Shell.normalizeRosterRows(r.data.rows || []); rosterLoaded = true; }
       if (n.data) { notes = n.data.rows || []; notesLoaded = true; }
       renderIfReady();
 
