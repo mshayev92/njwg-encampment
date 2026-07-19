@@ -707,7 +707,8 @@
       rateLimitPerMinute: 60,
       maintenanceMode: false,
       deviceTokenLifetimeHoursPersonal: 24 * 14,
-      deviceTokenLifetimeHoursShared: 8
+      deviceTokenLifetimeHoursShared: 8,
+      flightColors: {}
     };
 
     function renderSettingsTab() {
@@ -761,6 +762,19 @@
             <button class="btn btn--ghost" id="reset-settings-btn">Reset fields to defaults</button>
           </div>
         </div>
+
+        <div class="card admin-form" style="margin-top: var(--space-5);">
+          <h2 class="card-title">Flight Colors</h2>
+          <p class="hint" style="margin-top:0;">
+            The colored accents used throughout the app (Overview's Flight Standings and Today's Inspections bars, the Roster/Inspections/Observations flight tiles, Schedule's Flight badge) come from this list. "Sync from Roster" reads the ACTUAL cell background color of each flight's rows in the Roster sheet's Flight column and uses that — not a hand-typed guess — so it always matches what's really in the Sheet. Re-run it any time a flight is recolored, added, or removed there.
+          </p>
+          <div id="flight-colors-preview" style="display:flex; flex-wrap:wrap; gap: var(--space-2); margin-bottom: var(--space-4);">
+            ${Object.keys(cfg.flightColors || {}).length ? Object.entries(cfg.flightColors).map(([flight, color]) => `
+              <span class="chip" style="background:${esc(color)}22; color:${esc(color)}; font-family: var(--font-body); text-transform: capitalize;">${esc(flight)}</span>
+            `).join("") : `<span class="hint" style="margin:0;">Not synced yet — every page is using its built-in fallback colors.</span>`}
+          </div>
+          <button class="btn btn--primary" id="sync-flight-colors-btn">Sync from Roster</button>
+        </div>
       `;
 
       document.getElementById("save-settings-btn").addEventListener("click", saveWorkerSettings);
@@ -768,12 +782,32 @@
         // Only resets what's shown in the form — nothing is actually
         // saved (and nothing changes for any device) until Save changes
         // is clicked, same as editing any field by hand.
-        workerConfig = { ...DEFAULT_WORKER_CONFIG };
+        workerConfig = { ...DEFAULT_WORKER_CONFIG, flightColors: cfg.flightColors };
         renderSettingsTab();
         Shell.showToast("Fields reset to defaults — click Save changes to apply.", { type: "" });
       });
+      document.getElementById("sync-flight-colors-btn").addEventListener("click", syncFlightColors);
 
       Shell.animateIn(contentEl);
+    }
+
+    async function syncFlightColors() {
+      const btn = document.getElementById("sync-flight-colors-btn");
+      btn.disabled = true;
+      btn.textContent = "Syncing…";
+      try {
+        const res = await Api.adminSyncFlightColors();
+        workerConfig = { ...(workerConfig || DEFAULT_WORKER_CONFIG), flightColors: res.colors || {} };
+        // So THIS device reflects the change immediately, not just after
+        // whatever page happens to load next — see Shell.refreshFlightColors.
+        await Shell.refreshFlightColors();
+        renderSettingsTab();
+        Shell.showToast(`Synced ${res.flightsFound} flight color${res.flightsFound === 1 ? "" : "s"} from Roster.`, { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        btn.disabled = false;
+        btn.textContent = "Sync from Roster";
+      }
     }
 
     async function saveWorkerSettings() {

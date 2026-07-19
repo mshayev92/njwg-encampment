@@ -147,6 +147,52 @@ export async function getColumnValues(env, sheetName, colIndex) {
   return (data.values || []).map((row) => (row.length ? row[0] : ""));
 }
 
+/**
+ * Reads the actual cell BACKGROUND COLORS for one column (everything
+ * below the header) — unlike every other read in this file, which goes
+ * through /values/... and only ever returns cell VALUES. Getting
+ * formatting requires the spreadsheet.get endpoint instead, scoped to
+ * this one column's range and to only the two fields actually needed
+ * (fields=... keeps the response from including every other formatting
+ * property of every cell). Used to sync the app's per-flight color
+ * accents (see index.js's adminSyncFlightColors) to whatever's actually
+ * painted on the Flight column in the Roster tab, rather than an
+ * admin having to hand-pick hex values that drift out of sync the next
+ * time someone recolors a row.
+ *
+ * Returns { [lowercased cell text]: "#rrggbb" }, one entry per DISTINCT
+ * value in the column (the first row carrying that value wins, since a
+ * flight's block of rows all share one color already) — not one entry
+ * per row.
+ */
+export async function getColumnBackgroundColorsByValue(env, sheetName, colIndex) {
+  const colLetter = colIndexToLetter(colIndex);
+  const range = `${sheetName}!${colLetter}2:${colLetter}`;
+  const data = await sheetsFetch(
+    env,
+    `?ranges=${encodeURIComponent(range)}&fields=sheets.data.rowData.values(formattedValue,userEnteredFormat.backgroundColor)`
+  );
+
+  const result = {};
+  const rowData = data.sheets?.[0]?.data?.[0]?.rowData || [];
+  const toByte = (c) => Math.max(0, Math.min(255, Math.round((c || 0) * 255)));
+
+  for (const row of rowData) {
+    const cell = row.values && row.values[0];
+    if (!cell) continue;
+    const key = String(cell.formattedValue || "").trim().toLowerCase();
+    if (!key || key in result) continue; // first occurrence per distinct value wins
+    const bg = cell.userEnteredFormat && cell.userEnteredFormat.backgroundColor;
+    if (!bg) continue;
+    // Google reports each channel as 0-1; skip a cell reporting pure
+    // white (the sheet's untouched default) — that's "never actually
+    // colored," not a deliberate white flight color.
+    if (bg.red >= 0.995 && bg.green >= 0.995 && bg.blue >= 0.995) continue;
+    result[key] = "#" + [bg.red, bg.green, bg.blue].map((c) => toByte(c).toString(16).padStart(2, "0")).join("");
+  }
+  return result;
+}
+
 // ---- Writes ----------------------------------------------------------------
 
 /** Overwrites one full row (1-based row number) with the given array of values. */

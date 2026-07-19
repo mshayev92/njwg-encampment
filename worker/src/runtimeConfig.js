@@ -26,7 +26,16 @@ export const DEFAULT_RUNTIME_CONFIG = {
   rateLimitPerMinute: 60,
   maintenanceMode: false,
   deviceTokenLifetimeHoursPersonal: 24 * 14,
-  deviceTokenLifetimeHoursShared: 8
+  deviceTokenLifetimeHoursShared: 8,
+  // { lowercased flight name -> "#rrggbb" }, populated by
+  // adminSyncFlightColors (index.js) reading the ACTUAL cell background
+  // colors off the Roster tab's Flight column — not hand-typed. Empty
+  // until an admin runs the sync at least once; every page falls back to
+  // APP_CONFIG.FLIGHT_COLORS (js/config.js) until then (see
+  // Shell.flightColor). Readable by any signed-in session (see the
+  // getFlightColors action) since flight-color accents show up on
+  // ordinary staff pages, not just Admin.
+  flightColors: {}
 };
 
 // Every numeric field is clamped to these bounds on save, so a mistyped
@@ -83,6 +92,18 @@ export async function saveRuntimeConfig(env, patch) {
   }
   if ("maintenanceMode" in patch) {
     next.maintenanceMode = !!patch.maintenanceMode;
+  }
+  if ("flightColors" in patch && patch.flightColors && typeof patch.flightColors === "object") {
+    // Only keep entries that actually look like a hex color — this is
+    // populated by our own getColumnBackgroundColorsByValue, but validate
+    // anyway rather than trust a client-supplied object verbatim.
+    const clean = {};
+    for (const [name, color] of Object.entries(patch.flightColors)) {
+      if (typeof name === "string" && /^#[0-9a-f]{6}$/i.test(String(color))) {
+        clean[name.toLowerCase()] = String(color).toLowerCase();
+      }
+    }
+    next.flightColors = clean;
   }
 
   await env.NJWG_KV.put(CONFIG_KV_KEY, JSON.stringify(next));
