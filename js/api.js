@@ -321,7 +321,7 @@ const Api = (() => {
     // Locate the target row the SAME way the server does — trimmed,
     // case-insensitive equality on every match column (see
     // findMatchingRowNumber in worker/src/index.js).
-    const keyOf = (row) => matchColumns.map((c) => normalizeCell_(row[c]).trim().toLowerCase()).join(" ");
+    const keyOf = (row) => matchColumns.map((c) => normalizeCell_(row[c]).trim().toLowerCase()).join(" ");
     const targetKey = keyOf(rowData);
     const matches = rows.filter((r) => keyOf(r) === targetKey);
     if (matches.length !== 1) return false;
