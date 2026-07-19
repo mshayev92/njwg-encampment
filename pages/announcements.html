@@ -379,25 +379,34 @@
       Shell.showToast(editing ? "Announcement updated." : "Announcement posted.", { type: "success" });
     }
 
-    async function deleteAnnouncement(id) {
-      const confirmed = await Shell.confirm({
-        title: "Delete announcement?",
-        message: "This can't be undone.",
-        confirmLabel: "Delete",
-      });
-      if (!confirmed) return;
-
-      // Optimistic, same as every other write on this page: update local
-      // state and re-render instantly; the real delete fires in the
-      // background (Api's queue), with the header's sync indicator — not
-      // a rejected promise here — reflecting whether it actually lands.
-      Api.deleteRow("Announcements", { Id: id }, { matchColumns: ["Id"] });
+    /**
+     * Removes locally and re-renders instantly, then gives a few seconds
+     * to Undo before the delete actually reaches the server (see
+     * Shell.showUndoToast) — replaces the old upfront "are you sure?"
+     * confirm.
+     */
+    function deleteAnnouncement(id) {
+      const removed = announcements.find(a => String(a.Id) === String(id));
+      const removedIndex = announcements.findIndex(a => String(a.Id) === String(id));
       announcements = announcements.filter(a => String(a.Id) !== String(id));
       if (editingAnnouncementId === id) editingAnnouncementId = null;
       Api.setCachedRows("Announcements", announcements);
       render();
-      Shell.showToast("Announcement deleted.", { type: "success" });
       Shell.refreshGlobalAlerts();
+
+      Shell.showUndoToast(
+        "Announcement removed.",
+        () => Api.deleteRow("Announcements", { Id: id }, { matchColumns: ["Id"] }),
+        {
+          onUndo: () => {
+            if (!removed) return;
+            announcements.splice(removedIndex, 0, removed);
+            Api.setCachedRows("Announcements", announcements);
+            render();
+            Shell.refreshGlobalAlerts();
+          }
+        }
+      );
     }
 
     let announcementsLoaded = false;

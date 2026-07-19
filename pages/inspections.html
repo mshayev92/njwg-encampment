@@ -1027,32 +1027,47 @@
       if (currentView === "flights" || currentView === "history") renderActiveView();
     }
 
-    async function deletePeriod(id) {
-      const confirmed = await Shell.confirm({
-        title: "Delete inspection period?",
-        message: "This can't be undone.",
-        confirmLabel: "Delete"
-      });
-      if (!confirmed) return;
-
-      Api.deleteRow("InspectionPeriods", { Id: id }, { matchColumns: ["Id"] });
+    /**
+     * Removes locally and re-renders instantly, then gives a few seconds
+     * to Undo before the delete actually reaches the server (see
+     * Shell.showUndoToast) — replaces the old upfront "are you sure?"
+     * confirm. The scores already recorded under this period are
+     * untouched either way — they live in the UniformInspections/
+     * RoomInspections/PTInspections sheets, keyed by InspectionPeriodId,
+     * not in InspectionPeriods itself.
+     */
+    function deletePeriod(id) {
+      const removedIndex = inspectionPeriods.findIndex(p => String(p.Id) === String(id));
+      const removed = inspectionPeriods[removedIndex];
       inspectionPeriods = inspectionPeriods.filter(p => String(p.Id) !== String(id));
       if (String(editingPeriodId) === String(id)) editingPeriodId = null;
-      // A deleted period disappears from the Periods tab immediately —
-      // the scores already recorded under it are untouched (they live in
-      // the UniformInspections/RoomInspections/PTInspections sheets, keyed
-      // by InspectionPeriodId, not in InspectionPeriods itself), so if its
-      // detail view happens to be open, back out to the tile grid rather
-      // than showing a detail page for a period that no longer exists.
-      if (selectedPeriod && String(selectedPeriod.Id) === String(id)) {
+      // A deleted period disappears from the Periods tab immediately — if
+      // its detail view happens to be open, back out to the tile grid
+      // rather than showing a detail page for a period that no longer
+      // exists.
+      const wasViewingDeletedPeriod = selectedPeriod && String(selectedPeriod.Id) === String(id);
+      if (wasViewingDeletedPeriod) {
         selectedPeriod = null;
         selectedPeriodFlight = null;
         if (currentView === "period-detail" || currentView === "period-flight-detail") currentView = "periods-tiles";
       }
       Api.setCachedRows("InspectionPeriods", inspectionPeriods);
-      Shell.showToast("Period deleted.", { type: "success" });
       renderPeriodsSection();
       if (currentView === "flights" || currentView === "history" || currentView === "periods-tiles" || currentView === "period-detail" || currentView === "period-flight-detail") renderActiveView();
+
+      Shell.showUndoToast(
+        "Period removed.",
+        () => Api.deleteRow("InspectionPeriods", { Id: id }, { matchColumns: ["Id"] }),
+        {
+          onUndo: () => {
+            if (!removed) return;
+            inspectionPeriods.splice(removedIndex, 0, removed);
+            Api.setCachedRows("InspectionPeriods", inspectionPeriods);
+            renderPeriodsSection();
+            if (currentView === "flights" || currentView === "history" || currentView === "periods-tiles") renderActiveView();
+          }
+        }
+      );
     }
 
     // ---- Periods tab (tiles of scheduled periods -> per-flight scores) ----

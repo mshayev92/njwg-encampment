@@ -215,6 +215,15 @@ const Api = (() => {
   // sheet share one network request instead of firing duplicates.
   const inFlight = new Map();
 
+  // Timestamp of the most recent successful NETWORK fetch of any sheet
+  // (fetchSheet_ or batchFetchSheets_) — deliberately NOT touched by
+  // setCachedRows' local optimistic updates, since those don't represent
+  // an actual round-trip to the Worker. Backs the header's "Updated Xm
+  // ago" indicator (see js/shell.js) so staff can tell how fresh what
+  // they're looking at actually is, distinct from the sync pill (which
+  // only reflects pending WRITES, not the age of what's on screen).
+  let lastSyncedAt = 0;
+
   function cacheKey(sheetName, extraParams) {
     const suffix = Object.keys(extraParams || {}).length ? JSON.stringify(extraParams) : "";
     return sheetName + suffix;
@@ -253,6 +262,11 @@ const Api = (() => {
         const entry = JSON.parse(raw);
         if (entry && "data" in entry) {
           cache.set(storageKey.slice(CACHE_STORAGE_PREFIX.length), entry);
+          // Seed lastSyncedAt from whatever the LAST page actually
+          // fetched, so a fresh navigation shows a meaningful "Updated
+          // Xm ago" immediately instead of blank until this page's own
+          // first live fetch resolves.
+          if (entry.fetchedAt > lastSyncedAt) lastSyncedAt = entry.fetchedAt;
         }
       }
     } catch (e) {
@@ -366,6 +380,7 @@ const Api = (() => {
         const entry = { data, fetchedAt: Date.now() };
         cache.set(key, entry);
         persistToStorage_(key, entry);
+        lastSyncedAt = entry.fetchedAt;
         inFlight.delete(key);
         if (changed) notifySubscribers_(key, data);
         return data;
@@ -425,6 +440,7 @@ const Api = (() => {
           const entry = { data: rowsData, fetchedAt: Date.now() };
           cache.set(key, entry);
           persistToStorage_(key, entry);
+          lastSyncedAt = entry.fetchedAt;
           inFlight.delete(key);
           if (changed) notifySubscribers_(key, rowsData);
           result[name] = rowsData;
@@ -842,6 +858,16 @@ const Api = (() => {
     onOutboxEnqueue(cb) {
       outboxListeners.add(cb);
       return () => outboxListeners.delete(cb);
+    },
+
+    /**
+     * Timestamp (ms) of the most recent successful sheet fetch, across
+     * every sheet — 0 if nothing has ever been fetched (or hydrated from
+     * a previous page's persisted cache) yet. Backs the header's
+     * "Updated Xm ago" indicator; see js/shell.js.
+     */
+    getLastSyncedAt() {
+      return lastSyncedAt;
     },
 
     getSyncStatus() {

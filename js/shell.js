@@ -64,7 +64,9 @@ const Shell = (() => {
     install:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="3"/><path d="M12 8v6M9 11h6"/><path d="M11 18h2"/></svg>',
     sun:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
     moon:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
-    monitor:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>'
+    monitor:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
+    printer:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
+    upload:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>'
   };
 
   // All of these used to be single GLOBAL localStorage keys, shared by
@@ -136,6 +138,18 @@ const Shell = (() => {
     const d = value instanceof Date ? value : new Date(value);
     if (isNaN(d.getTime())) return "";
     return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+
+  /** "just now" / "5m ago" / "3h ago" / "2d ago" for a past ms-since-epoch timestamp. Used by the header's "Data updated" tooltip. */
+  function formatRelativeTime_(atMs) {
+    const seconds = Math.max(0, Math.round((Date.now() - atMs) / 1000));
+    if (seconds < 60) return "just now";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.round(hours / 24);
+    return `${days}d ago`;
   }
 
   // Set once by init() — lets the black flag banner/pill logic (and
@@ -353,7 +367,7 @@ const Shell = (() => {
       <div class="app-header__user">
         ${session ? `
           <span id="black-flag-pill" class="black-flag-pill" style="display:none;">⚑ Black Flag</span>
-          <span id="sync-indicator" class="sync-indicator sync-indicator--synced">
+          <span id="sync-indicator" class="sync-indicator sync-indicator--synced" data-tooltip="Data updated: just now">
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label">Synced</span>
           </span>
@@ -400,6 +414,10 @@ const Shell = (() => {
                 <span class="profile-menu__item-icon">${ICONS.download}</span>
                 <span>Export CSV</span>
               </button>
+              <button class="profile-menu__item" id="print-btn">
+                <span class="profile-menu__item-icon">${ICONS.printer}</span>
+                <span>Print</span>
+              </button>
               <button class="profile-menu__item" id="pwa-install-btn" style="display:none;">
                 <span class="profile-menu__item-icon">${ICONS.install}</span>
                 <span>Install app</span>
@@ -445,6 +463,13 @@ const Shell = (() => {
       // (re)rendered — reflect that here so the button shows immediately.
       if (exportConfig_) exportBtn.style.display = "flex";
     }
+
+    // Deliberately unconditional (no per-page registration, unlike
+    // Export) — the print stylesheet in css/app.css hides everything
+    // interactive and prints whatever's currently on screen, which is a
+    // reasonable default on every page, not just a few that opt in.
+    const printBtn = document.getElementById("print-btn");
+    if (printBtn) printBtn.addEventListener("click", () => { closeProfileMenu_(); window.print(); });
 
     const pushBtn = document.getElementById("push-enable-btn");
     if (pushBtn) pushBtn.addEventListener("click", () => { closeProfileMenu_(); enablePush_(); });
@@ -645,6 +670,22 @@ const Shell = (() => {
     Api.onOutboxEnqueue(() => {
       showToast("You're offline — this will be saved and sent automatically once you're back online.", { type: "" });
     });
+
+    // "Data updated: Xm ago" — a hover tooltip on the sync pill itself
+    // (see wireTooltips_, which reads data-tooltip live at hover time, so
+    // just updating the attribute is enough) rather than a second
+    // always-visible header element, keeping the header from getting any
+    // more crowded than it already is. This is about READ freshness —
+    // how old the sheet data on screen might be — which is a different
+    // thing from the pill's own label above (pending WRITES). Refreshed
+    // every 30s so a device left open all day shows something honest
+    // (e.g. "2h ago") instead of a number frozen at page-load time.
+    const updateLastSyncedTooltip = () => {
+      const at = Api.getLastSyncedAt ? Api.getLastSyncedAt() : 0;
+      el.setAttribute("data-tooltip", `Data updated: ${at ? formatRelativeTime_(at) : "never yet"}`);
+    };
+    updateLastSyncedTooltip();
+    setInterval(updateLastSyncedTooltip, 30000);
   }
 
   /**
@@ -836,6 +877,98 @@ const Shell = (() => {
     const filename = result.filename || `${activePage_ || "export"}-${stamp}.csv`;
     exportCsv(filename, result.rows, result.columns);
     showToast(`Exported ${result.rows.length} row${result.rows.length === 1 ? "" : "s"}.`, { type: "success" });
+  }
+
+  // ---- CSV import (bulk row entry) ---------------------------------------
+  //
+  // The counterpart to exportCsv above — parses a CSV back into row
+  // objects so a page (Roster, Schedule) can bulk-write a whole batch
+  // instead of adding rows one at a time through its own form. Parsing
+  // happens entirely client-side; nothing is sent anywhere until the
+  // CALLER decides to Api.writeRow() each parsed row itself, so a bad or
+  // accidental file pick costs nothing.
+
+  /**
+   * Minimal RFC 4180 CSV parser (quoted fields, doubled-quote escaping,
+   * \r\n or \n line endings) — the exact inverse of buildCsv_ above, not
+   * a general-purpose CSV library. Returns an array of plain objects
+   * keyed by the header row; blank trailing lines are skipped. Throws if
+   * the file has no header row or no data rows.
+   */
+  function parseCsv(text) {
+    const rows = [];
+    let row = [];
+    let field = "";
+    let inQuotes = false;
+    const pushField = () => { row.push(field); field = ""; };
+    const pushRow = () => { pushField(); rows.push(row); row = []; };
+
+    // Strip a leading UTF-8 BOM (exportCsv above writes one) so it
+    // doesn't end up glued onto the first header name.
+    const src = text.charCodeAt(0) === 0xFEFF ? text.slice(1) : text;
+
+    for (let i = 0; i < src.length; i++) {
+      const c = src[i];
+      if (inQuotes) {
+        if (c === '"') {
+          if (src[i + 1] === '"') { field += '"'; i++; } else { inQuotes = false; }
+        } else {
+          field += c;
+        }
+      } else if (c === '"') {
+        inQuotes = true;
+      } else if (c === ",") {
+        pushField();
+      } else if (c === "\r") {
+        // ignore — the following \n (or end of a lone \r-terminated line) handles the row break
+      } else if (c === "\n") {
+        pushRow();
+      } else {
+        field += c;
+      }
+    }
+    // Final field/row if the file didn't end with a newline.
+    if (field !== "" || row.length) pushRow();
+
+    const nonEmpty = rows.filter((r) => !(r.length === 1 && r[0] === ""));
+    if (nonEmpty.length < 1) throw new Error("The file appears to be empty.");
+    const headers = nonEmpty[0].map((h) => h.trim());
+    if (!headers.length || headers.every((h) => !h)) throw new Error("The file has no header row.");
+
+    return nonEmpty.slice(1).map((r) => {
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = r[i] !== undefined ? r[i] : ""; });
+      return obj;
+    });
+  }
+
+  /**
+   * Opens the browser's file picker for a single .csv file and resolves
+   * with its parsed rows (see parseCsv above). Resolves with null if the
+   * person cancels the picker instead of choosing a file — callers
+   * should treat that as a silent no-op, not an error.
+   */
+  function pickAndParseCsv() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".csv,text/csv";
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (!file) { resolve(null); return; }
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            resolve(parseCsv(String(reader.result || "")));
+          } catch (err) {
+            reject(err);
+          }
+        };
+        reader.onerror = () => reject(new Error("Couldn't read that file."));
+        reader.readAsText(file);
+      }, { once: true });
+      input.click();
+    });
   }
 
   // ---- Roster name/role helpers -----------------------------------------
@@ -1788,6 +1921,61 @@ const Shell = (() => {
     document.body.appendChild(toast);
 
     setTimeout(() => toast.remove(), 4000);
+  }
+
+  /**
+   * A delete confirmation pattern used across every page that removes a
+   * row (Roster/Schedule/Notes/Announcements/Observations/Inspection
+   * Periods): instead of an upfront "are you sure?" dialog blocking the
+   * action, the caller applies the removal to its own LOCAL state and
+   * re-renders immediately, and this shows a toast with an "Undo" button
+   * for `windowMs` (default 6s). `onCommit` — the actual
+   * Api.deleteRow(...) call — only fires once the window elapses without
+   * Undo being clicked; clicking Undo cancels it outright, so the row is
+   * never actually deleted server-side. The caller is responsible for
+   * restoring its own local state if Undo is clicked (pass that as
+   * `onUndo`) — this function only owns the timer and the toast.
+   *
+   * This intentionally REPLACES the old "confirm, then delete
+   * immediately, irreversibly" pattern for row deletes: a confirm dialog
+   * only asks "are you sure" before anything happens, which is no help
+   * against the far more common case of clicking Delete on the wrong
+   * row. A brief, cancelable window after the fact solves that instead.
+   */
+  function showUndoToast(message, onCommit, { windowMs = 6000, onUndo = null } = {}) {
+    const existing = document.querySelector(".toast");
+    if (existing) existing.remove();
+
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.setAttribute("role", "status");
+    toast.setAttribute("aria-live", "polite");
+
+    const label = document.createElement("span");
+    label.textContent = message;
+    toast.appendChild(label);
+
+    const undoBtn = document.createElement("button");
+    undoBtn.type = "button";
+    undoBtn.className = "toast__undo-btn";
+    undoBtn.textContent = "Undo";
+    toast.appendChild(undoBtn);
+
+    document.body.appendChild(toast);
+
+    let committed = false;
+    const timer = setTimeout(() => {
+      committed = true;
+      toast.remove();
+      onCommit();
+    }, windowMs);
+
+    undoBtn.addEventListener("click", () => {
+      if (committed) return; // window already elapsed — nothing left to undo
+      clearTimeout(timer);
+      toast.remove();
+      if (onUndo) onUndo();
+    });
   }
 
   // ---- Custom tooltip (replaces native title="") ------------------------
@@ -2817,6 +3005,8 @@ const Shell = (() => {
     rosterNameMatches: rosterNameMatches_, normalizeRosterRows: normalizeRosterRows_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
     formatDateTime: formatDateTime_, formatTime: formatTime_,
+    formatRelativeTime: formatRelativeTime_,
+    showUndoToast, parseCsv, pickAndParseCsv,
     animateIn, enhanceTabs
   };
 })();

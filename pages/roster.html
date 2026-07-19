@@ -278,6 +278,7 @@
            instead of everything on the page appearing together. -->
       <div class="roster-toolbar" id="roster-toolbar" style="display:none;">
         <input type="search" id="roster-search" aria-label="Search roster by name, CAPID, or flight" placeholder="Search by name, CAPID, or flight…">
+        <button class="btn btn--ghost" id="import-roster-csv-btn" style="display:none;" data-tooltip="Add or update several cadets at once from a CSV file">Import CSV</button>
       </div>
 
       <div id="roster-form-container"></div>
@@ -297,6 +298,7 @@
     const contentEl = document.getElementById("roster-content");
     const searchInput = document.getElementById("roster-search");
     const toolbarEl = document.getElementById("roster-toolbar");
+    const importCsvBtn = document.getElementById("import-roster-csv-btn");
     const formContainer = document.getElementById("roster-form-container");
     const esc = Shell.escapeHtml;
 
@@ -773,6 +775,7 @@
       // see its style="display:none") now that there's actually a roster
       // to search. Idempotent — harmless to set on every render.
       toolbarEl.style.display = "";
+      if (canEditRoster) importCsvBtn.style.display = "inline-flex";
       if (selectedFlight) {
         renderFlightDetail(rows, selectedFlight);
       } else {
@@ -842,6 +845,75 @@
      */
     function syncRosterCache() {
       Api.setCachedRows("Roster", allRows.map(toRosterRow));
+    }
+
+    /**
+     * Bulk add/update from a CSV (see Shell.pickAndParseCsv) — the
+     * counterpart to the one-at-a-time Add Cadet form, for standing up a
+     * whole flight's roster (or updating several rows) faster than
+     * clicking through the form N times. Expected header row is any
+     * subset of ROSTER_FIELDS (CapId, FirstName, LastName, Rank, Flight,
+     * Age, Sex, Role, Wingman, Room) — extra/unknown columns are ignored
+     * rather than rejecting the whole file. Same validation as the
+     * single-cadet form (CapId + at least one of First/Last Name
+     * required); rows failing that are skipped and counted, not fatal to
+     * the rest of the import. Each row upserts by CapId (persistRosterRow
+     * -> matchColumn: "CapId"), so re-importing the same file (or a
+     * corrected export) safely updates existing cadets instead of
+     * duplicating them.
+     */
+    async function importRosterCsv() {
+      let parsed;
+      try {
+        parsed = await Shell.pickAndParseCsv();
+      } catch (err) {
+        Shell.showToast(err.message || "Couldn't read that file.", { type: "error" });
+        return;
+      }
+      if (!parsed) return; // picker was canceled
+
+      let imported = 0;
+      let skipped = 0;
+      parsed.forEach((raw) => {
+        const capId = String(raw.CapId || "").trim();
+        const firstName = String(raw.FirstName || "").trim();
+        const lastName = String(raw.LastName || "").trim();
+        if (!capId || (!firstName && !lastName)) { skipped++; return; }
+
+        const existing = allRows.find(r => String(r.CapId).toLowerCase() === capId.toLowerCase());
+        const row = {
+          ...(existing ? toRosterRow(existing) : {}),
+          CapId: capId,
+          FirstName: firstName,
+          LastName: lastName,
+          Rank: String(raw.Rank || "").trim(),
+          Flight: String(raw.Flight || "").trim(),
+          Age: String(raw.Age || "").trim(),
+          Sex: String(raw.Sex || "").trim()
+        };
+        // Role/Wingman/Room are left untouched on an existing row unless
+        // the CSV explicitly carries that column — a roster export
+        // re-imported to bulk-edit, say, just the Flight column
+        // shouldn't blank out wingman assignments it never mentioned.
+        if ("Role" in raw) row.Role = String(raw.Role || "").trim();
+        if ("Wingman" in raw) row.Wingman = String(raw.Wingman || "").trim();
+        if ("Room" in raw) row.Room = String(raw.Room || "").trim();
+
+        persistRosterRow(row);
+        imported++;
+      });
+
+      if (!imported) {
+        Shell.showToast(skipped ? `Nothing imported — all ${skipped} row${skipped === 1 ? "" : "s"} were missing a CAPID or name.` : "The file had no rows to import.", { type: "error" });
+        return;
+      }
+
+      syncRosterCache();
+      render(allRows);
+      Shell.showToast(
+        `Imported ${imported} cadet${imported === 1 ? "" : "s"}.` + (skipped ? ` Skipped ${skipped} row${skipped === 1 ? "" : "s"} missing a CAPID or name.` : ""),
+        { type: "success" }
+      );
     }
 
     /**
@@ -1018,20 +1090,32 @@
       render(allRows);
     }
 
-    async function deleteStudent(student) {
+    /**
+     * Removes locally and re-renders instantly, then gives a few seconds
+     * to Undo before the delete actually reaches the server (see
+     * Shell.showUndoToast) — replaces the old upfront "are you sure?"
+     * confirm, which doesn't help against the more common mistake of
+     * removing the wrong cadet. Their inspection history is untouched
+     * either way — it lives in the Inspections sheets, keyed by CapId,
+     * not in Roster itself.
+     */
+    function deleteStudent(student) {
       if (!student) return;
-      const confirmed = await Shell.confirm({
-        title: "Remove cadet?",
-        message: `Remove ${esc(student.Name || student.CapId)} from the roster? This does not delete their inspection history.`,
-        confirmLabel: "Remove",
-      });
-      if (!confirmed) return;
-
-      Api.deleteRow("Roster", student, { matchColumn: "CapId" });
       allRows = allRows.filter(r => r !== student);
       syncRosterCache();
-      Shell.showToast("Cadet removed.", { type: "success" });
       render(allRows);
+
+      Shell.showUndoToast(
+        `Removed ${student.Name || student.CapId} from the roster.`,
+        () => Api.deleteRow("Roster", student, { matchColumn: "CapId" }),
+        {
+          onUndo: () => {
+            allRows.push(student);
+            syncRosterCache();
+            render(allRows);
+          }
+        }
+      );
     }
 
     /**
@@ -1071,6 +1155,7 @@
     }
 
     searchInput.addEventListener("input", applyFilter);
+    importCsvBtn.addEventListener("click", importRosterCsv);
     Shell.registerRefresh(load);
 
     // Export the full roster. Lead with the common identity columns —

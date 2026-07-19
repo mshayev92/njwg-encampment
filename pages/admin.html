@@ -92,6 +92,22 @@
       margin-top: var(--space-2);
     }
 
+    /* "Preview access" panel (see renderAccessPreview) — a read-only
+       summary of what a position's Pages/Flights actually resolve to,
+       styled as a quiet inset block rather than a modal since it's meant
+       to sit open alongside the row while comparing a few positions. */
+    .staff-row__preview {
+      margin-top: var(--space-3);
+      padding: var(--space-3);
+      background: var(--surface-sunken);
+      border-radius: var(--radius-md);
+      font-size: var(--fs-sm);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+    .staff-row__preview strong { color: var(--ink-600); font-weight: 600; }
+
     .chip {
       font-size: var(--fs-2xs);
       font-family: var(--font-mono);
@@ -434,6 +450,42 @@
       `;
     }
 
+    // Positions whose "Preview access" panel is currently expanded — a
+    // Set (not a single value) so more than one can be open for
+    // side-by-side comparison. Purely a display toggle: computed entirely
+    // from `staff` data already loaded for this tab, no extra network
+    // call and no real session/token involved — see renderAccessPreview.
+    let previewOpenPositions = new Set();
+
+    /**
+     * A read-only, safe alternative to actually signing in as another
+     * position just to check what it can see — everything here is
+     * derived from the SAME Pages/Flights data the staff list already
+     * has, using the identical page/edit-gate matching logic
+     * renderStaffForm uses to pre-check its own boxes.
+     */
+    function renderAccessPreview(s) {
+      const pagesLower = s.Pages.map(p => p.toLowerCase());
+      const editGateByBase = new Map(EDIT_GATES.map(g => [g.id.replace(/^edit-/, ""), g]));
+      const basePages = window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label }));
+      const visible = basePages.filter(p => pagesLower.includes(p.id.toLowerCase()));
+      const withEdit = basePages.filter(p => {
+        const gate = editGateByBase.get(p.id);
+        return gate && pagesLower.includes(gate.id.toLowerCase());
+      });
+      const knownIds = new Set([...basePages.map(p => p.id), ...EDIT_GATES.map(g => g.id)]);
+      const customTokens = s.Pages.filter(p => !knownIds.has(p.toLowerCase()));
+
+      return `
+        <div class="staff-row__preview">
+          <div class="staff-row__preview-row"><strong>Sees:</strong> ${visible.length ? visible.map(p => esc(p.label)).join(", ") : "Nothing — no pages granted yet"}</div>
+          <div class="staff-row__preview-row"><strong>Can edit:</strong> ${withEdit.length ? withEdit.map(p => esc(p.label)).join(", ") : "Nothing"}</div>
+          <div class="staff-row__preview-row"><strong>Flights:</strong> ${esc(flightsSummary(s.Flights))}</div>
+          ${customTokens.length ? `<div class="staff-row__preview-row"><strong>Other tokens:</strong> ${customTokens.map(esc).join(", ")}</div>` : ""}
+        </div>
+      `;
+    }
+
     function renderStaffList() {
       if (!staff.length) {
         return `
@@ -446,6 +498,7 @@
         <div class="staff-list">
           ${staff.slice().sort((a, b) => a.Position.localeCompare(b.Position)).map(s => {
             const isAdmin = s.Pages.map(p => p.toLowerCase()).includes("admin");
+            const previewOpen = previewOpenPositions.has(s.Position);
             return `
               <div class="staff-row">
                 <div style="min-width:0;">
@@ -471,8 +524,10 @@
                       return chips + overflow || `<span class="chip">no pages</span>`;
                     })()}
                   </div>
+                  ${previewOpen ? renderAccessPreview(s) : ""}
                 </div>
                 <div class="staff-row__actions">
+                  <button class="btn btn--ghost" data-preview="${esc(s.Position)}" aria-expanded="${previewOpen}">${previewOpen ? "Hide preview" : "Preview access"}</button>
                   <button class="btn btn--ghost" data-edit="${esc(s.Position)}">Edit</button>
                   <button class="btn btn--danger" data-delete="${esc(s.Position)}">Delete</button>
                 </div>
@@ -503,6 +558,13 @@
         b.addEventListener("click", () => { editing = b.dataset.edit; renderStaffTab(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
       contentEl.querySelectorAll("[data-delete]").forEach(b =>
         b.addEventListener("click", () => deletePosition(b.dataset.delete)));
+      contentEl.querySelectorAll("[data-preview]").forEach(b =>
+        b.addEventListener("click", () => {
+          const position = b.dataset.preview;
+          if (previewOpenPositions.has(position)) previewOpenPositions.delete(position);
+          else previewOpenPositions.add(position);
+          renderStaffTab();
+        }));
 
       // Pencil toggle for a page's edit-gate — flips its own hidden
       // checkbox (read by savePosition() the same as every other
