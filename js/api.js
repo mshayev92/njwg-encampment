@@ -733,9 +733,9 @@ const Api = (() => {
      * if a page is already fetching it on its own (inFlight).
      *
      * maxAgeMs defaults to the Worker's own KV read-cache lifetime
-     * (READ_CACHE_TTL_SECONDS in worker/src/auth.js, 5 minutes) rather
-     * than something shorter — re-warming more often than that can never
-     * see fresher data anyway, since the Worker itself won't re-hit the
+     * (READ_CACHE_TTL_SECONDS in worker/src/readCache.js, 60 minutes)
+     * rather than something shorter — re-warming more often than that can
+     * never see fresher data anyway, since the Worker itself won't re-hit the
      * Sheets API until its cache entry expires. It's also deliberately
      * LONGER than Shell's warmCache poll interval (currently 3 minutes):
      * if it were shorter than (or equal to) the poll interval, every
@@ -752,7 +752,7 @@ const Api = (() => {
      * dozen sheets costs one Worker invocation, not a dozen, which is the
      * dominant steady-state backend cost for a device left open all day.
      */
-    warmCache(sheetNames, { maxAgeMs = 300000 } = {}) {
+    warmCache(sheetNames, { maxAgeMs = 3600000 } = {}) {
       const stale = (sheetNames || []).filter((name) => {
         const key = cacheKey(name, {});
         // A page is already fetching this on its own — its read will fill
@@ -997,7 +997,7 @@ const Api = (() => {
     /**
      * Returns the current admin-adjustable Worker settings (see
      * pages/admin.html's "Worker Settings" tab and worker/src/runtimeConfig.js):
-     * { readCacheTtlSeconds, rateLimitPerMinute, maintenanceMode,
+     * { rateLimitPerMinute, maintenanceMode,
      * deviceTokenLifetimeHoursPersonal, deviceTokenLifetimeHoursShared }.
      */
     adminGetWorkerConfig() {
@@ -1029,6 +1029,22 @@ const Api = (() => {
     /** Re-reads Roster's Flight column cell colors and saves them as the new shared flightColors map. Admin-only; the backend re-checks. */
     adminSyncFlightColors() {
       return request("adminSyncFlightColors", {
+        method: "POST",
+        requireDevice: true,
+        requireSession: true
+      });
+    },
+
+    /**
+     * Invalidates the Worker's KV read-cache for every sheet, so the next
+     * read of any sheet (from any device) re-hits the Sheets API instead
+     * of serving whatever was cached before a direct Google Sheet edit.
+     * Call this right after editing the Sheet directly (outside the app)
+     * so the change shows up immediately instead of waiting out the
+     * cache's TTL. Admin-only; the backend re-checks.
+     */
+    adminSyncSheets() {
+      return request("adminSyncSheets", {
         method: "POST",
         requireDevice: true,
         requireSession: true

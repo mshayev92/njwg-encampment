@@ -1,10 +1,15 @@
 /**
  * Admin-adjustable operational knobs — the small set of values that used
- * to be hardcoded constants (READ_CACHE_TTL_SECONDS, RATE_LIMIT_PER_MINUTE,
- * the device token lifetimes) plus a new maintenance-mode switch. Stored
- * as ONE JSON blob in KV so an Administrator can tune them live from
- * pages/admin.html's "Worker Settings" tab instead of editing this file
- * and redeploying.
+ * to be hardcoded constants (RATE_LIMIT_PER_MINUTE, the device token
+ * lifetimes) plus a new maintenance-mode switch. Stored as ONE JSON blob
+ * in KV so an Administrator can tune them live from pages/admin.html's
+ * "Worker Settings" tab instead of editing this file and redeploying.
+ *
+ * The sheet read-cache TTL used to live here too (readCacheTtlSeconds),
+ * but it's a fixed constant again (READ_CACHE_TTL_SECONDS in
+ * readCache.js) now that a direct Google Sheet edit is synced on demand
+ * via a "Sync now" button (invalidateAllSheetCaches) instead of by
+ * tuning how long the cache is allowed to go stale.
  *
  * Read path is isolate-local-cached for CONFIG_CACHE_MS, the same pattern
  * checkRateLimit already uses in auth.js for its own isolate-local
@@ -22,7 +27,6 @@ const CONFIG_KV_KEY = "runtimeconfig";
 const CONFIG_CACHE_MS = 60000;
 
 export const DEFAULT_RUNTIME_CONFIG = {
-  readCacheTtlSeconds: 300,
   rateLimitPerMinute: 60,
   maintenanceMode: false,
   deviceTokenLifetimeHoursPersonal: 24 * 14,
@@ -42,7 +46,6 @@ export const DEFAULT_RUNTIME_CONFIG = {
 // value can't wedge the app (e.g. a rate limit of 0 locking everyone out,
 // or a cache TTL of a week making a direct-Sheet edit invisible for days).
 const BOUNDS = {
-  readCacheTtlSeconds: { min: 60, max: 3600 },
   rateLimitPerMinute: { min: 10, max: 300 },
   deviceTokenLifetimeHoursPersonal: { min: 1, max: 24 * 30 },
   deviceTokenLifetimeHoursShared: { min: 1, max: 24 * 7 }
@@ -78,9 +81,6 @@ export async function saveRuntimeConfig(env, patch) {
   const current = await getRuntimeConfig(env);
   const next = { ...current };
 
-  if ("readCacheTtlSeconds" in patch) {
-    next.readCacheTtlSeconds = clampNumber(patch.readCacheTtlSeconds, BOUNDS.readCacheTtlSeconds, current.readCacheTtlSeconds);
-  }
   if ("rateLimitPerMinute" in patch) {
     next.rateLimitPerMinute = clampNumber(patch.rateLimitPerMinute, BOUNDS.rateLimitPerMinute, current.rateLimitPerMinute);
   }
