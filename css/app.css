@@ -1988,3 +1988,169 @@ button.date-field__day:hover {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ============================================================
+   MOBILE BOTTOM SHEETS (phones — max-width: 720px)
+   ============================================================
+   On a phone, every one of the app's floating overlays was a DESKTOP
+   pattern shrunk down: a menu/picker anchored to wherever its trigger
+   happens to sit (often the top of the screen, out of thumb reach),
+   sized to its content, and dismissed by a precise tap outside it. The
+   native mobile equivalent is the BOTTOM SHEET — pinned to the bottom
+   edge where the thumb already rests, full width, with a dimmed scrim
+   behind it and a grab-handle affordance, sliding up from below.
+
+   This block re-homes that whole overlay family (custom <select>
+   dropdowns, the date & time pickers, row action/context menus, the
+   header profile & theme menus, the confirm/alert dialog, and the
+   announcements panel) into sheets, and turns global search into a
+   full-screen field. Geometry is the only thing that changes — every
+   overlay keeps the exact same markup, JS, and behaviour, so nothing
+   about what these controls DO changes, only where and how big they
+   are under a finger.
+
+   Several of these panels are body-appended and JS-positioned with
+   inline top/left/width (see positionFloatingPanel_ / openContextMenu
+   in js/shell.js); !important is what lets the sheet geometry win over
+   those inline coordinates without touching the JS. */
+
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
+@media (max-width: 720px) {
+  /* ---- Shared sheet shell ----
+     One rule drives every body-appended picker + the two header menus.
+     The 100vmax spread box-shadow paints a full-viewport scrim WITHOUT
+     needing a separate backdrop node (these panels have none), so the
+     sheet reads as modal even though the underlying close-on-outside-tap
+     handlers are unchanged. */
+  .dropdown__menu,
+  .date-field__panel,
+  .time-field__panel,
+  .context-menu,
+  .profile-menu,
+  .theme-menu,
+  .announcements-popover {
+    position: fixed !important;
+    top: auto !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    border-radius: 18px 18px 0 0 !important;
+    border-bottom: none !important;
+    /* Room for the grab handle up top, and clearance for the home
+       indicator down below. */
+    padding-top: calc(var(--space-4) + 10px) !important;
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0px)) !important;
+    box-shadow: 0 -6px 28px rgba(8, 10, 56, 0.22),
+                0 0 0 100vmax rgba(8, 10, 56, 0.45) !important;
+    animation: sheet-rise var(--duration-base) var(--ease-standard);
+  }
+
+  /* Grab handle — the visual "you can dismiss this by swiping/tapping
+     away" affordance every mobile sheet has. Purely decorative (dismissal
+     is still the existing outside-tap / close-button / Esc paths). */
+  .dropdown__menu::before,
+  .date-field__panel::before,
+  .time-field__panel::before,
+  .context-menu::before,
+  .profile-menu::before,
+  .theme-menu::before,
+  .announcements-popover::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--ink-400);
+    opacity: 0.5;
+  }
+
+  /* Let the taller sheets scroll internally instead of running off-screen. */
+  .dropdown__menu,
+  .time-field__panel,
+  .profile-menu,
+  .theme-menu,
+  .announcements-popover {
+    max-height: 80vh !important;
+    overflow-y: auto;
+  }
+
+  /* Roomier, edge-to-edge rows — a full-width tap target reads as a list
+     item on a phone rather than a compact desktop menu line. */
+  .dropdown__option,
+  .time-field__option,
+  .context-menu__item,
+  .profile-menu__item,
+  .theme-menu__item {
+    padding-top: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-radius: 0;
+  }
+  .context-menu { overflow: hidden; }
+
+  /* The date picker becomes a genuinely comfortable calendar: full-width
+     day cells the width of the screen / 7 instead of ~34px squares. */
+  .date-field__panel { padding-left: var(--space-4) !important; padding-right: var(--space-4) !important; }
+  .date-field__day { font-size: var(--fs-md); }
+  .date-field__nav-btn { width: 40px; height: 40px; }
+
+  /* ---- Confirm / alert / info dialog -> bottom sheet ----
+     This one already has a real backdrop element (.modal-overlay), so we
+     just re-anchor the card to the bottom edge and let it span the width;
+     the existing max-width:720px rule already stacks its actions full
+     width, which now reads as a proper sheet footer. */
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .modal-card {
+    max-width: 100%;
+    width: 100%;
+    border-radius: 18px 18px 0 0;
+    padding-top: calc(var(--space-6) + 10px);
+    padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+    animation: sheet-rise var(--duration-base) var(--ease-standard);
+  }
+  .modal-card::before {
+    content: "";
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 36px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--ink-400);
+    opacity: 0.5;
+  }
+
+  /* ---- Global search -> full-screen field ----
+     10vh of dead space and a floating card wastes a phone's screen; a
+     full-height panel gives the results list every available row and
+     keeps the input under the thumbs at the top. */
+  .search-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+  .search-overlay__panel {
+    max-width: 100%;
+    max-height: none;
+    height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+  .search-overlay__bar { padding: var(--space-4); }
+  .search-overlay__results { padding-bottom: calc(var(--space-4) + env(safe-area-inset-bottom, 0px)); }
+
+  /* The announcements panel's own sticky header now doubles as the sheet
+     header; nudge it clear of the grab handle. */
+  .announcements-popover__header { padding-top: var(--space-2); }
+}
