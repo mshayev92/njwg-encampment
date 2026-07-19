@@ -60,12 +60,12 @@ window.APP_CONFIG = {
   // unreachable for real users — only use it for local development, and
   // never commit it. For local dev, point this at your `wrangler dev` URL
   // temporarily but revert before pushing.
-  APPS_SCRIPT_URL: "http://localhost:8787",
+  APPS_SCRIPT_URL: "https://njwg-encampment-api.njwg-encampment-1.workers.dev",
 
   // First day of encampment, used by the duty strip to compute "DAY X OF Y".
   // Format: YYYY-MM-DD, in the encampment's local timezone.
-  ENCAMPMENT_START_DATE: "2026-07-12",
-  ENCAMPMENT_END_DATE: "2026-07-26",
+  ENCAMPMENT_START_DATE: "2026-07-25",
+  ENCAMPMENT_END_DATE: "2026-08-01",
 
   UNIT_NAME: "NJWG Encampment",
   UNIT_SHORT: "NJWG",
