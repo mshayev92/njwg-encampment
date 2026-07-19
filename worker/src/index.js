@@ -711,24 +711,29 @@ async function handleBatchRead(env, params) {
  * with "edit-roster" keeps full, unrestricted access (add/remove cadets,
  * edit rank/flight/age/sex/Role, anything) — same as before.
  *
- * A position WITHOUT edit-roster but scoped to exactly one flight (a
- * "flight profile" — e.g. a Flight Commander) still gets one narrower
- * capability: reassigning that flight's OWN wingman teams (the Wingman
- * column — see pages/roster.html's Wingman Teams card). This doesn't
- * require a separate Pages grant; it's inherent to being that flight's
- * own position, mirroring the client-side canEditWingman check — but
- * enforced here for real, since the client-side gate is a convenience
- * only. Everything else about Roster (cadet CRUD, leadership, any other
- * column) stays edit-roster-only.
+ * A position WITHOUT edit-roster gets two narrower exceptions instead,
+ * each confined to changing exactly ONE specific column and nothing
+ * else on the row (see the diff loop below, which fetches the cadet's
+ * CURRENTLY STORED row and requires every OTHER column to be byte-
+ * identical to what's already there — this is what stops a request from
+ * trusting whatever else the client claims):
  *
- * Enforced by fetching the cadet's CURRENTLY STORED row and requiring
- * every column except Wingman to be byte-identical to what's already
- * there — this is what confines the write to "just the wingman
- * reassignment" rather than trusting whatever the client claims. The
- * stored Flight (not whatever Flight value the request happens to
- * carry) is what's checked against the caller's own flight, so a forged
- * Flight value in the payload can't be used to reach another flight's
- * cadet.
+ *   - Room: ANY signed-in position may set a cadet's Room, for any
+ *     cadet in any flight — see pages/roster.html's inline Room input.
+ *     No flight scoping at all; this one's intentionally wide open.
+ *   - Wingman: only a position scoped to exactly one flight (a "flight
+ *     profile" — e.g. a Flight Commander) may reassign wingman teams,
+ *     and only for a cadet whose STORED Flight (not whatever Flight
+ *     value the request happens to carry) matches that one flight — so
+ *     a forged Flight value in the payload can't be used to reach
+ *     another flight's cadet.
+ *
+ * Neither requires a separate Pages grant; both are inherent to being
+ * signed in / being that flight's own position, mirroring the client-
+ * side canEditWingman/Room-input checks — enforced here for real, since
+ * the client-side gate is a convenience only. Everything else about
+ * Roster (cadet CRUD, leadership, any other column, or changing more
+ * than one column in the same request) stays edit-roster-only.
  */
 async function assertRosterWriteAccess(env, body, session) {
   const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
@@ -738,9 +743,6 @@ async function assertRosterWriteAccess(env, body, session) {
   if (pages.includes("edit-roster")) return;
 
   const deniedMessage = `You do not have edit permission for Roster. Ask an Administrator to add "edit-roster" to your position's Pages.`;
-
-  const flights = (Array.isArray(session.flights) ? session.flights : []).map((f) => String(f).toLowerCase());
-  if (flights.length !== 1) throw new Error(deniedMessage);
 
   const rowData = body.row || {};
   const capId = String(rowData.CapId || "").trim().toLowerCase();
@@ -757,16 +759,29 @@ async function assertRosterWriteAccess(env, body, session) {
   const existing = {};
   headers.forEach((h, i) => { existing[h] = existingArr[i]; });
 
-  const existingFlight = String(existing.Flight || "").trim().toLowerCase();
-  if (existingFlight !== flights[0]) throw new Error(deniedMessage);
-
+  // Which columns does this request actually change? No-op columns
+  // (client sent the same value already stored) never count against
+  // either exception below.
   const keys = new Set([...headers, ...Object.keys(rowData)]);
+  const changedColumns = new Set();
   for (const key of keys) {
-    if (key === "Wingman") continue;
     const before = String(existing[key] ?? "").trim();
     const after = String(rowData[key] ?? "").trim();
-    if (before !== after) throw new Error(deniedMessage);
+    if (before !== after) changedColumns.add(key);
   }
+  if (changedColumns.size === 0) return; // nothing actually changes — harmless no-op write
+
+  if (changedColumns.size === 1 && changedColumns.has("Room")) return;
+
+  if (changedColumns.size === 1 && changedColumns.has("Wingman")) {
+    const flights = (Array.isArray(session.flights) ? session.flights : []).map((f) => String(f).toLowerCase());
+    if (flights.length !== 1) throw new Error(deniedMessage);
+    const existingFlight = String(existing.Flight || "").trim().toLowerCase();
+    if (existingFlight !== flights[0]) throw new Error(deniedMessage);
+    return;
+  }
+
+  throw new Error(deniedMessage);
 }
 
 async function handleWrite(env, body, session, ctx) {
