@@ -14,7 +14,6 @@
 import {
   UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
   HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS,
-  DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL, DEVICE_TOKEN_LIFETIME_HOURS_SHARED,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
   assertPageWriteAccess, ALLOWED_SHEETS,
@@ -29,6 +28,8 @@ import {
 import { getCachedSheetValues, getCachedSheetValuesBatch, invalidateSheetCache } from "./readCache.js";
 
 import { sendPush } from "./webPush.js";
+
+import { getRuntimeConfig, saveRuntimeConfig } from "./runtimeConfig.js";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -132,6 +133,14 @@ async function handleGet(request, env) {
     return respond(await handleAdminListLoginLog(env, params));
   }
 
+  if (action === "adminGetWorkerConfig") {
+    await requireDeviceToken(env, params.deviceToken);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    assertAdmin(session);
+    return respond({ ok: true, config: await getRuntimeConfig(env) });
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
@@ -191,6 +200,14 @@ async function handlePost(request, env, ctx) {
     return respond(await handleAdminDeleteStaffAccess(env, body, session));
   }
 
+  if (body.action === "adminSaveWorkerConfig") {
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    return respond({ ok: true, config: await saveRuntimeConfig(env, body.config || {}) });
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for POST." });
 }
 
@@ -216,7 +233,8 @@ async function handleDeviceLogin(env, body, ip) {
 
   if (!success) throw new Error("Incorrect passphrase.");
 
-  const hours = deviceType === "shared" ? DEVICE_TOKEN_LIFETIME_HOURS_SHARED : DEVICE_TOKEN_LIFETIME_HOURS_PERSONAL;
+  const runtimeConfig = await getRuntimeConfig(env);
+  const hours = deviceType === "shared" ? runtimeConfig.deviceTokenLifetimeHoursShared : runtimeConfig.deviceTokenLifetimeHoursPersonal;
   const token = await issueGenericToken(env, {
     type: "device",
     deviceType,
@@ -806,7 +824,26 @@ async function resolveRosterWrite(env, body, session) {
   throw new Error(deniedMessage);
 }
 
+/**
+ * Throws if maintenanceMode is on (see runtimeConfig.js / pages/admin.html's
+ * "Worker Settings" tab). Scoped deliberately narrow: only the general
+ * sheet write/delete path used by every ordinary page (Roster, Schedule,
+ * Inspections, Notes, Observations, Announcements, BlackFlagStatus,
+ * Recommendations) — NOT the StaffAccess admin actions or push-subscription
+ * saves, so an admin can still fix a position's access or re-register a
+ * device while maintenance mode is on, and turning it back off (itself an
+ * adminSaveWorkerConfig call, not a sheet write) is never blocked by it.
+ */
+async function assertNotInMaintenanceMode(env) {
+  const { maintenanceMode } = await getRuntimeConfig(env);
+  if (maintenanceMode) {
+    throw new Error("The app is temporarily in read-only maintenance mode — saving and deleting are paused. Try again shortly.");
+  }
+}
+
 async function handleWrite(env, body, session, ctx) {
+  await assertNotInMaintenanceMode(env);
+
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");
@@ -869,6 +906,8 @@ async function handleWrite(env, body, session, ctx) {
 }
 
 async function handleDelete(env, body, session) {
+  await assertNotInMaintenanceMode(env);
+
   const sheetName = body.sheet;
   assertAllowedSheet(sheetName);
   assertPermission(sheetName, "write");

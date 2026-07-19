@@ -108,7 +108,8 @@
     }
 
     .admin-form input[type="text"],
-    .admin-form input[type="password"] {
+    .admin-form input[type="password"],
+    .admin-form input[type="number"] {
       width: 100%;
       font-family: var(--font-body);
       font-size: var(--fs-sm);
@@ -117,6 +118,13 @@
       border-radius: var(--radius-md);
       background: var(--surface-sunken);
       color: var(--ink-900);
+    }
+
+    /* Numbers here are always small (minutes, a request count, days/
+       hours) — a full-width box for typing "5" looks odd next to the
+       text/password fields above, which genuinely need the room. */
+    .admin-form input[type="number"] {
+      max-width: 140px;
     }
 
     .admin-form label.field-label {
@@ -248,6 +256,7 @@
       <div class="admin-tabs tabs" id="admin-tabs-bar" style="display:none;">
         <button class="tabs__tab is-active" data-tab="staff">Staff Access</button>
         <button class="tabs__tab" data-tab="log">Login Activity</button>
+        <button class="tabs__tab" data-tab="settings">Worker Settings</button>
       </div>
 
       <div id="admin-content">
@@ -620,6 +629,130 @@
       Shell.animateIn(contentEl);
     }
 
+    // ---- Worker Settings ---------------------------------------------------
+    //
+    // A small, deliberately short list of operational knobs — see
+    // worker/src/runtimeConfig.js for how these are stored/read on the
+    // backend. Everything here changes LIVE for every device, with no
+    // redeploy, within about a minute (the Worker re-checks its own
+    // cached copy of these values every 60s). Only settings with a real,
+    // explainable effect on cost or reliability are here — this is not a
+    // dumping ground for every constant in the codebase.
+
+    let workerConfig = null; // null until first loaded
+    const DEFAULT_WORKER_CONFIG = {
+      readCacheTtlSeconds: 300,
+      rateLimitPerMinute: 60,
+      maintenanceMode: false,
+      deviceTokenLifetimeHoursPersonal: 24 * 14,
+      deviceTokenLifetimeHoursShared: 8
+    };
+
+    function renderSettingsTab() {
+      tabsBarEl.style.display = "";
+      if (adminTabsIndicator) adminTabsIndicator.move();
+      const cfg = workerConfig || DEFAULT_WORKER_CONFIG;
+      const cacheMinutes = Math.round(cfg.readCacheTtlSeconds / 60);
+      const personalDays = Math.round(cfg.deviceTokenLifetimeHoursPersonal / 24);
+
+      contentEl.innerHTML = `
+        <div class="card admin-form">
+          <h2 class="card-title">Worker Settings</h2>
+          <p class="hint" style="margin-top:0;">
+            These control how the backend (the Cloudflare Worker) behaves for every device, and take effect live for everyone within about a minute — no redeploy needed. The defaults below are safe for normal use; only change one of these if you have a specific reason to.
+          </p>
+
+          <label class="field-label" for="cfg-cache-minutes">How long a direct Google Sheet edit takes to appear</label>
+          <input type="number" id="cfg-cache-minutes" min="1" max="60" step="1" value="${cacheMinutes}">
+          <div class="hint">
+            Edits made THROUGH this app — any Save or Delete on any page — always show up for everyone within moments; this setting has no effect on those. It only matters for someone editing the Google Sheet directly, bypassing the app entirely. Lower = a direct Sheet edit shows up sooner, but the Worker re-checks the Sheet more often in the background. Higher = cheaper, but a direct Sheet edit can take longer to appear. Default: 5 minutes.
+          </div>
+
+          <label class="field-label" for="cfg-rate-limit" style="margin-top: var(--space-5);">Requests allowed per device per minute</label>
+          <input type="number" id="cfg-rate-limit" min="10" max="300" step="5" value="${cfg.rateLimitPerMinute}">
+          <div class="hint">
+            Caps how many requests one signed-in device can make per minute, protecting the Worker and the Google Sheet from being overwhelmed by a single device. Lower it only if you suspect abuse or a malfunctioning device; raise it if legitimate staff see "Too many requests" during normal heavy use, e.g. right after a big announcement when everyone opens the app at once. Default: 60.
+          </div>
+
+          <label class="clear-pw" style="margin-top: var(--space-5);">
+            <input type="checkbox" id="cfg-maintenance-mode" ${cfg.maintenanceMode ? "checked" : ""}>
+            Maintenance mode (read-only)
+          </label>
+          <div class="hint">
+            When on, every page keeps loading and showing data as normal, but Saving and Deleting is paused everywhere — Roster, Schedule, Inspections, Notes, Observations, Announcements, Black Flag, and Awards — with a clear message instead of failing partway through. Staff Access management (this tab) and push-alert sign-up still work as usual. Turn this on before a bulk edit directly in the Google Sheet, or if the Sheet is having problems, so the app doesn't fight you or pile up failed saves; turn it back off when you're done.
+          </div>
+
+          <label class="field-label" for="cfg-device-personal" style="margin-top: var(--space-5);">Personal device sign-in length (days)</label>
+          <input type="number" id="cfg-device-personal" min="1" max="30" step="1" value="${personalDays}">
+          <div class="hint">
+            How long a device marked "My own device" at the passphrase gate stays unlocked before needing the passphrase again. Longer means fewer passphrase re-entries over the encampment; shorter reduces how long a lost or stolen device stays usable. Default: 14 days.
+          </div>
+
+          <label class="field-label" for="cfg-device-shared">Shared/desk device sign-in length (hours)</label>
+          <input type="number" id="cfg-device-shared" min="1" max="168" step="1" value="${cfg.deviceTokenLifetimeHoursShared}">
+          <div class="hint">
+            The same, for a device marked "Shared / desk device" at the passphrase gate — kept short on purpose so it doesn't stay unlocked all day for whoever sits down next. This is separate from the 2-hour inactivity timeout that already signs a POSITION out on any device; that timeout is unaffected by this setting. Default: 8 hours.
+          </div>
+
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
+            <button class="btn btn--primary" id="save-settings-btn">Save changes</button>
+            <button class="btn btn--ghost" id="reset-settings-btn">Reset fields to defaults</button>
+          </div>
+        </div>
+      `;
+
+      document.getElementById("save-settings-btn").addEventListener("click", saveWorkerSettings);
+      document.getElementById("reset-settings-btn").addEventListener("click", () => {
+        // Only resets what's shown in the form — nothing is actually
+        // saved (and nothing changes for any device) until Save changes
+        // is clicked, same as editing any field by hand.
+        workerConfig = { ...DEFAULT_WORKER_CONFIG };
+        renderSettingsTab();
+        Shell.showToast("Fields reset to defaults — click Save changes to apply.", { type: "" });
+      });
+
+      Shell.animateIn(contentEl);
+    }
+
+    async function saveWorkerSettings() {
+      const patch = {
+        readCacheTtlSeconds: Number(document.getElementById("cfg-cache-minutes").value) * 60,
+        rateLimitPerMinute: Number(document.getElementById("cfg-rate-limit").value),
+        maintenanceMode: document.getElementById("cfg-maintenance-mode").checked,
+        deviceTokenLifetimeHoursPersonal: Number(document.getElementById("cfg-device-personal").value) * 24,
+        deviceTokenLifetimeHoursShared: Number(document.getElementById("cfg-device-shared").value)
+      };
+
+      const btn = document.getElementById("save-settings-btn");
+      btn.disabled = true; btn.textContent = "Saving…";
+      try {
+        const res = await Api.adminSaveWorkerConfig(patch);
+        // The backend clamps every field to a sane range — re-render from
+        // what it actually stored, so e.g. a value typed above the max
+        // visibly snaps back to the clamp instead of silently disagreeing
+        // with what's really in effect.
+        workerConfig = res.config;
+        renderSettingsTab();
+        Shell.showToast("Worker settings saved.", { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+        btn.disabled = false; btn.textContent = "Save changes";
+      }
+    }
+
+    async function loadWorkerConfig() {
+      try {
+        const res = await Api.adminGetWorkerConfig();
+        const fresh = res.config;
+        const changed = JSON.stringify(fresh) !== JSON.stringify(workerConfig);
+        workerConfig = fresh;
+        if (activeTab === "settings" && changed) renderSettingsTab();
+      } catch (err) {
+        if (activeTab === "settings") contentEl.innerHTML = `<div class="state-message"><div class="state-message__icon">⚠️</div><p>${esc(err.message)}</p></div>`;
+        Shell.showToast(err.message, { type: "error" });
+      }
+    }
+
     // ---- Loading + tabs --------------------------------------------------
 
     async function loadStaff() {
@@ -679,6 +812,10 @@
         if (loginEntries.length || logTotal) renderLogTab();
         else { contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`; }
         loadLog();
+      } else if (activeTab === "settings") {
+        if (workerConfig) renderSettingsTab();
+        else { contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`; }
+        loadWorkerConfig();
       } else {
         if (staff.length) renderStaffTab();
         else { contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`; }

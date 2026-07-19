@@ -654,7 +654,7 @@
     async function deleteItem(row) {
       const confirmed = await Shell.confirm({
         title: "Remove schedule item?",
-        message: `Remove "${esc(row.Activity)}" on ${esc(groupLabel(row.Date, row))}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
+        message: `Remove “${esc(row.Activity)}” on ${esc(groupLabel(row.Date, row))}${row.Time ? ` at ${esc(row.Time)}` : ""}?`,
         confirmLabel: "Remove",
       });
       if (!confirmed) return;

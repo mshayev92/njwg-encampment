@@ -357,7 +357,7 @@ const Shell = (() => {
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label">Synced</span>
           </span>
-          <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (⌘/Ctrl-K)" aria-label="Search" style="padding: var(--space-2);">
+          <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (Ctrl+K / ⌘+K)" aria-label="Search" style="padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.search}</span>
           </button>
           <div class="theme-menu-wrap">
@@ -2686,7 +2686,11 @@ const Shell = (() => {
     // through on the way in, not somewhere a mid-session deploy would
     // meaningfully interrupt anything.
     initUpdatePrompt_();
-    // Global search keyboard shortcut (⌘/Ctrl-K), available on every page.
+    // Global search keyboard shortcut (Ctrl+K / ⌘+K), available on every
+    // page with a physical keyboard — this app also runs on touch-only
+    // tablets/phones with no keyboard at all, where this listener simply
+    // never fires and the search button (aria-label "Search", no shortcut
+    // mentioned) remains the only, fully sufficient way in.
     if (requireAuth) {
       document.addEventListener("keydown", (e) => {
         if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {

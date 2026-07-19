@@ -966,6 +966,26 @@ const Api = (() => {
         requireDevice: true,
         requireSession: true
       });
+    },
+
+    /**
+     * Returns the current admin-adjustable Worker settings (see
+     * pages/admin.html's "Worker Settings" tab and worker/src/runtimeConfig.js):
+     * { readCacheTtlSeconds, rateLimitPerMinute, maintenanceMode,
+     * deviceTokenLifetimeHoursPersonal, deviceTokenLifetimeHoursShared }.
+     */
+    adminGetWorkerConfig() {
+      return request("adminGetWorkerConfig", { requireDevice: true, requireSession: true });
+    },
+
+    /** Saves a partial patch of Worker settings; the backend clamps every value to a sane range and returns the resulting full config. */
+    adminSaveWorkerConfig(config) {
+      return request("adminSaveWorkerConfig", {
+        method: "POST",
+        body: { config },
+        requireDevice: true,
+        requireSession: true
+      });
     }
   };
 })();
