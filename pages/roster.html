@@ -140,20 +140,6 @@
       justify-content: flex-end;
     }
 
-    .role-badge {
-      display: inline-block;
-      font-size: var(--fs-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      padding: 2px var(--space-2);
-      border-radius: 999px;
-      background: var(--gold-100);
-      color: var(--gold-600);
-      margin-left: var(--space-2);
-      white-space: nowrap;
-      vertical-align: middle;
-    }
-
     /* ---- Flight leadership card ---- */
     .leadership-card {
       margin-bottom: var(--space-4);
@@ -179,7 +165,6 @@
       color: var(--ink-400);
       font-style: italic;
     }
-    .leadership-slot select { margin-top: var(--space-2); width: 100%; }
 
     /* ---- Wingman teams card ---- */
     .wingman-card { margin-bottom: var(--space-5); }
@@ -327,17 +312,19 @@
     const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : []).filter(Boolean);
     const ownFlights = sessionFlightList.filter(f => f.toLowerCase() !== "all");
 
-    // Wingman assignment is scoped tighter than roster editing in general:
-    // only a position whose session is scoped to exactly ONE flight (a
-    // Flight Commander-type "flight profile") may create/edit/remove
-    // wingman groups — a squadron position (two owned flights) or CCT/
-    // Administrator (no owned flight) still sees the groups read-only,
-    // same as anyone without edit-roster at all. This mirrors the "own
-    // flight(s) first" ownFlights list already computed above.
+    // Wingman assignment is its OWN capability, separate from general
+    // roster editing — a flight profile (a position whose session is
+    // scoped to exactly ONE flight, e.g. a Flight Commander) can manage
+    // its own flight's wingman teams whether or not it also has
+    // edit-roster (most flight positions won't — adding/removing
+    // cadets and editing leadership stays edit-roster/Administrator-
+    // only). A squadron position (two owned flights) or CCT/
+    // Administrator (no owned flight) still sees the groups read-only.
+    // The backend enforces this independently — see
+    // assertRosterWriteAccess in worker/src/index.js — this is purely
+    // the UI-side reflection of the same rule.
     const isFlightProfile = ownFlights.length === 1;
-    const canEditWingman = canEditRoster && isFlightProfile;
-
-    const ROLE_LABELS = { FlightComm: "Flight Commander", FlightSgt: "Flight Sergeant" };
+    const canEditWingman = isFlightProfile;
 
     let allRows = [];
     let editingCapId = null; // CapId string being edited, or null for "adding new"
@@ -420,42 +407,34 @@
      * (including someone else's) from that grid.
      */
     /**
-     * Rank + name for a Flight Commander/Sergeant slot, plus (for an
-     * edit-roster position) a <select> of every member of the flight to
-     * reassign it — see setFlightRole below for what a change does.
+     * Rank + name for a Flight Commander/Sergeant slot — read-only. This
+     * box is the ONE place a leadership entry's name is shown "FirstName
+     * LastName" instead of the "LastName, FirstName" used everywhere
+     * else in the app for cadets — Commander/Sergeant are the deliberate
+     * exception (they're flight staff, not cadets — see
+     * Shell.isStaffRosterRow). Role itself is set directly in the Roster
+     * sheet, not from this app — there's no in-app way to reassign it,
+     * so a change here always requires editing the sheet.
      */
-    function renderLeadershipSlot(label, holder, role, members) {
+    function renderLeadershipSlot(label, holder) {
       return `
         <div class="leadership-slot">
           <div class="leadership-slot__label">${esc(label)}</div>
           ${holder
-            ? `<div class="leadership-slot__value">${esc([holder.Rank, holder.Name].filter(Boolean).join(" "))}</div>`
+            ? `<div class="leadership-slot__value">${esc([holder.Rank, holder.FirstName, holder.LastName].filter(Boolean).join(" "))}</div>`
             : `<div class="leadership-slot__value leadership-slot__value--empty">Not yet assigned</div>`}
-          ${canEditRoster ? `
-            <select data-leadership-role="${esc(role)}" aria-label="Assign ${esc(label)}">
-              <option value="">— Not assigned —</option>
-              ${members.map(m => `<option value="${esc(m.CapId)}" ${holder && String(m.CapId) === String(holder.CapId) ? "selected" : ""}>${esc(m.Name)}</option>`).join("")}
-            </select>
-          ` : ""}
         </div>`;
     }
 
-    /** Flight Commander / Flight Sergeant, detected from Role — see ROLE_LABELS. Prominently above the roster table, per-flight. */
+    /** Flight Commander / Flight Sergeant, detected from Role. Prominently above the roster table, per-flight — read-only (see renderLeadershipSlot). */
     function renderLeadershipCard(flight, members) {
       const commander = members.find(m => m.Role === "FlightComm");
       const sergeant = members.find(m => m.Role === "FlightSgt");
       return `
         <div class="card leadership-card">
-          ${renderLeadershipSlot("Flight Commander", commander, "FlightComm", members)}
-          ${renderLeadershipSlot("Flight Sergeant", sergeant, "FlightSgt", members)}
+          ${renderLeadershipSlot("Flight Commander", commander)}
+          ${renderLeadershipSlot("Flight Sergeant", sergeant)}
         </div>`;
-    }
-
-    function wireLeadershipCard(target, flight) {
-      target.querySelectorAll("[data-leadership-role]").forEach(sel => {
-        Shell.enhanceSelect(sel);
-        sel.addEventListener("change", () => setFlightRole(flight, sel.dataset.leadershipRole, sel.value));
-      });
     }
 
     /** { groupId: [members] } for a flight's members — Wingman is a shared free-text id written to every member of a team. */
@@ -502,10 +481,11 @@
 
     /**
      * Wingman team groups for this flight — read-only for everyone except
-     * an "edit-roster" position scoped to exactly this one flight (a
-     * Flight Commander-type position; see canEditWingman). Kept as its
-     * own card, separate from the leadership card and the roster table,
-     * so it reads as one clear idea (cadet pairs/trios) rather than more
+     * a position scoped to exactly this one flight (a "flight profile,"
+     * e.g. Flight Commander; see canEditWingman/isFlightProfile above).
+     * Kept as its own card, separate from the leadership card and the
+     * roster table, so it reads as one clear idea (cadet pairs/trios)
+     * rather than more
      * columns crammed into the table.
      */
     function renderWingmanCard(flight, members) {
@@ -598,7 +578,14 @@
 
     function renderFlightDetail(rows, flight, { showBack = true, container = null } = {}) {
       const target = container || contentEl;
+      // members = every roster row in this flight, including the two
+      // leadership (staff) rows — the leadership/wingman cards need the
+      // full set. The table below only ever shows cadets: leadership
+      // rows appear EXCLUSIVELY in the dedicated leadership card above
+      // it, never duplicated into the general cadet list (see
+      // Shell.isStaffRosterRow).
       const members = rows.filter(m => (m.Flight || "Unassigned") === flight);
+      const cadets = members.filter(m => !Shell.isStaffRosterRow(m));
 
       target.innerHTML = `
         <div class="flight-detail-header">
@@ -607,17 +594,17 @@
           ${canEditRoster ? `<button class="btn btn--ghost" id="add-cadet-btn" style="margin-left:auto;">+ Add Cadet</button>` : ""}
         </div>
         ${members.length ? renderLeadershipCard(flight, members) : ""}
-        ${members.length ? `
+        ${cadets.length ? `
           <div class="card" style="padding: 0; overflow-x: auto;">
             <table class="data-table">
               <thead>
                 <tr><th>CAP ID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th>${canEditRoster ? "<th></th>" : ""}</tr>
               </thead>
               <tbody>
-                ${members.map(m => `
+                ${cadets.map(m => `
                   <tr>
                     <td data-label="CAP ID" class="mono">${esc(m.CapId) || "—"}</td>
-                    <td data-label="Name">${esc(m.Name) || "—"}${m.Role && ROLE_LABELS[m.Role] ? `<span class="role-badge">${esc(ROLE_LABELS[m.Role])}</span>` : ""}</td>
+                    <td data-label="Name">${esc(m.Name) || "—"}</td>
                     <td data-label="Rank">${esc(m.Rank) || "—"}</td>
                     <td data-label="Age">${esc(m.Age) || "—"}</td>
                     <td data-label="Sex">${esc(m.Sex) || "—"}</td>
@@ -648,10 +635,7 @@
       const addBtn = target.querySelector("#add-cadet-btn");
       if (addBtn) addBtn.addEventListener("click", () => openForm(null, flight));
 
-      if (members.length) {
-        wireLeadershipCard(target, flight);
-        wireWingmanCard(target, flight, members);
-      }
+      if (members.length) wireWingmanCard(target, flight, members);
 
       target.querySelectorAll("[data-action='row-menu']").forEach(btn => {
         btn.addEventListener("click", (e) => {
@@ -811,33 +795,6 @@
       if (idx >= 0) allRows[idx] = withName; else allRows.push(withName);
     }
 
-    /**
-     * Reassigns a flight's Flight Commander or Flight Sergeant. Clears
-     * whoever else in the flight currently holds that Role (a role can
-     * only ever have one holder) before assigning the new one — a blank
-     * capId just clears the role entirely ("— Not assigned —").
-     */
-    function setFlightRole(flight, role, capId) {
-      const members = groupByFlight(allRows)[flight] || [];
-      let changed = false;
-      members.forEach(m => {
-        if (m.Role === role && String(m.CapId) !== String(capId)) {
-          persistRosterRow({ ...m, Role: "" });
-          changed = true;
-        }
-      });
-      if (capId) {
-        const target = members.find(m => String(m.CapId) === String(capId));
-        if (target && target.Role !== role) {
-          persistRosterRow({ ...target, Role: role });
-          changed = true;
-        }
-      }
-      if (!changed) return;
-      Api.setCachedRows("Roster", allRows);
-      Shell.showToast(`${ROLE_LABELS[role]} updated.`, { type: "success" });
-      render(allRows);
-    }
 
     /**
      * Creates/edits (existingGroupId set) or disbands (selectedCapIds
@@ -920,15 +877,15 @@
      * in the header for whether it actually landed — this function
      * doesn't wait to find out before showing success.
      *
-     * Role and Wingman aren't on this form at all — they're single-
-     * holder/single-team-membership fields managed exclusively through
-     * the leadership dropdowns and wingman picker (setFlightRole /
-     * saveWingmanGroup above), which enforce "only one Flight Commander"
-     * and "only in one team at a time." Letting this generic form also
-     * set them would open a second, uncoordinated path to the same data
-     * and risk two people ending up simultaneously marked Flight
-     * Commander. Editing an existing row here preserves whatever Role/
-     * Wingman it already has (see the ...existing spread below).
+     * Role and Wingman aren't on this form at all. Role has no in-app
+     * editor at all (see renderLeadershipSlot) — it's set directly in
+     * the Roster sheet. Wingman is managed exclusively through the
+     * wingman picker (saveWingmanGroup above), which enforces "only in
+     * one team at a time" and is permission-scoped differently (a
+     * flight profile, not necessarily edit-roster — see
+     * assertRosterWriteAccess in worker/src/index.js). Editing an
+     * existing row here preserves whatever Role/Wingman it already has
+     * (see the ...existing spread below).
      */
     function saveStudent() {
       const existing = editingCapId ? allRows.find(r => String(r.CapId) === editingCapId) : null;
