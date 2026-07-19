@@ -2,27 +2,30 @@
  * KV-backed cache of a sheet's full getAllValues() result — the same
  * purpose as getCachedSheetValues_ in the old Code.gs, just backed by
  * Workers KV instead of Apps Script's CacheService. Reads are the hot
- * path (every page load warms several sheets), so within the current
- * readCacheTtlSeconds setting (admin-adjustable — see runtimeConfig.js)
- * a repeat read is served from KV instead of re-hitting the Sheets API.
- * Writes invalidate the affected sheet's entry immediately (see
- * invalidateSheetCache), so nobody reads stale data past their own write.
+ * path (every page load warms several sheets), so within
+ * READ_CACHE_TTL_SECONDS a repeat read is served from KV instead of
+ * re-hitting the Sheets API. Writes invalidate the affected sheet's
+ * entry immediately (see invalidateSheetCache), so nobody reads stale
+ * data past their own write.
+ *
+ * This TTL used to be admin-adjustable (a "how long a direct Sheet edit
+ * takes to appear" slider in Worker Settings), trading a shorter window
+ * for more background Sheets API calls. It's a fixed backstop now: an
+ * Administrator who edits the Sheet directly clicks "Sync now" in Worker
+ * Settings (see invalidateAllSheetCaches / the adminSyncSheets action in
+ * index.js) to invalidate every sheet's cache immediately, rather than
+ * waiting out a timer — so the TTL only bounds how long a direct edit
+ * takes to appear if nobody remembers to click that button, and can
+ * stay long (cheap) without cost to the common case.
  */
 
 import { getAllValues, batchGetValues, getSpreadsheetMeta } from "./sheets.js";
-import { getRuntimeConfig } from "./runtimeConfig.js";
+import { ALLOWED_SHEETS } from "./auth.js";
+
+const READ_CACHE_TTL_SECONDS = 3600;
 
 function cacheKeyFor(sheetName) {
   return "sheetvals:" + sheetName;
-}
-
-async function readCacheTtl(env) {
-  const { readCacheTtlSeconds } = await getRuntimeConfig(env);
-  // Workers KV rejects any expirationTtl under 60s — floor it there (see
-  // the note in getCachedSheetValues below). getRuntimeConfig is itself
-  // isolate-cached (runtimeConfig.js), so this doesn't add a KV read on
-  // every call.
-  return Math.max(60, readCacheTtlSeconds);
 }
 
 // sheetName -> in-flight Promise<values[][]>, isolate-local. Two requests
@@ -49,14 +52,7 @@ export async function getCachedSheetValues(env, sheetName) {
     // KV values are capped at 25MB, comfortably larger than any sheet this
     // app deals with, so unlike the old 100KB CacheService limit this
     // essentially never needs a fallback path.
-    //
-    // TTL comes from the admin-adjustable readCacheTtlSeconds (see the
-    // long note on it in auth.js for why it's deliberately minutes, not
-    // seconds — writes invalidate immediately, so this only bounds
-    // direct-sheet-edit visibility, and its length is the main lever on
-    // KV write volume). readCacheTtl() still floors it at KV's 60s
-    // minimum as a safety net.
-    await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: await readCacheTtl(env) });
+    await env.NJWG_KV.put(cacheKeyFor(sheetName), JSON.stringify(values), { expirationTtl: READ_CACHE_TTL_SECONDS });
     return values;
   })();
   inFlightFetches.set(sheetName, promise);
@@ -107,13 +103,12 @@ export async function getCachedSheetValuesBatch(env, sheetNames) {
     if (existing.length) {
       // 3. ONE Sheets API call for every cache-missed sheet.
       const fetched = await batchGetValues(env, existing);
-      const ttl = await readCacheTtl(env);
       await Promise.all(existing.map(async (name) => {
         const values = fetched[name] || [];
         result[name] = values;
         // Populate the same KV key the per-sheet read cache uses, so a
         // later individual read of this sheet is served from cache too.
-        await env.NJWG_KV.put(cacheKeyFor(name), JSON.stringify(values), { expirationTtl: ttl });
+        await env.NJWG_KV.put(cacheKeyFor(name), JSON.stringify(values), { expirationTtl: READ_CACHE_TTL_SECONDS });
       }));
     }
   }
@@ -123,4 +118,16 @@ export async function getCachedSheetValuesBatch(env, sheetNames) {
 
 export function invalidateSheetCache(env, sheetName) {
   return env.NJWG_KV.delete(cacheKeyFor(sheetName));
+}
+
+/**
+ * Invalidates every known sheet's cache entry at once — what the "Sync
+ * now" button in Admin's Worker Settings tab calls after someone edits
+ * the Google Sheet directly. The next read of any sheet (from any
+ * device) re-hits the Sheets API instead of serving whatever was cached
+ * before the edit, rather than waiting up to READ_CACHE_TTL_SECONDS for
+ * it to expire on its own.
+ */
+export function invalidateAllSheetCaches(env) {
+  return Promise.all(ALLOWED_SHEETS.map((name) => env.NJWG_KV.delete(cacheKeyFor(name))));
 }

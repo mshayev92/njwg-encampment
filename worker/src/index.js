@@ -26,7 +26,7 @@ import {
   getColumnBackgroundColorsByValue
 } from "./sheets.js";
 
-import { getCachedSheetValues, getCachedSheetValuesBatch, invalidateSheetCache } from "./readCache.js";
+import { getCachedSheetValues, getCachedSheetValuesBatch, invalidateSheetCache, invalidateAllSheetCaches } from "./readCache.js";
 
 import { sendPush } from "./webPush.js";
 
@@ -227,6 +227,21 @@ async function handlePost(request, env, ctx) {
     await checkRateLimit(env, body.token);
     assertAdmin(session);
     return respond(await handleAdminSyncFlightColors(env));
+  }
+
+  if (body.action === "adminSyncSheets") {
+    // Invalidates the KV read-cache for every sheet, so the next read of
+    // any of them (from any device) re-hits the Sheets API instead of
+    // serving whatever was cached before a direct Google Sheet edit —
+    // what an Administrator clicks right after editing the Sheet
+    // directly, instead of waiting out the cache's TTL. Cheap: it's just
+    // KV deletes, no Sheets API calls of its own.
+    await requireDeviceToken(env, body.deviceToken);
+    const session = await requireSession(env, body.token);
+    await checkRateLimit(env, body.token);
+    assertAdmin(session);
+    await invalidateAllSheetCaches(env);
+    return respond({ ok: true });
   }
 
   return respond({ ok: false, error: "Unknown or missing action for POST." });

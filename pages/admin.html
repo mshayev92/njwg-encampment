@@ -703,7 +703,6 @@
 
     let workerConfig = null; // null until first loaded
     const DEFAULT_WORKER_CONFIG = {
-      readCacheTtlSeconds: 300,
       rateLimitPerMinute: 60,
       maintenanceMode: false,
       deviceTokenLifetimeHoursPersonal: 24 * 14,
@@ -715,7 +714,6 @@
       tabsBarEl.style.display = "";
       if (adminTabsIndicator) adminTabsIndicator.move();
       const cfg = workerConfig || DEFAULT_WORKER_CONFIG;
-      const cacheMinutes = Math.round(cfg.readCacheTtlSeconds / 60);
       const personalDays = Math.round(cfg.deviceTokenLifetimeHoursPersonal / 24);
 
       contentEl.innerHTML = `
@@ -725,11 +723,11 @@
             These control how the backend (the Cloudflare Worker) behaves for every device, and take effect live for everyone within about a minute — no redeploy needed. The defaults below are safe for normal use; only change one of these if you have a specific reason to.
           </p>
 
-          <label class="field-label" for="cfg-cache-minutes">How long a direct Google Sheet edit takes to appear</label>
-          <input type="number" id="cfg-cache-minutes" min="1" max="60" step="1" value="${cacheMinutes}">
-          <div class="hint">
-            Edits made THROUGH this app — any Save or Delete on any page — always show up for everyone within moments; this setting has no effect on those. It only matters for someone editing the Google Sheet directly, bypassing the app entirely. Lower = a direct Sheet edit shows up sooner, but the Worker re-checks the Sheet more often in the background. Higher = cheaper, but a direct Sheet edit can take longer to appear. Default: 5 minutes.
+          <label class="field-label">Google Sheet edited directly?</label>
+          <div class="hint" style="margin-top:0;">
+            Edits made THROUGH this app — any Save or Delete on any page — always show up for everyone within moments; this button has no effect on those. It only matters after someone edits the Google Sheet directly, bypassing the app entirely: click it and the change shows up for everyone right away, instead of waiting for the Worker to notice on its own.
           </div>
+          <button class="btn btn--primary" id="sync-sheets-btn" style="margin-top: var(--space-3);">Sync now</button>
 
           <label class="field-label" for="cfg-rate-limit" style="margin-top: var(--space-5);">Requests allowed per device per minute</label>
           <input type="number" id="cfg-rate-limit" min="10" max="300" step="5" value="${cfg.rateLimitPerMinute}">
@@ -787,8 +785,27 @@
         Shell.showToast("Fields reset to defaults — click Save changes to apply.", { type: "" });
       });
       document.getElementById("sync-flight-colors-btn").addEventListener("click", syncFlightColors);
+      document.getElementById("sync-sheets-btn").addEventListener("click", syncSheets);
 
       Shell.animateIn(contentEl);
+    }
+
+    async function syncSheets() {
+      const btn = document.getElementById("sync-sheets-btn");
+      btn.disabled = true;
+      btn.textContent = "Syncing…";
+      try {
+        await Api.adminSyncSheets();
+        // So THIS device sees the direct Sheet edit right away too,
+        // instead of only after its own cache happens to expire.
+        await Shell.hardRefresh();
+        Shell.showToast("Synced — direct Sheet edits now show up for everyone.", { type: "success" });
+      } catch (err) {
+        Shell.showToast(err.message, { type: "error" });
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Sync now";
+      }
     }
 
     async function syncFlightColors() {
@@ -812,7 +829,6 @@
 
     async function saveWorkerSettings() {
       const patch = {
-        readCacheTtlSeconds: Number(document.getElementById("cfg-cache-minutes").value) * 60,
         rateLimitPerMinute: Number(document.getElementById("cfg-rate-limit").value),
         maintenanceMode: document.getElementById("cfg-maintenance-mode").checked,
         deviceTokenLifetimeHoursPersonal: Number(document.getElementById("cfg-device-personal").value) * 24,
