@@ -148,6 +148,19 @@
     }
 
     .gate-card .btn { width: 100%; }
+
+    /* Same fix as index.html's login screen (see the long comment
+       there): below the app's standard 720px mobile breakpoint, let the
+       screen scroll instead of hiding overflow, so a taller card (e.g.
+       the device-type choice plus an error message) is never clipped
+       with no way to reach the rest of it on a short phone viewport. */
+    @media (max-width: 720px) {
+      .gate-screen {
+        align-items: flex-start;
+        overflow-y: auto;
+        padding: var(--space-5) var(--space-4);
+      }
+    }
   </style>
 </head>
 <body>
