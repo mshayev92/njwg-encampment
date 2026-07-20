@@ -239,6 +239,56 @@
 
     .password-step .field { text-align: left; margin-bottom: 0; }
     .password-step .btn { width: 100%; }
+
+    /* ---- Mobile portrait: a custom, single-column layout ----
+       The desktop card is a fixed 220px/1fr two-column grid, vertically
+       centered inside a fixed-height, overflow:hidden screen. On a phone
+       in portrait that's a double problem: the 220px branding column
+       eats over half the width of a narrow viewport, squeezing the
+       position list/password form into a sliver, AND overflow:hidden
+       means if the resulting (squeezed, so taller) card is taller than
+       the screen, the top and/or bottom of it is simply clipped with no
+       way to scroll to it — which is what made the login screen
+       "cut off" on phones. Below the app's standard 720px mobile
+       breakpoint (see css/app.css), this switches to a single stacked
+       column and lets the screen scroll instead of hiding overflow, so
+       the whole card is always reachable regardless of how tall the
+       position list or an error message makes it. */
+    @media (max-width: 720px) {
+      .login-screen {
+        align-items: flex-start;
+        overflow-y: auto;
+        padding: var(--space-5) var(--space-4);
+      }
+
+      .login-card {
+        grid-template-columns: 1fr;
+        max-width: 440px;
+      }
+
+      .login-card__left {
+        padding: var(--space-5) var(--space-5) var(--space-4);
+      }
+
+      .login-card__mark {
+        width: 52px;
+        height: 52px;
+        margin-bottom: var(--space-2);
+      }
+
+      .login-card__left h1 { font-size: var(--fs-md); }
+
+      .login-card__right {
+        padding: var(--space-5);
+      }
+
+      /* Capped relative to the viewport (not a fixed 320px) so the list
+         never by itself pushes the card taller than the screen — it
+         scrolls internally past this height instead. */
+      .position-list {
+        max-height: 45vh;
+      }
+    }
   </style>
 </head>
 <body>
