@@ -1528,6 +1528,38 @@ const Shell = (() => {
     return out;
   }
 
+  // initPush_ runs on EVERY page load (see Shell.init below) — this app is
+  // a full multi-page site, not an SPA, so a staffer clicking through a
+  // handful of pages used to re-PUT the exact same, unchanged subscription
+  // to KV that many times in a row. The subscription itself doesn't change
+  // page to page, and its 90-day server-side TTL (PUSH_SUB_TTL_SECONDS in
+  // worker/src/index.js) doesn't need touching anywhere near that often —
+  // this localStorage timestamp throttles the "already subscribed, just
+  // keep the backend record fresh" re-save to once a day per device,
+  // cutting what was easily the single largest source of KV writes in the
+  // app down to a small, bounded fraction of it. A genuinely NEW
+  // subscription (first opt-in, or the browser silently rotating the
+  // endpoint) always saves immediately regardless of this timer — only a
+  // confirmed-unchanged endpoint gets throttled.
+  const PUSH_RESAVE_KEY = "njwg_push_last_saved";
+  const PUSH_RESAVE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
+
+  function shouldResavePushSubscription_(endpoint) {
+    try {
+      const raw = localStorage.getItem(PUSH_RESAVE_KEY);
+      if (!raw) return true;
+      const saved = JSON.parse(raw);
+      if (saved.endpoint !== endpoint) return true; // rotated/first-seen endpoint — always resave
+      return (Date.now() - saved.at) >= PUSH_RESAVE_INTERVAL_MS;
+    } catch (e) {
+      return true; // corrupt/unreadable — err toward saving rather than silently skipping forever
+    }
+  }
+
+  function markPushSubscriptionSaved_(endpoint) {
+    try { localStorage.setItem(PUSH_RESAVE_KEY, JSON.stringify({ endpoint, at: Date.now() })); } catch (e) { /* storage full/blocked */ }
+  }
+
   async function initPush_() {
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) return;
     let config;
@@ -1544,8 +1576,15 @@ const Shell = (() => {
       const existing = await reg.pushManager.getSubscription();
       if (existing) {
         // Already subscribed on this device — make sure the backend still
-        // has it (cheap, idempotent), and keep the button hidden.
-        Api.savePushSubscription(existing.toJSON()).catch(() => {});
+        // has it, but only actually re-save when it's been a while (or
+        // this is a different endpoint than what was last confirmed
+        // saved) — see the throttling comment above. Either way, keep the
+        // button hidden; there's nothing for this device to opt into.
+        if (shouldResavePushSubscription_(existing.endpoint)) {
+          Api.savePushSubscription(existing.toJSON())
+            .then(() => markPushSubscriptionSaved_(existing.endpoint))
+            .catch(() => {});
+        }
         return;
       }
     } catch (e) { /* fall through to showing the button */ }
@@ -1572,6 +1611,7 @@ const Shell = (() => {
         applicationServerKey: urlBase64ToUint8Array_(pushVapidKey_)
       });
       await Api.savePushSubscription(sub.toJSON());
+      markPushSubscriptionSaved_(sub.endpoint);
       if (btn) btn.style.display = "none";
       showToast("Alerts enabled on this device.", { type: "success" });
     } catch (e) {
