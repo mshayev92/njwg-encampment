@@ -17,7 +17,7 @@
       document.documentElement.setAttribute("data-theme", njwgThemeResolved);
     } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
   </script>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>NJWG Encampment</title>
   <!-- Deliberately hardcoded dark, unlike every pages/*.html (which
        start light and get corrected to the resolved theme by
@@ -32,7 +32,13 @@
   <meta name="theme-color" content="#080a38">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <!-- "black-translucent" (not "black") makes the status bar itself
+       transparent instead of iOS painting a separate solid-black strip
+       behind it — with viewport-fit=cover above, this screen's own dark
+       navy background shows straight through with no seam between the
+       two. Needs safe-area padding in .login-screen below since content
+       can now render all the way up under the notch/status bar. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/favicon.ico" sizes="any">
@@ -67,6 +73,11 @@
       align-items: center;
       justify-content: center;
       padding: var(--space-5);
+      /* viewport-fit=cover + status-bar-style black-translucent (see
+         above) let this screen's background paint straight under the
+         notch/status bar — this keeps the actual crest/card content
+         clear of it instead of rendering underneath. */
+      padding-top: max(var(--space-5), env(safe-area-inset-top, 0px));
       position: relative;
       overflow: hidden;
       background:

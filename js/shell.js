@@ -3284,6 +3284,15 @@ const Shell = (() => {
     // through on the way in, not somewhere a mid-session deploy would
     // meaningfully interrupt anything.
     initUpdatePrompt_();
+    // Rotating the device mid-scroll leaves the browser holding onto the
+    // OLD scrollY against the NEW (shorter or taller) reflowed layout —
+    // landscape's shorter content can end up entirely above the
+    // preserved scroll position (a blank gap until manually scrolled back
+    // up), and the reverse rotation to portrait can leave the page NOT
+    // at its own top despite otherwise looking done loading. Snapping
+    // scroll back to 0 on every orientation change sidesteps both
+    // directions of this well-known mobile viewport quirk.
+    window.addEventListener("orientationchange", () => window.scrollTo(0, 0));
     // Global search keyboard shortcut (Ctrl+K / ⌘+K), available on every
     // page with a physical keyboard — this app also runs on touch-only
     // tablets/phones with no keyboard at all, where this listener simply
