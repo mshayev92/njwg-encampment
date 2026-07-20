@@ -1900,20 +1900,28 @@ button.date-field__day:hover {
   /* The crest (logo + unit name + its own divider) stays visible here,
      same as the desktop rail — the drawer is meant to read as "the same
      nav, presented as an overlay," not a stripped-down version missing
-     its branding. Clicking it still toggles the collapse preference
-     (same handler as desktop — see toggleNavCollapsed_ in js/shell.js),
-     but that's harmless here: the drawer already ignores
+     its branding. The tablet breakpoint above unconditionally hides
+     .nav-rail__crest-text and centers .nav-rail__crest (there's no room
+     for the unit name next to the icon in its 96px compact rail) — that
+     rule still matches here too (a phone is always <=1024px wide), so
+     it has to be explicitly undone rather than just left alone, or the
+     drawer would silently lose the unit name the exact same way it did
+     before this fix. Clicking the crest still toggles the collapse
+     preference (same handler as desktop — see toggleNavCollapsed_ in
+     js/shell.js), but that's harmless here: the drawer already ignores
      --nav-rail-width (it's a fixed-width overlay, not a grid column),
-     and the two overrides below force the crest text/link labels to
-     stay visible regardless of collapsed state, so a stray tap on it
-     can't visually break the drawer — it just silently updates a
-     preference that only matters again once the same device is back
-     above this breakpoint. A position that collapsed the desktop rail
-     on a previous, wider visit still carries that same
+     and the collapsed-specific overrides below force the crest text/
+     link labels to stay visible regardless of collapsed state too, so a
+     stray tap on it can't visually break the drawer — it just silently
+     updates a preference that only matters again once the same device
+     is back above this breakpoint. A position that collapsed the
+     desktop rail on a previous, wider visit still carries that same
      .app-shell--collapsed class into the drawer (it's a persisted
-     preference, not reset per viewport) — these overrides are the same
-     fix the tablet breakpoint above already applies for its own
-     link-label case, extended to the crest text too. */
+     preference, not reset per viewport) — same reasoning the tablet
+     breakpoint already applies for its own link-label case, extended to
+     the crest text too. */
+  .nav-rail__crest-text { display: block; }
+  .nav-rail__crest { justify-content: flex-start; }
   .app-shell--collapsed .nav-rail__crest-text,
   .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
   .app-shell--collapsed .nav-rail__crest { justify-content: flex-start; gap: var(--space-3); }
@@ -1926,6 +1934,7 @@ button.date-field__day:hover {
   .nav-rail__link {
     flex-direction: row;
     justify-content: flex-start;
+    text-align: left;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-2);
   }

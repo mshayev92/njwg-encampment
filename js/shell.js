@@ -2895,15 +2895,25 @@ const Shell = (() => {
   }
 
   /**
-   * Single-button informational modal — for content that's purely "here's
-   * some information, acknowledge it" (e.g. the iOS install instructions),
-   * where Shell.confirm()'s yes/no framing (and boolean return value)
-   * wouldn't make sense. Reuses the same themed .modal-card/.modal-overlay
-   * as confirmDialog. bodyHtml is trusted markup from this file, not user
-   * input — callers must escape any dynamic values themselves before
-   * interpolating them in.
+   * Informational modal — for content that's purely "here's some
+   * information, acknowledge it" (e.g. the iOS install instructions) or
+   * "here's some information, then take this one action" (e.g. the CSV-
+   * format-help modals on Roster/Schedule, which proceed into a file
+   * picker), where Shell.confirm()'s yes/no framing (and boolean return
+   * value) wouldn't make sense. Reuses the same themed .modal-card/
+   * .modal-overlay as confirmDialog. bodyHtml is trusted markup from
+   * this file, not user input — callers must escape any dynamic values
+   * themselves before interpolating them in.
+   *
+   * onClose fires ONLY when the primary (closeLabel) button is actually
+   * clicked — outside-click, Escape, and the optional cancelLabel button
+   * all just dismiss the modal with no callback, the same confirm-vs-
+   * cancel distinction Shell.confirm() already makes. A caller wiring
+   * onClose to a real side effect (e.g. opening a file picker) would
+   * otherwise have that effect fire on EVERY way of leaving the modal,
+   * including ones meant to back out of it entirely.
    */
-  function showInfoModal_({ title = "", bodyHtml = "", closeLabel = "Got it", onClose } = {}) {
+  function showInfoModal_({ title = "", bodyHtml = "", closeLabel = "Got it", cancelLabel = null, onClose } = {}) {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     overlay.innerHTML = `
@@ -2912,6 +2922,7 @@ const Shell = (() => {
         <h3 id="info-modal-title">${title}</h3>
         <div class="modal-card__body">${bodyHtml}</div>
         <div class="modal-card__actions">
+          ${cancelLabel ? `<button class="btn btn--ghost" id="info-modal-cancel-btn">${cancelLabel}</button>` : ""}
           <button class="btn btn--primary" id="info-modal-close-btn">${closeLabel}</button>
         </div>
       </div>
@@ -2920,19 +2931,25 @@ const Shell = (() => {
     const releaseFocus = trapFocus_(overlay);
 
     let closed = false;
-    const close = () => {
+    /** Always dismisses; only calls onClose when `confirmed` (the primary button, or Enter). */
+    const dismiss = (confirmed) => {
       if (closed) return;
       closed = true;
       document.removeEventListener("keydown", onKeydown);
       releaseFocus();
       overlay.remove();
-      if (onClose) onClose();
+      if (confirmed && onClose) onClose();
     };
-    const onKeydown = (e) => { if (e.key === "Escape" || e.key === "Enter") close(); };
+    const onKeydown = (e) => {
+      if (e.key === "Escape") dismiss(false);
+      if (e.key === "Enter") dismiss(true);
+    };
     document.addEventListener("keydown", onKeydown);
 
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
-    document.getElementById("info-modal-close-btn").addEventListener("click", close);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) dismiss(false); });
+    const cancelBtn = document.getElementById("info-modal-cancel-btn");
+    if (cancelBtn) cancelBtn.addEventListener("click", () => dismiss(false));
+    document.getElementById("info-modal-close-btn").addEventListener("click", () => dismiss(true));
     document.getElementById("info-modal-close-btn").focus();
   }
 

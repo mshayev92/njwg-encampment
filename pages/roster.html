@@ -930,6 +930,7 @@
           <p style="margin: var(--space-3) 0 0; font-size: var(--fs-xs); color: var(--ink-600);">Each row upserts by CapId — importing a CAPID that already exists updates that cadet instead of duplicating them. Role/Wingman/Room are left untouched on an existing cadet unless the file explicitly includes that column.</p>
         `,
         closeLabel: "Choose File",
+        cancelLabel: "Cancel",
         onClose: importRosterCsv
       });
     }
