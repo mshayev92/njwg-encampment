@@ -1913,6 +1913,12 @@ button.date-field__day:hover {
      of the backdrop popping in/out a beat out of sync with the drawer's
      own slide. */
   .mobile-nav-backdrop {
+    /* The base rule (outside this breakpoint) sets display:none so the
+       backdrop never renders at all on desktop/tablet/landscape — this
+       has to explicitly turn it back on at this breakpoint, or it stays
+       display:none (and un-clickable) even while "open," since opacity/
+       visibility alone don't override an earlier display:none. */
+    display: block;
     position: fixed;
     inset: 0;
     background: rgba(13, 18, 80, 0.35);

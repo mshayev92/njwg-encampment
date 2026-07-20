@@ -47,9 +47,22 @@
   <link rel="stylesheet" href="css/app.css">
 
   <style>
+    /* This screen is always dark regardless of the light/dark theme
+       toggle (see the theme-color meta above), but css/app.css's
+       html/body rule paints var(--bg), which DOES follow that toggle —
+       on a light-mode device the body's own background peeked through
+       as a light strip above .login-screen (100vh can render a hair
+       short of the real viewport on mobile, e.g. while Safari's chrome
+       is animating). Pin body to the same dark navy so there's nothing
+       but this screen's own background to ever see, and use 100dvh so
+       the screen itself tracks the real visual viewport instead of the
+       larger layout one.
+    */
+    html, body { background: var(--indigo-950); }
+
     /* Login-page-specific styles (not needed elsewhere, kept local) */
     .login-screen {
-      min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       align-items: center;
       justify-content: center;

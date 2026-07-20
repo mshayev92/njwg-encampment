@@ -49,8 +49,15 @@
   <link rel="stylesheet" href="css/app.css">
 
   <style>
+    /* See index.html's matching comment — this screen is always dark,
+       but css/app.css's html/body rule paints the theme-following
+       var(--bg), which peeked through as a light strip above
+       .offline-screen on a light-mode device. Pin body to the same dark
+       navy, and use 100dvh so the screen tracks the real viewport. */
+    html, body { background: var(--indigo-950); }
+
     .offline-screen {
-      min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       align-items: center;
       justify-content: center;

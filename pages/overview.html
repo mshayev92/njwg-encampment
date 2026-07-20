@@ -892,7 +892,7 @@
     // ---- Flight Standings --------------------------------------------------
     //
     // A single blended score per flight from data the app already collects
-    // every day — Uniform/Room inspection results, the 34-Point
+    // every day — Uniform/Room inspection results, the EOW
     // Assessment, positive vs. concern Observations — so that routine
     // logging surfaces as something worth glancing at, not just raw
     // records nobody sees until Trends or an awards review. Uses only
@@ -900,7 +900,7 @@
     // fetch, no extra Worker/KV cost.
     //
     // Physical Training does NOT factor in here (or into Awards' Weekly
-    // Standings) — the 34-Point Assessment is this app's actual physical
+    // Standings) — the EOW Assessment is this app's actual physical
     // readiness score now; PTInspections/PT_SCORE_ITEMS stay fully intact
     // elsewhere (logging, history, the Inspect tab's own scorecard,
     // Today's Inspections progress below) purely as a record, not a
@@ -916,7 +916,7 @@
     const STANDINGS_ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
     const STANDINGS_ASSESSMENT_MAX_SCORE = 34; // see ASSESSMENT_SCORE_ITEMS in pages/inspections.html
 
-    // Uniform/Room/the 34-Point Assessment are each already a natural 0-1
+    // Uniform/Room/the EOW Assessment are each already a natural 0-1
     // rate (points scored out of the possible total) — weighted and
     // summed AS-IS, on their own absolute scale, not relative to other
     // flights, so a flight scoring 92% reads as 92%, not merely "better
@@ -1041,12 +1041,12 @@
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/34-Point Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
           </p>
           <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
-            <div class="field" style="margin-bottom:0;"><label for="w-assessment">34-Point Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-assessment">EOW Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-concern">Concern Observations (penalty)</label><input type="number" id="w-concern" min="0" max="100" value="${esc(weights.concernObs)}"></div>
           </div>
@@ -1067,7 +1067,7 @@
             <h2 class="card-title" style="min-width:0; margin:0;">Flight Standings</h2>
             ${isAdmin ? `<button class="btn btn--ghost" id="edit-standings-weights-btn" style="padding: var(--space-1) var(--space-3); font-size: var(--fs-xs); flex-shrink:0;">${editingStandingsWeights ? "Close" : "Edit weights"}</button>` : ""}
           </div>
-          <p style="font-size: var(--fs-2xs); color: var(--ink-600); margin: var(--space-2) 0 var(--space-1);">Blended from Uniform/Room/34-Point Assessment inspection results and Observations logged so far.</p>
+          <p style="font-size: var(--fs-2xs); color: var(--ink-600); margin: var(--space-2) 0 var(--space-1);">Blended from Uniform/Room/EOW Assessment inspection results and Observations logged so far.</p>
           <p style="font-size: var(--fs-2xs); color: var(--ink-600); margin: 0 0 var(--space-3); font-style: italic;">A relative comparison, not a full measure of performance — and not a determiner for Honor Flight (see Recommendations).</p>
           ${isAdmin && editingStandingsWeights ? renderWeightsForm(weights) : ""}
           ${standings.map((f, i) => {
