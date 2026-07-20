@@ -2959,10 +2959,13 @@ const Shell = (() => {
       document.getElementById("modal-cancel-btn").addEventListener("click", () => cleanup(false));
       document.getElementById("modal-confirm-btn").addEventListener("click", () => cleanup(true));
       const confirmBtn = document.getElementById("modal-confirm-btn");
-      confirmBtn.focus();
-      // Focusing a button below the fold scrolls .modal-card's own
-      // overflow-y:auto to reveal it — on a tall message this opened the
-      // modal already scrolled to the actions row instead of the title.
+      // preventScroll stops the browser from scrolling .modal-card's own
+      // overflow-y:auto (and, on mobile, the page itself) to reveal a
+      // button below the fold — on a tall message this opened the modal
+      // already scrolled to the actions row instead of the title. The
+      // scrollTop reset below is a belt-and-suspenders fallback for
+      // browsers that don't support preventScroll.
+      confirmBtn.focus({ preventScroll: true });
       overlay.querySelector(".modal-card").scrollTop = 0;
     });
   }
@@ -3023,11 +3026,13 @@ const Shell = (() => {
     const cancelBtn = document.getElementById("info-modal-cancel-btn");
     if (cancelBtn) cancelBtn.addEventListener("click", () => dismiss(false));
     document.getElementById("info-modal-close-btn").addEventListener("click", () => dismiss(true));
-    document.getElementById("info-modal-close-btn").focus();
-    // Focusing a button below the fold scrolls .modal-card's own
-    // overflow-y:auto to reveal it — on a long body (e.g. the CSV-
-    // format-help table) this opened the modal already scrolled to the
-    // actions row instead of the title/body content.
+    // preventScroll stops the browser from scrolling .modal-card's own
+    // overflow-y:auto (and, on mobile, the page itself) to reveal a
+    // button below the fold — on a long body (e.g. the CSV-format-help
+    // table) this opened the modal already scrolled to the actions row
+    // instead of the title/body content. The scrollTop reset below is a
+    // belt-and-suspenders fallback for browsers without preventScroll.
+    document.getElementById("info-modal-close-btn").focus({ preventScroll: true });
     overlay.querySelector(".modal-card").scrollTop = 0;
   }
 
@@ -3069,10 +3074,10 @@ const Shell = (() => {
       overlay.remove();
       showNextAlertModal_();
     });
-    document.getElementById("alert-modal-dismiss-btn").focus();
     // See showInfoModal_'s matching comment — focusing the dismiss
     // button below the fold otherwise scrolls a long body straight to
     // the bottom before the user sees the top.
+    document.getElementById("alert-modal-dismiss-btn").focus({ preventScroll: true });
     overlay.querySelector(".modal-card").scrollTop = 0;
   }
 
