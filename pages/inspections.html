@@ -2542,7 +2542,12 @@
         inspectionPeriods = periodsHandle.data.rows || [];
         revealTabsBar();
         renderPeriodsSection();
-        renderFlightGrid();
+        // Refresh (the header button re-invokes this same load()) has to
+        // redraw whatever's actually on screen, not always the Inspect
+        // tab's flight grid — renderActiveView() dispatches on currentView
+        // (Periods/Trends/Students/History/...), same as every other
+        // background revalidation in this file.
+        renderActiveView();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
@@ -2562,12 +2567,14 @@
           // when the revalidated data is identical (each handle's own
           // subscriber above already re-renders on any ACTUAL change).
           if (!allCachedNow) {
-            selectedFlight = null;
-            selectedStudent = null;
-            selectedInspectionDate = null;
             revealTabsBar();
             renderPeriodsSection();
-            renderFlightGrid();
+            // See the allCachedNow branch above — same reasoning applies
+            // to a cold load's first paint. Drill-down state (selectedFlight/
+            // selectedStudent/selectedInspectionDate) is deliberately left
+            // alone rather than reset, so a refresh while drilled into a
+            // flight/student doesn't kick the viewer back out to the grid.
+            renderActiveView();
           }
         })
         .catch((err) => {
