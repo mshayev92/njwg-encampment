@@ -485,7 +485,24 @@ const Shell = (() => {
     }
 
     const logoutBtn = document.getElementById("logout-btn");
-    if (logoutBtn) logoutBtn.addEventListener("click", () => Auth.logout());
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", async () => {
+        closeProfileMenu_();
+        // Logging back in needs a live connection (session issuing hits
+        // the Worker), unlike everything else in this app, which keeps
+        // working offline on whatever's already cached — so a position
+        // that logs out without realizing that is locked out of the app
+        // entirely until it's back online, not just stuck with stale
+        // data. Confirming first (with that consequence spelled out)
+        // costs nothing and prevents an accidental tap from doing this.
+        const confirmed = await confirmDialog({
+          title: "Log out?",
+          message: "You'll need an internet connection to log back in.",
+          confirmLabel: "Log out"
+        });
+        if (confirmed) Auth.logout();
+      });
+    }
 
     wireProfileMenu_();
     wireThemeMenu_();
@@ -1996,7 +2013,28 @@ const Shell = (() => {
     return Promise.all([announcementsCache.ready, blackFlagCache.ready, notesCache.ready]).catch(() => {});
   }
 
+  // Matches the two generic connectivity error messages js/api.js throws
+  // from its request() helper (see "Network error reaching the server..."
+  // and "Request timed out..." in js/api.js) — the messages a background
+  // sheet revalidation (mountSheet/hardRefresh/warmCache/etc.) surfaces
+  // when the device has no connection.
+  const NETWORK_ERROR_MESSAGE_RE = /network error reaching the server|request timed out/i;
+
   function showToast(message, { type = "" } = {}) {
+    // This app is deliberately offline-first: every page renders from
+    // its persisted cache first and revalidates in the background (see
+    // Api.getSheetCached), and the header's sync-indicator pill already
+    // reads "Offline" the instant connectivity drops (wireSyncIndicator_
+    // above). A background read failing because there's no connection
+    // is an EXPECTED consequence of that design, not a real error — so
+    // don't also pop a "Network error reaching the server" toast over
+    // whatever's already on screen. Anything else (a genuine server-side
+    // failure, a validation error, etc.) still shows as normal, online
+    // or not.
+    if (type === "error" && typeof navigator !== "undefined" && navigator.onLine === false && NETWORK_ERROR_MESSAGE_RE.test(message || "")) {
+      return;
+    }
+
     const existing = document.querySelector(".toast");
     if (existing) existing.remove();
 
