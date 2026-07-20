@@ -159,6 +159,10 @@
     const session = Auth.getSession();
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditSchedule = sessionPages.includes("edit-schedule");
+    // Bulk CSV import is restricted to an Administrator specifically —
+    // stricter than canEditSchedule's edit-schedule grant, since a bad
+    // file can add/overwrite a whole day's worth of activities at once.
+    const isAdmin = sessionPages.includes("admin");
     const sessionFlights = Array.isArray(session?.Flights) ? session.Flights : [];
     // Left hidden (see markup) until render() below reveals them once the
     // schedule has actually loaded — showing them here, synchronously at
@@ -362,7 +366,7 @@
     function render(rows) {
       addItemBtn.style.display = canEditSchedule ? "inline-flex" : "none";
       addScheduleBtn.style.display = canEditSchedule ? "inline-flex" : "none";
-      importCsvBtn.style.display = canEditSchedule ? "inline-flex" : "none";
+      importCsvBtn.style.display = (canEditSchedule && isAdmin) ? "inline-flex" : "none";
 
       if (!rows.length) {
         scheduleTabsBarEl.style.display = "none";
@@ -620,6 +624,35 @@
      * corrected file safely updates matching rows instead of duplicating
      * them.
      */
+    /**
+     * Shown before the file picker opens — spells out (and shows
+     * visually as a table) the header row importScheduleCsv() actually
+     * reads, rather than leaving a person to guess at it.
+     */
+    function showScheduleCsvFormatHelp() {
+      Shell.showInfoModal({
+        title: "CSV Format — Schedule Import",
+        bodyHtml: `
+          <p style="margin: 0 0 var(--space-3);">The first row must be a header row with these column names, in any order.</p>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="margin:0;">
+              <thead><tr><th>Column</th><th>Required</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr><td>Date</td><td>Yes</td><td>2026-07-20</td></tr>
+                <tr><td>Time</td><td>No</td><td>08:00</td></tr>
+                <tr><td>Activity</td><td>Yes</td><td>Reveille</td></tr>
+                <tr><td>Location</td><td>No</td><td>Barracks</td></tr>
+                <tr><td>Audience</td><td>No</td><td>Bravo</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin: var(--space-3) 0 0; font-size: var(--fs-xs); color: var(--ink-600);">Audience is a Flight/Squadron name, or blank for everyone. Each row upserts by matching Date/Time/Activity, so re-importing a corrected file updates matching rows instead of duplicating them.</p>
+        `,
+        closeLabel: "Choose File",
+        onClose: importScheduleCsv
+      });
+    }
+
     async function importScheduleCsv() {
       let parsed;
       try {
@@ -742,7 +775,7 @@
       openAddForm(active ? active.date : "");
     });
     addScheduleBtn.addEventListener("click", () => openAddForm(""));
-    importCsvBtn.addEventListener("click", importScheduleCsv);
+    importCsvBtn.addEventListener("click", showScheduleCsvFormatHelp);
     if (canEditSchedule) loadAudienceOptions();
 
     // Instant-then-revalidate load, spinner, error state, and Refresh

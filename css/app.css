@@ -87,6 +87,12 @@ html, body {
   /* Long unbroken strings (CAPIDs, emails, URLs) wrap instead of
      stretching the layout; a final guard against horizontal scroll. */
   overflow-wrap: break-word;
+  /* Overscrolling past the top/bottom (mobile Safari's rubber-band
+     bounce, Chrome's overscroll glow) would otherwise reveal the
+     browser's own default-white canvas past the document edge instead
+     of this app's background — this pins scrolling to the document's
+     actual bounds so there's nothing but --bg to ever see. */
+  overscroll-behavior-y: none;
 }
 
 body { overflow-x: hidden; }
@@ -1740,8 +1746,17 @@ button.date-field__day:hover {
   .app-main { padding: var(--space-5); }
 }
 
-/* Mobile: nav rail becomes a bottom tab bar */
-@media (max-width: 720px) {
+/* Mobile: nav rail becomes a bottom tab bar.
+   Plain max-width alone made a portrait tablet/large phone (e.g. an
+   iPad Mini at 768px wide) fall into the >720px tablet breakpoint
+   above instead — a desktop-shaped side rail squeezed onto a narrow
+   portrait screen, which is what read as "inherited from desktop and
+   works a little weird." Matching on orientation too (in addition to
+   the plain width for actual phones) means any portrait device up to
+   1024px wide gets the bottom tab bar instead; the same device rotated
+   to landscape still gets the wider tablet side rail from the rule
+   above, since only the width condition can match there. */
+@media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr var(--bottom-tab-height);
@@ -1756,6 +1771,22 @@ button.date-field__day:hover {
     gap: var(--space-3);
   }
   .app-header__title { font-size: var(--fs-lg); }
+
+  /* In portrait, the action cluster (black flag pill, sync status,
+     search, theme, notifications) used to wrap in DOM order right next
+     to the profile tab, landing wherever there happened to be room —
+     visually cluttered next to the page title. Pinning the profile tab
+     to its own full-width row (order:-1 + flex-basis:100% forces every
+     OTHER flex item in this wrap container onto the next line, same
+     trick as a forced flex break) puts every pill/button underneath it
+     as a single row instead. */
+  .app-header__user { justify-content: flex-start; }
+  .profile-menu-wrap {
+    order: -1;
+    flex: 1 0 100%;
+    display: flex;
+    justify-content: flex-end;
+  }
 
   .nav-rail {
     flex-direction: row;

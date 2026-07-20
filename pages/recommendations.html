@@ -101,33 +101,32 @@
     /* ---- Weekly standings (aggregated top contenders) ---- */
     .rec-mode-tabs { margin-bottom: var(--space-5); }
 
+    /* Plain number-input fields, matching pages/overview.html's Flight
+       Standings weights layout (see .weights-fields-grid there) rather
+       than the range sliders this used to be — same reasoning: a label
+       that wraps to two lines ("Honor Cadet Nominations") must not push
+       just that one field's input a row lower than its neighbors, so
+       every label reserves the same fixed two-line height regardless of
+       whether it actually wraps. */
     .weights-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: var(--space-4) var(--space-5);
       margin-top: var(--space-4);
     }
-    .weight-field { display: flex; flex-direction: column; gap: var(--space-2); }
-    .weight-field__head {
+    .weights-grid .field label {
+      min-height: 2.4em;
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: var(--space-2);
+      align-items: flex-start;
     }
-    .weight-field__label { font-size: var(--fs-sm); font-weight: 600; color: var(--heading); }
-    .weight-field__value { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-900); }
     .weight-field__dir {
       font-size: var(--fs-2xs);
       text-transform: uppercase;
       letter-spacing: var(--tracking-wide);
       color: var(--ink-600);
+      margin-top: var(--space-1);
     }
     .weight-field__dir--neg { color: var(--red-600); }
-    .weight-field input[type="range"] {
-      width: 100%;
-      accent-color: var(--gold-500);
-      cursor: pointer;
-    }
 
     .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
     .standings-row {
@@ -279,6 +278,7 @@
     let uniformRows = [];
     let roomRows = [];
     let ptRows = [];
+    let assessmentRows = []; // PhysicalAssessments — the 34-Point Assessment, admin-entered only
     let observationRows = [];
     let hcAttested = false;
     let hfAttested = false;
@@ -942,22 +942,25 @@
     const WEIGHT_STORAGE_KEY = "njwg_award_weights_v2";
     const UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
     const ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
+    const ASSESSMENT_MAX_SCORE = 34; // see ASSESSMENT_SCORE_ITEMS in pages/inspections.html
 
     // dir: +1 raises the score, -1 lowers it (a bad signal). def: default
     // share, out of 100 — each mode's def values sum to 100.
     const RANKING_METRICS = {
       hc: [
-        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 20 },
+        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
-        { id: "pt",         label: "Physical Training",        dir: 1,  def: 15 },
+        { id: "pt",         label: "Physical Training",        dir: 1,  def: 10 },
+        { id: "assessment", label: "34-Point Assessment",      dir: 1,  def: 10 },
         { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
         { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
         { id: "hcRecs",     label: "Honor Cadet Nominations",  dir: 1,  def: 20 }
       ],
       hf: [
-        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 20 },
+        { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
-        { id: "pt",         label: "Physical Training",        dir: 1,  def: 15 },
+        { id: "pt",         label: "Physical Training",        dir: 1,  def: 10 },
+        { id: "assessment", label: "34-Point Assessment",      dir: 1,  def: 10 },
         { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
         { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
         { id: "hfRecs",     label: "Honor Flight Nominations", dir: 1,  def: 20 }
@@ -1030,7 +1033,7 @@
       const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r));
       const byCap = {};
       cadets.forEach(c => {
-        byCap[String(c.CapId)] = { uniform: [], room: [], ptPassed: 0, ptAttempted: 0, posObs: 0, concernObs: 0, hcRecs: 0 };
+        byCap[String(c.CapId)] = { uniform: [], room: [], ptPassed: 0, ptAttempted: 0, assessment: [], posObs: 0, concernObs: 0, hcRecs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
@@ -1039,6 +1042,7 @@
         const e = byCap[String(r.StudentCapId)];
         if (e) { e.ptPassed += num(r.TotalPoints); e.ptAttempted += num(r.ItemsAttempted); }
       });
+      assessmentRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.assessment.push(num(r.Score) / ASSESSMENT_MAX_SCORE); });
       observationRows.forEach(r => {
         const e = byCap[String(r.StudentCapId)];
         if (!e) return;
@@ -1057,6 +1061,7 @@
             uniform: mean(e.uniform),
             room: mean(e.room),
             pt: e.ptAttempted ? e.ptPassed / e.ptAttempted : null,
+            assessment: mean(e.assessment),
             posObs: e.posObs,
             concernObs: e.concernObs,
             hcRecs: e.hcRecs
@@ -1086,7 +1091,7 @@
       return Object.keys(byFlight).sort().map(f => {
         const list = byFlight[f];
         const agg = {};
-        ["uniform", "room", "pt", "posObs", "concernObs"].forEach(k => {
+        ["uniform", "room", "pt", "assessment", "posObs", "concernObs"].forEach(k => {
           const vals = list.map(m => m[k]).filter(v => v !== null && v !== undefined);
           agg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
         });
@@ -1095,23 +1100,18 @@
       });
     }
 
-    function fmtPercent(p) { return `${Math.round(p)}%`; }
-
     function fmtMetric(id, v) {
       if (v === null || v === undefined) return "—";
-      if (id === "uniform" || id === "room" || id === "pt") return `${Math.round(num(v) * 100)}%`;
+      if (id === "uniform" || id === "room" || id === "pt" || id === "assessment") return `${Math.round(num(v) * 100)}%`;
       return String(Math.round(num(v) * 10) / 10);
     }
 
     function weightFieldHtml(m, mode) {
       const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
-        <div class="weight-field">
-          <div class="weight-field__head">
-            <span class="weight-field__label">${esc(m.label)}</span>
-            <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(draftWeights[mode][m.id])}</span>
-          </div>
-          <input type="range" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
+        <div class="field" style="margin-bottom:0;">
+          <label for="w-${mode}-${m.id}">${esc(m.label)}</label>
+          <input type="number" id="w-${mode}-${m.id}" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
           <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
@@ -1223,18 +1223,16 @@
       if (!gridEl) return;
       gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode)).join("");
 
-      // Each slider is independent — moving one does NOT rebalance the
+      // Each field is independent — changing one does NOT rebalance the
       // others (unlike an earlier version of this panel). The person
       // manually adjusts every component until the running total below
       // reads 100%, which — together with an actual change — is what
-      // enables Save. Dragging only edits the draft; it deliberately does
+      // enables Save. Typing only edits the draft; it deliberately does
       // NOT touch `weights`, save to localStorage, or re-score the
       // standings below. That only happens when "Save Weights" is clicked.
       gridEl.querySelectorAll("input[data-weight]").forEach(input => {
         input.addEventListener("input", () => {
           draftWeights[mode][input.dataset.weight] = Number(input.value);
-          const valEl = document.getElementById(`w-val-${mode}-${input.dataset.weight}`);
-          if (valEl) valEl.textContent = fmtPercent(Number(input.value));
           updateWeightsPanelState();
         });
       });
@@ -1353,10 +1351,12 @@
       const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => { uniformRows = fresh.rows || []; refreshWeeklyIfActive(); });
       const roomHandle = Api.getSheetCached("RoomInspections",    (fresh) => { roomRows = fresh.rows || []; refreshWeeklyIfActive(); });
       const ptHandle = Api.getSheetCached("PTInspections",      (fresh) => { ptRows = fresh.rows || []; refreshWeeklyIfActive(); });
+      const assessmentHandle = Api.getSheetCached("PhysicalAssessments", (fresh) => { assessmentRows = fresh.rows || []; refreshWeeklyIfActive(); });
       const obsHandle = Api.getSheetCached("Observations",       (fresh) => { observationRows = fresh.rows || []; refreshWeeklyIfActive(); });
       uniformRows = (uniformHandle.data && uniformHandle.data.rows) || [];
       roomRows = (roomHandle.data && roomHandle.data.rows) || [];
       ptRows = (ptHandle.data && ptHandle.data.rows) || [];
+      assessmentRows = (assessmentHandle.data && assessmentHandle.data.rows) || [];
       observationRows = (obsHandle.data && obsHandle.data.rows) || [];
 
       const allCachedNow = !!(rosterHandle.data && hcHandle.data && hfHandle.data);

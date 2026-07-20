@@ -12,7 +12,7 @@
  */
 
 import {
-  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
+  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, PHYSICAL_ASSESSMENT_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
   HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS, FLIGHT_STANDINGS_WEIGHTS_COLUMNS,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
@@ -794,9 +794,10 @@ async function handleBatchRead(env, params) {
  *
  * A position WITHOUT edit-roster gets two narrower exceptions instead:
  *
- *   - Room: ANY signed-in position may set a cadet's Room, for any
- *     cadet in any flight — see pages/roster.html's inline Room input.
- *     No flight scoping at all; this one's intentionally wide open.
+ *   - Room: any signed-in position may set a cadet's Room, but only for
+ *     a cadet in one of ITS OWN assigned Flights (blank/"all" Flights —
+ *     a CCT/Administrator-shaped session — is unscoped) — see
+ *     pages/roster.html's inline Room input.
  *   - Wingman: only a position scoped to exactly one flight (a "flight
  *     profile" — e.g. a Flight Commander) may reassign wingman teams,
  *     and only for a cadet whose STORED Flight (not whatever Flight
@@ -868,6 +869,21 @@ async function resolveRosterWrite(env, body, session) {
   };
 
   if (requestedChange("Room")) {
+    // Scoped the same way every other flight-restricted grant in this
+    // app is: the session's OWN assigned Flights (blank/"all" = no
+    // scoping at all — a CCT/Administrator-shaped session), checked
+    // against the cadet's STORED Flight, never a hardcoded flight or
+    // squadron name. A multi-flight (squadron) session may edit Room
+    // for any of its own flights, unlike Wingman below which requires
+    // exactly one.
+    const flights = (Array.isArray(session.flights) ? session.flights : []).map((f) => String(f).toLowerCase());
+    const scoped = flights.length > 0 && !flights.includes("all");
+    if (scoped) {
+      const existingFlight = String(existing.Flight || "").trim().toLowerCase();
+      if (!existingFlight || !flights.includes(existingFlight)) {
+        throw new Error("You can only edit Room for cadets in your own flight.");
+      }
+    }
     return { row: { ...existing, Room: rowData.Room }, matchColumns: ["CapId"] };
   }
 
@@ -927,6 +943,11 @@ async function handleWrite(env, body, session, ctx) {
       rowData = resolved.row;
       matchColumns = resolved.matchColumns;
     }
+  } else if (sheetName === "PhysicalAssessments") {
+    // Same shape as FlightStandingsWeights below — no page owns this
+    // sheet's write access, an Administrator directly gates it, since
+    // the 34-Point Assessment is scored by admin/IAT staff only.
+    assertAdmin(session);
   } else if (sheetName === "FlightStandingsWeights") {
     // No nav page owns this sheet (it's not tied to a "page" the way
     // assertPageWriteAccess's PAGE_WRITE_GATES model expects — everyone
@@ -1037,6 +1058,9 @@ async function ensureAutoCreatedTab(env, sheetName) {
   if (sheetName === "PTInspections") {
     await ensureSheetExists(env, "PTInspections", PT_INSPECTION_COLUMNS);
   }
+  if (sheetName === "PhysicalAssessments") {
+    await ensureSheetExists(env, "PhysicalAssessments", PHYSICAL_ASSESSMENT_COLUMNS);
+  }
   if (sheetName === "HonorCadetRecommendations") {
     await ensureSheetExists(env, "HonorCadetRecommendations", HONOR_CADET_RECOMMENDATION_COLUMNS);
   }
@@ -1057,7 +1081,7 @@ async function ensureAutoCreatedTab(env, sheetName) {
     // pages/overview.html, so a device that reads this before anyone has
     // ever saved custom weights (or before this tab even exists) sees the
     // exact same scores either way.
-    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 30, 20, 20, 30, 20, "", ""]]);
+    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 25, 15, 15, 15, 30, 20, "", ""]]);
   }
   if (sheetName === "Observations") {
     await ensureSheetExists(env, "Observations", OBSERVATION_COLUMNS);
