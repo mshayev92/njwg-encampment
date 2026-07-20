@@ -135,7 +135,7 @@ window.APP_CONFIG = {
     roster:          ["Roster"],
     inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments"],
     observations:    ["Roster", "Observations"],
-    recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations", "UniformInspections", "RoomInspections", "PTInspections", "PhysicalAssessments", "Observations"],
+    recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations", "UniformInspections", "RoomInspections", "PhysicalAssessments", "Observations"],
     notes:           ["Roster", "Notes"],
     announcements:   ["Announcements", "BlackFlagStatus"],
     admin:           ["Roster"]
