@@ -68,6 +68,24 @@
       gap: var(--space-4);
     }
 
+    /* Flight Standings weight fields — a plain grid left each field's
+       input wherever its own label happened to end, so a label that
+       wraps to two lines ("Concern Observations (penalty)") pushed just
+       THAT input a row lower than every single-line-label field next to
+       it. Reserving a fixed two-line height for every label, regardless
+       of whether it actually wraps, keeps every input's top edge level
+       across the whole row. */
+    .weights-fields-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: var(--space-3);
+    }
+    .weights-fields-grid .field label {
+      min-height: 2.4em;
+      display: flex;
+      align-items: flex-start;
+    }
+
     /* ---- Welcome card: a time-of-day "scene" (gradient sky + sun/moon/
        stars/clouds), purely CSS — no images or network calls, so it
        never has anything to fail/load and matches every other card's
@@ -981,7 +999,7 @@
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
             How much each factor counts toward a flight's score. Uniform/Room/PT/34-Point Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
           </p>
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-3);">
+          <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pt">Physical Training</label><input type="number" id="w-pt" min="0" max="100" value="${esc(weights.pt)}"></div>

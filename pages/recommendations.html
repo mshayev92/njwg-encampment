@@ -101,33 +101,32 @@
     /* ---- Weekly standings (aggregated top contenders) ---- */
     .rec-mode-tabs { margin-bottom: var(--space-5); }
 
+    /* Plain number-input fields, matching pages/overview.html's Flight
+       Standings weights layout (see .weights-fields-grid there) rather
+       than the range sliders this used to be — same reasoning: a label
+       that wraps to two lines ("Honor Cadet Nominations") must not push
+       just that one field's input a row lower than its neighbors, so
+       every label reserves the same fixed two-line height regardless of
+       whether it actually wraps. */
     .weights-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: var(--space-4) var(--space-5);
       margin-top: var(--space-4);
     }
-    .weight-field { display: flex; flex-direction: column; gap: var(--space-2); }
-    .weight-field__head {
+    .weights-grid .field label {
+      min-height: 2.4em;
       display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: var(--space-2);
+      align-items: flex-start;
     }
-    .weight-field__label { font-size: var(--fs-sm); font-weight: 600; color: var(--heading); }
-    .weight-field__value { font-family: var(--font-mono); font-size: var(--fs-sm); color: var(--ink-900); }
     .weight-field__dir {
       font-size: var(--fs-2xs);
       text-transform: uppercase;
       letter-spacing: var(--tracking-wide);
       color: var(--ink-600);
+      margin-top: var(--space-1);
     }
     .weight-field__dir--neg { color: var(--red-600); }
-    .weight-field input[type="range"] {
-      width: 100%;
-      accent-color: var(--gold-500);
-      cursor: pointer;
-    }
 
     .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
     .standings-row {
@@ -1101,8 +1100,6 @@
       });
     }
 
-    function fmtPercent(p) { return `${Math.round(p)}%`; }
-
     function fmtMetric(id, v) {
       if (v === null || v === undefined) return "—";
       if (id === "uniform" || id === "room" || id === "pt" || id === "assessment") return `${Math.round(num(v) * 100)}%`;
@@ -1112,12 +1109,9 @@
     function weightFieldHtml(m, mode) {
       const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
-        <div class="weight-field">
-          <div class="weight-field__head">
-            <span class="weight-field__label">${esc(m.label)}</span>
-            <span class="weight-field__value" id="w-val-${mode}-${m.id}">${fmtPercent(draftWeights[mode][m.id])}</span>
-          </div>
-          <input type="range" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
+        <div class="field" style="margin-bottom:0;">
+          <label for="w-${mode}-${m.id}">${esc(m.label)}</label>
+          <input type="number" id="w-${mode}-${m.id}" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
           <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
@@ -1229,18 +1223,16 @@
       if (!gridEl) return;
       gridEl.innerHTML = metrics.map(m => weightFieldHtml(m, mode)).join("");
 
-      // Each slider is independent — moving one does NOT rebalance the
+      // Each field is independent — changing one does NOT rebalance the
       // others (unlike an earlier version of this panel). The person
       // manually adjusts every component until the running total below
       // reads 100%, which — together with an actual change — is what
-      // enables Save. Dragging only edits the draft; it deliberately does
+      // enables Save. Typing only edits the draft; it deliberately does
       // NOT touch `weights`, save to localStorage, or re-score the
       // standings below. That only happens when "Save Weights" is clicked.
       gridEl.querySelectorAll("input[data-weight]").forEach(input => {
         input.addEventListener("input", () => {
           draftWeights[mode][input.dataset.weight] = Number(input.value);
-          const valEl = document.getElementById(`w-val-${mode}-${input.dataset.weight}`);
-          if (valEl) valEl.textContent = fmtPercent(Number(input.value));
           updateWeightsPanelState();
         });
       });
