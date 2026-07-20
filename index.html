@@ -68,6 +68,9 @@
 
     /* Login-page-specific styles (not needed elsewhere, kept local) */
     .login-screen {
+      /* Fallback for browsers/webviews without dvh support — see the
+         matching comment on .gate-screen in gate.html. */
+      min-height: 100vh;
       min-height: 100dvh;
       display: flex;
       align-items: center;
