@@ -1528,9 +1528,16 @@
         // Administrator can still log the EOW Assessment ad-hoc
         // (see the isAdmin branch below) since that score isn't tied to
         // the uniform/room/pt scheduling flow the same way.
+        //
+        // The "schedule a period" follow-up only makes sense for
+        // whoever can actually see and use the "+ Schedule Period"
+        // button (gated on canEditInspections, not isAdmin) — pointing
+        // someone without that access at a button they don't have is
+        // just a dead end, so the hint is dropped entirely for them.
         if (!scheduledToday.length) {
+          const scheduleHint = canEditInspections ? " Schedule a period above to begin one." : "";
           if (!isAdmin) {
-            return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No inspection is scheduled for today — nothing to start. Schedule a period above to begin one.</p>`;
+            return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No inspection is scheduled for today — nothing to start.${scheduleHint}</p>`;
           }
           const doneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
           return `
@@ -1539,7 +1546,7 @@
                 ${doneToday ? "Update: " : "New "}${TYPE_LABELS.assessment}
               </button>
             </div>
-            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No uniform/room/PT inspection is scheduled for today — nothing to start there. Schedule a period above to begin one.</p>
+            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No uniform/room/PT inspection is scheduled for today — nothing to start there.${scheduleHint}</p>
           `;
         }
         const assessmentDoneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
