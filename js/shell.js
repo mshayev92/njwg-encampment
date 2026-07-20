@@ -3395,6 +3395,7 @@ const Shell = (() => {
   function enhanceTabs(container) {
     if (!container) return null;
     container.classList.add("tabs--enhanced");
+    wireTabsScroll_(container);
 
     let indicator = container.querySelector(":scope > .tabs__indicator");
     if (!indicator) {
@@ -3409,11 +3410,71 @@ const Shell = (() => {
       indicator.style.opacity = "1";
       indicator.style.width = `${active.offsetWidth}px`;
       indicator.style.left = `${active.offsetLeft}px`;
+      // The active tab can be scrolled out of view (e.g. clicked via
+      // keyboard, or newly active after a re-render) — bring it back
+      // into the visible portion of the strip so the indicator is
+      // never sitting off-screen.
+      active.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 
     move();
     window.addEventListener("resize", move);
     return { move };
+  }
+
+  /**
+   * A .tabs bar scrolls horizontally (see the CSS comment in
+   * css/app.css) once it has more tabs than fit — but touch/trackpad
+   * panning aside, a plain mouse has no built-in way to pan a
+   * horizontally-scrolling element. This adds click-and-drag scrolling
+   * (like a "grab" scroller) plus lets a normal vertical mouse-wheel
+   * scroll it horizontally, so it's actually usable with a mouse.
+   * Idempotent — safe to call repeatedly on the same container (e.g.
+   * every enhanceTabs call after a re-render).
+   */
+  function wireTabsScroll_(container) {
+    if (container.dataset.dragScrollWired) return;
+    container.dataset.dragScrollWired = "true";
+
+    let isDown = false;
+    let dragged = false;
+    let startX = 0;
+    let startScrollLeft = 0;
+
+    container.addEventListener("mousedown", (e) => {
+      isDown = true;
+      dragged = false;
+      startX = e.pageX;
+      startScrollLeft = container.scrollLeft;
+      container.classList.add("is-dragging");
+    });
+
+    const stopDrag = () => {
+      isDown = false;
+      container.classList.remove("is-dragging");
+    };
+    container.addEventListener("mouseleave", stopDrag);
+    window.addEventListener("mouseup", stopDrag);
+
+    container.addEventListener("mousemove", (e) => {
+      if (!isDown) return;
+      const delta = e.pageX - startX;
+      if (Math.abs(delta) > 4) dragged = true;
+      container.scrollLeft = startScrollLeft - delta;
+    });
+
+    // A drag that moved the strip shouldn't also register as a tab
+    // click on whatever button the cursor happened to end up over.
+    container.addEventListener("click", (e) => {
+      if (dragged) { e.stopPropagation(); e.preventDefault(); }
+    }, true);
+
+    container.addEventListener("wheel", (e) => {
+      if (container.scrollWidth <= container.clientWidth) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      container.scrollLeft += e.deltaY;
+      e.preventDefault();
+    }, { passive: false });
   }
 
   return {
