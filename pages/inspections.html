@@ -1528,9 +1528,15 @@
         // Administrator can still log the EOW Assessment ad-hoc
         // (see the isAdmin branch below) since that score isn't tied to
         // the uniform/room/pt scheduling flow the same way.
+        //
+        // "Schedule a period above" pointed everyone at the "+ Schedule
+        // Period" button regardless of whether they could actually see
+        // it (gated on canEditInspections, not isAdmin) — dropped
+        // entirely, matching every other empty state in the app, which
+        // is a neutral "No X yet" with no dangling CTA.
         if (!scheduledToday.length) {
           if (!isAdmin) {
-            return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No inspection is scheduled for today — nothing to start. Schedule a period above to begin one.</p>`;
+            return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No inspection is scheduled for today — nothing to start.</p>`;
           }
           const doneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
           return `
@@ -1539,7 +1545,7 @@
                 ${doneToday ? "Update: " : "New "}${TYPE_LABELS.assessment}
               </button>
             </div>
-            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No uniform/room/PT inspection is scheduled for today — nothing to start there. Schedule a period above to begin one.</p>
+            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No uniform/room/PT inspection is scheduled for today — nothing to start there.</p>
           `;
         }
         const assessmentDoneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);

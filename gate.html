@@ -49,6 +49,13 @@
     html, body { background: var(--indigo-950); }
 
     .gate-screen {
+      /* Fallback for browsers/webviews without dvh support — without
+         this, min-height falls back to auto entirely (dvh isn't a
+         valid vh value to substitute), collapsing the screen to just
+         wrap the card and leaving the plain body background exposed
+         below it instead of a full-height, actually-centered flex
+         container. */
+      min-height: 100vh;
       min-height: 100dvh;
       display: flex;
       align-items: center;

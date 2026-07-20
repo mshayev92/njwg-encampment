@@ -1581,17 +1581,40 @@ button.date-field__day:hover {
 
 .context-menu__item--danger { color: var(--garnet-600); }
 
-/* ---- Tabs (segmented control) ---- */
+/* ---- Tabs (segmented control) ----
+   `max-width: 100%` + `overflow-x: auto` on the container, plus
+   `flex: none` + `white-space: nowrap` on each tab, are what keep a
+   tab bar with more tabs than fit (e.g. Schedule's day tabs once
+   several days exist) to a single scrollable row. Without them, flex's
+   default shrink behavior squeezes each tab's text until it wraps
+   onto multiple lines — inflating the bar's height — and once the
+   tabs hit their minimum content width the bar (and its ancestors)
+   get pushed wider than the viewport, forcing the whole PAGE to
+   scroll horizontally instead of just this bar. See Shell.enhanceTabs
+   in js/shell.js for the accompanying drag-to-scroll wiring (a plain
+   mouse, unlike touch/trackpad, has no built-in way to pan a
+   horizontally-scrolling element). */
 .tabs {
   position: relative;
   display: inline-flex;
+  max-width: 100%;
   gap: var(--space-1);
   background: var(--surface-sunken);
   border-radius: var(--radius-md);
   padding: var(--space-1);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+.tabs.is-dragging {
+  cursor: grabbing;
+  user-select: none;
 }
 
 .tabs__tab {
+  flex: none;
+  white-space: nowrap;
   padding: var(--space-2) var(--space-4);
   font-size: var(--fs-sm);
   font-weight: 600;
