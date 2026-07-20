@@ -332,6 +332,11 @@
     const session = Auth.getSession();
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditRoster = sessionPages.includes("edit-roster");
+    // Bulk CSV import is restricted to an Administrator specifically —
+    // a stricter gate than canEditRoster's edit-roster grant, since a
+    // bad/malformed file can silently overwrite many cadets at once
+    // (each row upserts by CapId — see importRosterCsv below).
+    const isAdmin = sessionPages.includes("admin");
 
     // Roster intentionally is NOT flight-scoped like Inspections/
     // Observations/Overview (see worker/src/auth.js) — any position with
@@ -796,7 +801,7 @@
       // see its style="display:none") now that there's actually a roster
       // to search. Idempotent — harmless to set on every render.
       toolbarEl.style.display = "";
-      if (canEditRoster) importCsvBtn.style.display = "inline-flex";
+      if (canEditRoster && isAdmin) importCsvBtn.style.display = "inline-flex";
       if (selectedFlight) {
         renderFlightDetail(rows, selectedFlight);
       } else {
@@ -883,6 +888,41 @@
      * corrected export) safely updates existing cadets instead of
      * duplicating them.
      */
+    /**
+     * Shown before the file picker opens — a person clicking Import CSV
+     * with no example in front of them has no way to know the expected
+     * header row, so this spells it out (and shows it visually as a
+     * table) rather than leaving them to guess or dig through docs.
+     */
+    function showRosterCsvFormatHelp() {
+      Shell.showInfoModal({
+        title: "CSV Format — Roster Import",
+        bodyHtml: `
+          <p style="margin: 0 0 var(--space-3);">The first row must be a header row with (any subset of) these column names, in any order. Unknown extra columns are ignored.</p>
+          <div style="overflow-x:auto;">
+            <table class="data-table" style="margin:0;">
+              <thead><tr><th>Column</th><th>Required</th><th>Example</th></tr></thead>
+              <tbody>
+                <tr><td>CapId</td><td>Yes</td><td>123456</td></tr>
+                <tr><td>FirstName</td><td>One of First/Last</td><td>Jordan</td></tr>
+                <tr><td>LastName</td><td>One of First/Last</td><td>Smith</td></tr>
+                <tr><td>Rank</td><td>No</td><td>C/SSgt</td></tr>
+                <tr><td>Flight</td><td>No</td><td>Bravo</td></tr>
+                <tr><td>Age</td><td>No</td><td>15</td></tr>
+                <tr><td>Sex</td><td>No</td><td>M</td></tr>
+                <tr><td>Role</td><td>No</td><td>Flight Commander</td></tr>
+                <tr><td>Wingman</td><td>No</td><td>123457</td></tr>
+                <tr><td>Room</td><td>No</td><td>12</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin: var(--space-3) 0 0; font-size: var(--fs-xs); color: var(--ink-600);">Each row upserts by CapId — importing a CAPID that already exists updates that cadet instead of duplicating them. Role/Wingman/Room are left untouched on an existing cadet unless the file explicitly includes that column.</p>
+        `,
+        closeLabel: "Choose File",
+        onClose: importRosterCsv
+      });
+    }
+
     async function importRosterCsv() {
       let parsed;
       try {
@@ -1176,7 +1216,7 @@
     }
 
     searchInput.addEventListener("input", applyFilter);
-    importCsvBtn.addEventListener("click", importRosterCsv);
+    importCsvBtn.addEventListener("click", showRosterCsvFormatHelp);
     Shell.registerRefresh(load);
 
     // Export the full roster. Lead with the common identity columns —

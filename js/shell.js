@@ -2729,7 +2729,7 @@ const Shell = (() => {
    * input — callers must escape any dynamic values themselves before
    * interpolating them in.
    */
-  function showInfoModal_({ title = "", bodyHtml = "", closeLabel = "Got it" } = {}) {
+  function showInfoModal_({ title = "", bodyHtml = "", closeLabel = "Got it", onClose } = {}) {
     const overlay = document.createElement("div");
     overlay.className = "modal-overlay";
     overlay.innerHTML = `
@@ -2745,10 +2745,14 @@ const Shell = (() => {
     document.body.appendChild(overlay);
     const releaseFocus = trapFocus_(overlay);
 
+    let closed = false;
     const close = () => {
+      if (closed) return;
+      closed = true;
       document.removeEventListener("keydown", onKeydown);
       releaseFocus();
       overlay.remove();
+      if (onClose) onClose();
     };
     const onKeydown = (e) => { if (e.key === "Escape" || e.key === "Enter") close(); };
     document.addEventListener("keydown", onKeydown);
@@ -3142,6 +3146,7 @@ const Shell = (() => {
     formatDateTime: formatDateTime_, formatTime: formatTime_,
     formatRelativeTime: formatRelativeTime_,
     showUndoToast, parseCsv, pickAndParseCsv,
+    showInfoModal: showInfoModal_,
     animateIn, enhanceTabs
   };
 })();
