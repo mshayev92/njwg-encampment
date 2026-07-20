@@ -54,7 +54,30 @@
       display: flex;
       flex-direction: column;
       gap: var(--space-3);
+    }
+
+    .staff-group + .staff-group {
+      margin-top: var(--space-6);
+    }
+    .staff-group:first-of-type {
       margin-top: var(--space-5);
+    }
+
+    .staff-group__header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: var(--space-3);
+    }
+
+    .staff-group__title {
+      font-family: var(--font-display);
+      font-size: var(--fs-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--ink-600);
+      margin: 0;
     }
 
     .staff-row {
@@ -308,7 +331,7 @@
     let loginEntries = [];       // [{ Timestamp, Type, Identifier, Success }]
     let logTotal = 0;
     let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
-    let editingAllFlights = false; // "Edit all Flights" bulk form open — mutually exclusive with `editing`
+    let bulkGroup = null;         // "flights" | "ats" | null — which group's bulk "Edit all" form is open, mutually exclusive with `editing`
     let failuresOnly = false;
     // Real flight names, sourced from the Roster tab (read is "any"
     // signed-in position per SHEET_PERMISSIONS, so this works regardless
@@ -343,28 +366,43 @@
       return flights.join(", ");
     }
 
+    // A position is an "Advanced Training School" position when every
+    // flight it's scoped to is one of the fixed ATS flights (India/
+    // Juliet — see Shell.isAtsFlight in js/shell.js), regardless of what
+    // the position happens to be named. This is what separates the ATS
+    // group from the ordinary Flights group below.
+    function isAtsPosition(s) {
+      const flights = s.Flights || [];
+      return flights.length > 0 && flights.every(f => Shell.isAtsFlight(f));
+    }
+
     // A "flight position" is any StaffAccess position whose NAME matches
     // an actual flight in the Roster (the same "position name IS the
-    // flight name" convention index.html's login screen already uses) —
+    // flight name" convention index.html's login screen already uses),
+    // excluding ATS positions (those get their own group below) —
     // data-driven off rosterFlightNames rather than a hardcoded list, so
     // it never needs updating when a flight is added/renamed/removed.
     // These are what "Edit all Flights" below bulk-applies Pages to.
     function flightPositions() {
       const flightNamesLower = new Set(rosterFlightNames.map(f => f.toLowerCase()));
-      return staff.filter(s => flightNamesLower.has(s.Position.toLowerCase()));
+      return staff.filter(s => flightNamesLower.has(s.Position.toLowerCase()) && !isAtsPosition(s));
+    }
+
+    function atsPositions() {
+      return staff.filter(isAtsPosition);
+    }
+
+    function groupPositions(key) {
+      if (key === "flights") return flightPositions();
+      if (key === "ats") return atsPositions();
+      return [];
     }
 
     function renderStaffForm() {
-      if (editing === null && !editingAllFlights) {
-        const flights = flightPositions();
-        return `
-          <div style="display:flex; gap: var(--space-3); flex-wrap:wrap;">
-            <button class="btn btn--primary" id="add-position-btn">+ Add position</button>
-            ${flights.length ? `<button class="btn btn--ghost" id="edit-all-flights-btn" data-tooltip="Applies one set of Pages to every flight position at once — ${flights.map(f => esc(f.Position)).join(', ')}">Edit all Flights</button>` : ""}
-          </div>
-        `;
+      if (editing === null && !bulkGroup) {
+        return `<button class="btn btn--primary" id="add-position-btn">+ Add position</button>`;
       }
-      if (editingAllFlights) return renderBulkFlightsForm();
+      if (bulkGroup) return renderBulkFlightsForm(bulkGroup);
       const isNew = editing === "";
       const current = isNew ? null : staff.find(s => s.Position === editing);
       const currentPages = current ? current.Pages.map(p => p.toLowerCase()) : [];
@@ -470,31 +508,33 @@
     }
 
     /**
-     * "Edit all Flights" — since every flight position normally holds
-     * the same Pages, this applies one set of checkboxes to ALL of them
-     * in one Save instead of opening each one individually. It's a bulk
-     * WRITE, not a live-inheriting default: after using this, a specific
-     * flight can still be opened and edited on its own (the normal "Edit
-     * <flight>" flow below), exactly as before — that edit only touches
-     * that one flight and isn't overwritten by this form existing.
-     * Starts with nothing checked (there's no single "current" set of
-     * Pages to show when the flights might differ from each other) —
-     * Flights/Password are untouched per-position fields, so this form
-     * only ever has Pages checkboxes, no Flights/Password section.
+     * "Edit all" for a group — since positions within a group normally
+     * hold the same Pages, this applies one set of checkboxes to ALL of
+     * them in one Save instead of opening each one individually. It's a
+     * bulk WRITE, not a live-inheriting default: after using this, a
+     * specific position can still be opened and edited on its own (the
+     * normal "Edit <position>" flow below), exactly as before — that
+     * edit only touches that one position and isn't overwritten by this
+     * form existing. Starts with nothing checked (there's no single
+     * "current" set of Pages to show when members might differ from
+     * each other) — Flights/Password are untouched per-position fields,
+     * so this form only ever has Pages checkboxes, no Flights/Password
+     * section.
      */
-    function renderBulkFlightsForm() {
-      const flights = flightPositions();
+    function renderBulkFlightsForm(key) {
+      const positions = groupPositions(key);
+      const groupTitle = key === "ats" ? "Advanced Training School" : "Flights";
       const editGateByBase = new Map(EDIT_GATES.map(g => [g.id.replace(/^edit-/, ""), g]));
       const basePages = window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label }));
 
       return `
         <div class="card admin-form">
-          <h2 class="card-title">Edit all Flights</h2>
+          <h2 class="card-title">Edit all — ${esc(groupTitle)}</h2>
           <div class="hint" style="margin-top:0;">
-            Applies the Pages checked below to every flight position at once — ${flights.map(f => esc(f.Position)).join(", ")} — overwriting each one's current Pages. Each flight's own Flights scope and Password are left untouched. You can still open and edit one specific flight afterward to give it different access, the same as always.
+            Applies the Pages checked below to every position in this group at once — ${positions.map(p => esc(p.Position)).join(", ")} — overwriting each one's current Pages. Each position's own Flights scope and Password are left untouched. You can still open and edit one specific position afterward to give it different access, the same as always.
           </div>
 
-          <label class="field-label">Pages every flight can access</label>
+          <label class="field-label">Pages this group can access</label>
           <div class="page-checks">
             ${basePages.map(p => {
               const editGate = editGateByBase.get(p.id);
@@ -514,7 +554,7 @@
           </div>
 
           <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
-            <button class="btn btn--primary" id="save-all-flights-btn">Apply to all ${flights.length} flights</button>
+            <button class="btn btn--primary" id="save-all-flights-btn">Apply to all ${positions.length}</button>
             <button class="btn btn--ghost" id="cancel-all-flights-btn">Cancel</button>
           </div>
         </div>
@@ -557,6 +597,69 @@
       `;
     }
 
+    function renderStaffRow(s) {
+      const isAdmin = s.Pages.map(p => p.toLowerCase()).includes("admin");
+      const previewOpen = previewOpenPositions.has(s.Position);
+      return `
+        <div class="staff-row">
+          <div style="min-width:0;">
+            <div class="staff-row__name">
+              ${esc(s.Position)}
+              ${isAdmin ? `<span class="badge badge--gold">Admin</span>` : ""}
+              ${s.hasPassword ? `<span class="badge badge--garnet">🔒 Password</span>` : ""}
+            </div>
+            <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
+            <div class="staff-row__chips">
+              ${(() => {
+                // Show at most CHIP_LIMIT page chips and fold the
+                // rest into a single "+N" chip, rather than letting
+                // a position with many pages wrap the whole card
+                // onto extra rows of chips (see .staff-row__chips'
+                // flex-wrap — a card with 10 pages used to grow
+                // tall with 2-3 rows of little tags).
+                const CHIP_LIMIT = 5;
+                const shown = s.Pages.slice(0, CHIP_LIMIT);
+                const hidden = s.Pages.length - shown.length;
+                const chips = shown.map(p => `<span class="chip">${esc(p)}</span>`).join("");
+                const overflow = hidden > 0 ? `<span class="chip" data-tooltip="${esc(s.Pages.slice(CHIP_LIMIT).join(", "))}">+${hidden}</span>` : "";
+                return chips + overflow || `<span class="chip">no pages</span>`;
+              })()}
+            </div>
+            ${previewOpen ? renderAccessPreview(s) : ""}
+          </div>
+          <div class="staff-row__actions">
+            <button class="btn btn--ghost" data-preview="${esc(s.Position)}" aria-expanded="${previewOpen}">${previewOpen ? "Hide preview" : "Preview access"}</button>
+            <button class="btn btn--ghost" data-edit="${esc(s.Position)}">Edit</button>
+            <button class="btn btn--danger" data-delete="${esc(s.Position)}">Delete</button>
+          </div>
+        </div>`;
+    }
+
+    /**
+     * One named section of the staff list (Flights / Advanced Training
+     * School / Other) — grouping keeps the flat list from turning into
+     * a wall of near-identical flight rows, and gives each group its own
+     * "Edit all" bulk-permissions entry point (only shown once there's
+     * more than one position in the group to actually bulk-apply to).
+     */
+    function renderStaffGroup(title, positions, bulkKey) {
+      if (!positions.length) return "";
+      const bulkBtn = bulkKey && positions.length > 1 ? `
+        <button class="btn btn--ghost" id="edit-all-${esc(bulkKey)}-btn" data-tooltip="Applies one set of Pages to every position in this group at once — ${positions.map(p => esc(p.Position)).join(", ")}">Edit all</button>
+      ` : "";
+      return `
+        <div class="staff-group">
+          <div class="staff-group__header">
+            <h3 class="staff-group__title">${esc(title)}</h3>
+            ${bulkBtn}
+          </div>
+          <div class="staff-list">
+            ${positions.map(renderStaffRow).join("")}
+          </div>
+        </div>
+      `;
+    }
+
     function renderStaffList() {
       if (!staff.length) {
         return `
@@ -565,47 +668,16 @@
             <p>No positions found. If you're locked out, add <span class="chip">admin</span> to a position's Pages column directly in the StaffAccess Google Sheet to bootstrap the first administrator.</p>
           </div>`;
       }
-      return `
-        <div class="staff-list">
-          ${staff.slice().sort((a, b) => a.Position.localeCompare(b.Position)).map(s => {
-            const isAdmin = s.Pages.map(p => p.toLowerCase()).includes("admin");
-            const previewOpen = previewOpenPositions.has(s.Position);
-            return `
-              <div class="staff-row">
-                <div style="min-width:0;">
-                  <div class="staff-row__name">
-                    ${esc(s.Position)}
-                    ${isAdmin ? `<span class="badge badge--gold">Admin</span>` : ""}
-                    ${s.hasPassword ? `<span class="badge badge--garnet">🔒 Password</span>` : ""}
-                  </div>
-                  <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
-                  <div class="staff-row__chips">
-                    ${(() => {
-                      // Show at most CHIP_LIMIT page chips and fold the
-                      // rest into a single "+N" chip, rather than letting
-                      // a position with many pages wrap the whole card
-                      // onto extra rows of chips (see .staff-row__chips'
-                      // flex-wrap — a card with 10 pages used to grow
-                      // tall with 2-3 rows of little tags).
-                      const CHIP_LIMIT = 5;
-                      const shown = s.Pages.slice(0, CHIP_LIMIT);
-                      const hidden = s.Pages.length - shown.length;
-                      const chips = shown.map(p => `<span class="chip">${esc(p)}</span>`).join("");
-                      const overflow = hidden > 0 ? `<span class="chip" data-tooltip="${esc(s.Pages.slice(CHIP_LIMIT).join(", "))}">+${hidden}</span>` : "";
-                      return chips + overflow || `<span class="chip">no pages</span>`;
-                    })()}
-                  </div>
-                  ${previewOpen ? renderAccessPreview(s) : ""}
-                </div>
-                <div class="staff-row__actions">
-                  <button class="btn btn--ghost" data-preview="${esc(s.Position)}" aria-expanded="${previewOpen}">${previewOpen ? "Hide preview" : "Preview access"}</button>
-                  <button class="btn btn--ghost" data-edit="${esc(s.Position)}">Edit</button>
-                  <button class="btn btn--danger" data-delete="${esc(s.Position)}">Delete</button>
-                </div>
-              </div>`;
-          }).join("")}
-        </div>
-      `;
+      const sortByName = arr => arr.slice().sort((a, b) => a.Position.localeCompare(b.Position));
+      const flights = flightPositions();
+      const ats = atsPositions();
+      const grouped = new Set([...flights, ...ats].map(s => s.Position));
+      const other = staff.filter(s => !grouped.has(s.Position));
+      return [
+        renderStaffGroup("Flights", sortByName(flights), "flights"),
+        renderStaffGroup("Advanced Training School", sortByName(ats), "ats"),
+        renderStaffGroup("Other", sortByName(other), null),
+      ].join("");
     }
 
     function renderStaffTab() {
@@ -620,7 +692,9 @@
       const addBtn = document.getElementById("add-position-btn");
       if (addBtn) addBtn.addEventListener("click", () => { editing = ""; renderStaffTab(); });
       const editAllFlightsBtn = document.getElementById("edit-all-flights-btn");
-      if (editAllFlightsBtn) editAllFlightsBtn.addEventListener("click", () => { editingAllFlights = true; renderStaffTab(); });
+      if (editAllFlightsBtn) editAllFlightsBtn.addEventListener("click", () => { bulkGroup = "flights"; renderStaffTab(); });
+      const editAllAtsBtn = document.getElementById("edit-all-ats-btn");
+      if (editAllAtsBtn) editAllAtsBtn.addEventListener("click", () => { bulkGroup = "ats"; renderStaffTab(); });
 
       const saveBtn = document.getElementById("save-position-btn");
       if (saveBtn) saveBtn.addEventListener("click", savePosition);
@@ -630,7 +704,7 @@
       const saveAllFlightsBtn = document.getElementById("save-all-flights-btn");
       if (saveAllFlightsBtn) saveAllFlightsBtn.addEventListener("click", saveBulkFlights);
       const cancelAllFlightsBtn = document.getElementById("cancel-all-flights-btn");
-      if (cancelAllFlightsBtn) cancelAllFlightsBtn.addEventListener("click", () => { editingAllFlights = false; renderStaffTab(); });
+      if (cancelAllFlightsBtn) cancelAllFlightsBtn.addEventListener("click", () => { bulkGroup = null; renderStaffTab(); });
 
       contentEl.querySelectorAll("[data-edit]").forEach(b =>
         b.addEventListener("click", () => { editing = b.dataset.edit; renderStaffTab(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
@@ -701,37 +775,37 @@
     }
 
     /**
-     * Applies the checked Pages to every flight position in one go — one
-     * adminSaveStaffAccess call per flight, each preserving THAT flight's
-     * own Flights/Password (read from the already-loaded `staff` list)
-     * so this only ever touches Pages. Partial failure (one flight's
-     * save rejected — e.g. it would've dropped the last Administrator,
-     * vanishingly unlikely for a flight position but not impossible) is
-     * reported by name rather than silently losing track of which ones
-     * actually got the new Pages and which didn't.
+     * Applies the checked Pages to every position in `bulkGroup` in one
+     * go — one adminSaveStaffAccess call per position, each preserving
+     * THAT position's own Flights/Password (read from the already-loaded
+     * `staff` list) so this only ever touches Pages. Partial failure (one
+     * position's save rejected — e.g. it would've dropped the last
+     * Administrator, vanishingly unlikely for a flight/ATS position but
+     * not impossible) is reported by name rather than silently losing
+     * track of which ones actually got the new Pages and which didn't.
      */
     async function saveBulkFlights() {
       const pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
-      const flights = flightPositions();
+      const positions = groupPositions(bulkGroup);
 
       const btn = document.getElementById("save-all-flights-btn");
       btn.disabled = true; btn.textContent = "Applying…";
 
-      const results = await Promise.allSettled(flights.map(f =>
-        Api.adminSaveStaffAccess({ position: f.Position, pages, flights: f.Flights })
+      const results = await Promise.allSettled(positions.map(p =>
+        Api.adminSaveStaffAccess({ position: p.Position, pages, flights: p.Flights })
       ));
       const failed = results
-        .map((r, i) => ({ r, position: flights[i].Position }))
+        .map((r, i) => ({ r, position: positions[i].Position }))
         .filter(x => x.r.status === "rejected");
 
-      editingAllFlights = false;
+      bulkGroup = null;
       renderStaffTab();
       await loadStaff();
 
       if (failed.length) {
-        Shell.showToast(`Applied to ${flights.length - failed.length}/${flights.length} flights. Failed: ${failed.map(f => f.position).join(", ")}.`, { type: "error" });
+        Shell.showToast(`Applied to ${positions.length - failed.length}/${positions.length}. Failed: ${failed.map(f => f.position).join(", ")}.`, { type: "error" });
       } else {
-        Shell.showToast(`Applied to all ${flights.length} flights.`, { type: "success" });
+        Shell.showToast(`Applied to all ${positions.length}.`, { type: "success" });
       }
     }
 
