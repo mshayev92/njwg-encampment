@@ -719,6 +719,15 @@
       return item.better === "lower" ? value <= threshold : value >= threshold;
     }
 
+    // The 34-Point Physical Assessment has no per-item breakdown (unlike
+    // Uniform/Room/PT above) — it's a single overall score out of 34
+    // entered directly by an Administrator, so this is a one-item list
+    // purely so the shared scorecard plumbing (activeItems(), etc.) has
+    // something to iterate.
+    const ASSESSMENT_SCORE_ITEMS = [
+      { key: "Score", label: "34-Point Assessment Score", max: 34 }
+    ];
+
     // Per-type config driving the shared flight/student/history/scorecard
     // flow below. Student identity fields (CapId, Name, Flight) and the
     // inspecting position are never part of the form itself — they come
@@ -739,6 +748,19 @@
         items: PT_SCORE_ITEMS,
         sectionTitle: "Physical Fitness Test",
         isPt: true // every item optional, scored via ptStandardFor() instead of a manual 0/1 toggle
+      },
+      // The 34-Point Physical Assessment: one overall 0-34 score per
+      // cadet per date, entered ONLY by an Administrator (see isAdmin
+      // below) — every render site that lists inspection types (ad-hoc
+      // start buttons, merged history, Periods tab) filters this key out
+      // for anyone else, and the backend independently refuses the write
+      // (see PhysicalAssessments in worker/src/index.js's handleWrite).
+      assessment: {
+        sheet: "PhysicalAssessments",
+        items: ASSESSMENT_SCORE_ITEMS,
+        sectionTitle: "34-Point Physical Assessment",
+        isAssessment: true,
+        adminOnly: true
       }
     };
 
@@ -748,7 +770,8 @@
     let inspectionsByType = {
       uniform: { all: [], byStudent: {} },
       room: { all: [], byStudent: {} },
-      pt: { all: [], byStudent: {} }
+      pt: { all: [], byStudent: {} },
+      assessment: { all: [], byStudent: {} }
     };
     let selectedFlight = null;
     let selectedStudent = null;
@@ -784,6 +807,16 @@
     // Roster/Schedule (see PAGE_WRITE_GATES in worker/src/auth.js).
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditInspections = sessionPages.includes("edit-inspections");
+    // Gates the 34-Point Physical Assessment everywhere on this page —
+    // ad-hoc start buttons, merged student history, the Periods tab —
+    // since only an Administrator may see or enter that score. Same
+    // "Pages includes admin" convention as pages/overview.html's isAdmin.
+    const isAdmin = sessionPages.includes("admin");
+
+    /** Inspection type keys visible to the CURRENT session — hides "assessment" from everyone but an Administrator. */
+    function visibleInspectionTypeKeys() {
+      return Object.keys(INSPECTION_TYPES).filter(t => !INSPECTION_TYPES[t].adminOnly || isAdmin);
+    }
 
     // Flights/squadrons can score inspections as they happen, but once a
     // day has passed that scorecard is history — reopening it and editing
@@ -856,6 +889,13 @@
     // PAGE_WRITE_GATES in worker/src/auth.js); everyone signed in can
     // read the schedule so they know what's coming up.
 
+    // "pt" is a legacy Category value — the period-type toggle above no
+    // longer offers a way to CREATE one (PT training was pulled from the
+    // Inspect tab's front end), but any "pt" period scheduled before that
+    // change still needs to render correctly here, and the backend's
+    // whole PTInspections scoring path (see PT_INSPECTION_COLUMNS/
+    // PT_SCORE_ITEMS/PT_CHART above) is left fully intact for a future
+    // pass that re-enables it.
     function periodLabel(p) {
       if (p.Category === "room") return "Room Inspection";
       if (p.Category === "pt") return "Physical Training";
@@ -955,7 +995,11 @@
               <button type="button" data-type="uniform-ocp">OCP/ABU</button>
               <button type="button" data-type="uniform-blues">Blues</button>
               <button type="button" data-type="room">Room</button>
-              <button type="button" data-type="pt">PT</button>
+              <!-- PT training is intentionally NOT offered here — see the
+                   comment above periodLabel() for why the "pt" Category
+                   and its whole PTInspections scoring path stay fully
+                   intact on the backend for a future pass; this toggle
+                   is just where scheduling a NEW pt period is blocked. -->
             </div>
           </div>
           <div style="display:flex; gap: var(--space-3);">
@@ -1436,7 +1480,7 @@
       Shell.animateIn(contentEl);
     }
 
-    const TYPE_LABELS = { uniform: "Uniform", room: "Room", pt: "Physical Training" };
+    const TYPE_LABELS = { uniform: "Uniform", room: "Room", pt: "Physical Training", assessment: "34-Point Assessment" };
 
     /**
      * This student's Uniform + Room + PT inspections, merged into one
@@ -1448,7 +1492,7 @@
     function mergedHistoryForStudent(capId) {
       const capIdStr = String(capId);
       const entries = [];
-      Object.keys(inspectionsByType).forEach(type => {
+      visibleInspectionTypeKeys().forEach(type => {
         (inspectionsByType[type].byStudent[capIdStr] || []).forEach(row => entries.push({ ...row, __type: type }));
       });
       entries.sort((a, b) => (a.Date < b.Date ? 1 : a.Date > b.Date ? -1 : 0));
@@ -1477,20 +1521,28 @@
       const scheduledToday = inspectionPeriods.filter(p => p.Date === todayStr);
 
       function inspectionButtonsHtml() {
+        // No period scheduled for today means there's nothing to start —
+        // an ad-hoc fallback here used to let anyone open a blank
+        // scorecard with no period behind it at all, which is exactly
+        // the "start with no inspection period" gap this closes. An
+        // Administrator can still log the 34-Point Assessment ad-hoc
+        // (see the isAdmin branch below) since that score isn't tied to
+        // the uniform/room/pt scheduling flow the same way.
         if (!scheduledToday.length) {
+          if (!isAdmin) {
+            return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No inspection is scheduled for today — nothing to start. Schedule a period above to begin one.</p>`;
+          }
+          const doneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
           return `
             <div style="display:flex; flex-wrap:wrap; gap: var(--space-2); margin-bottom: var(--space-5);">
-              ${Object.keys(INSPECTION_TYPES).map(type => {
-                const doneToday = (inspectionsByType[type].byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
-                return `
-                  <button class="btn btn--primary" data-adhoc-type="${type}">
-                    ${doneToday ? "Update: " : "New "}${TYPE_LABELS[type]} Inspection
-                  </button>
-                `;
-              }).join("")}
+              <button class="btn btn--primary" data-adhoc-type="assessment">
+                ${doneToday ? "Update: " : "New "}${TYPE_LABELS.assessment}
+              </button>
             </div>
+            <p style="font-size: var(--fs-sm); color: var(--ink-600); margin: 0 0 var(--space-5);">No uniform/room/PT inspection is scheduled for today — nothing to start there. Schedule a period above to begin one.</p>
           `;
         }
+        const assessmentDoneToday = (inspectionsByType.assessment.byStudent[String(selectedStudent.CapId)] || []).some(h => h.Date === todayStr);
         return `
           <div style="display:flex; flex-wrap:wrap; gap: var(--space-2); margin-bottom: var(--space-5);">
             ${scheduledToday.map(p => {
@@ -1501,6 +1553,11 @@
                 </button>
               `;
             }).join("")}
+            ${isAdmin ? `
+              <button class="btn btn--primary" data-adhoc-type="assessment">
+                ${assessmentDoneToday ? "Update: " : "New "}${TYPE_LABELS.assessment}
+              </button>
+            ` : ""}
           </div>
         `;
       }
@@ -1524,7 +1581,9 @@
             ${history.map(h => {
               const scoreLabel = INSPECTION_TYPES[h.__type].isPt
                 ? `${h.TotalPoints ?? 0} / ${h.ItemsAttempted || 0} passed`
-                : `${h.TotalPoints ?? "—"} / ${INSPECTION_TYPES[h.__type].items.length}`;
+                : INSPECTION_TYPES[h.__type].isAssessment
+                  ? `${h.Score ?? "—"} / 34`
+                  : `${h.TotalPoints ?? "—"} / ${INSPECTION_TYPES[h.__type].items.length}`;
               return `
                 <div class="history-row" data-date="${esc(h.Date)}" data-type="${esc(h.__type)}" style="cursor:pointer;">
                   <div>
@@ -1597,6 +1656,7 @@
       currentView = "scorecard";
       const isPt = !!INSPECTION_TYPES[activeType].isPt;
       if (isPt) return renderPtScorecard();
+      if (INSPECTION_TYPES[activeType].isAssessment) return renderAssessmentScorecard();
 
       const items = activeItems();
       const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
@@ -1983,6 +2043,120 @@
     }
 
     /**
+     * The 34-Point Assessment's scorecard: a single 0-34 number entry,
+     * not a per-item toggle grid — reachable only via the isAdmin-gated
+     * buttons in renderHistory(), and re-checked here (an Administrator
+     * navigating here is the only supported path, but activeType could
+     * in principle be set to "assessment" some other way, so this bails
+     * the same way a direct URL/console attempt at an edit-gated action
+     * would elsewhere on this page).
+     */
+    function renderAssessmentScorecard() {
+      if (!isAdmin) {
+        contentEl.innerHTML = `<div class="state-message"><p>Only an Administrator can enter the 34-Point Assessment.</p></div>`;
+        return;
+      }
+      const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];
+      const existing = selectedInspectionDate
+        ? (history.find(h => h.Date === selectedInspectionDate) || {})
+        : {};
+      currentPeriodId = (existing.InspectionPeriodId != null && existing.InspectionPeriodId !== "")
+        ? existing.InspectionPeriodId
+        : (pendingPeriodId || "");
+
+      currentScores = { Score: existing.Score != null ? existing.Score : "" };
+
+      const now = new Date();
+      const dateStr = selectedInspectionDate || now.toLocaleDateString("en-CA");
+      const timestampStr = now.toISOString();
+      const isEditingPast = !!selectedInspectionDate;
+      const locked = isPastDateLocked(dateStr);
+
+      contentEl.innerHTML = `
+        <div class="detail-header">
+          <button class="btn btn--ghost" id="back-to-history-btn">← Back</button>
+          <h2>${esc(selectedStudent.Name) || "—"}</h2>
+        </div>
+
+        <div class="scorecard-meta">
+          <div class="scorecard-meta__item"><span>Student CAPID</span>${esc(selectedStudent.CapId) || "—"}</div>
+          <div class="scorecard-meta__item"><span>Flight</span>${esc(selectedFlight)}</div>
+          <div class="scorecard-meta__item"><span>Date</span>${esc(dateStr)}${isEditingPast ? " (editing existing entry)" : ""}</div>
+        </div>
+
+        ${locked ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">🔒 ${esc(PAST_DATE_LOCK_MESSAGE)}</div>` : ""}
+
+        <div class="scorecard-section">
+          <h3>${esc(INSPECTION_TYPES.assessment.sectionTitle)}</h3>
+          <div class="scorecard-item">
+            <span class="scorecard-item__label">Score (out of 34)</span>
+            <input type="number" id="assessment-score-input" min="0" max="34" step="1" value="${esc(currentScores.Score)}" ${locked ? "disabled" : ""} style="width: 90px; font-family: var(--font-mono); font-size: var(--fs-sm); padding: var(--space-2) var(--space-3); border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface);">
+          </div>
+        </div>
+
+        <div class="scorecard-section scorecard-notes">
+          <h3>Notes</h3>
+          <textarea id="notes-input" placeholder="Optional notes…" ${locked ? "disabled" : ""}>${esc(existing.Notes || "")}</textarea>
+        </div>
+
+        ${locked
+          ? `<button class="btn btn--primary" id="submit-scorecard-btn" disabled>Locked — contact IAT Department</button>`
+          : `<button class="btn btn--primary" id="submit-scorecard-btn">Save Assessment</button>`}
+      `;
+
+      document.getElementById("back-to-history-btn").addEventListener("click", () => {
+        selectedInspectionDate = null;
+        renderHistory();
+      });
+
+      if (!locked) {
+        const input = document.getElementById("assessment-score-input");
+        input.addEventListener("input", () => { currentScores.Score = input.value; });
+        document.getElementById("submit-scorecard-btn").addEventListener("click", () => submitAssessmentScorecard(dateStr, timestampStr));
+      }
+      Shell.animateIn(contentEl);
+    }
+
+    function submitAssessmentScorecard(dateStr, timestampStr) {
+      if (!isAdmin) return;
+      if (isPastDateLocked(dateStr)) {
+        Shell.showToast(PAST_DATE_LOCK_MESSAGE, { type: "error" });
+        return;
+      }
+      const rawScore = Number(currentScores.Score);
+      const score = isNaN(rawScore) ? "" : Math.max(0, Math.min(34, Math.round(rawScore)));
+
+      const row = {
+        StudentCapId: selectedStudent.CapId,
+        StudentName: selectedStudent.Name,
+        Flight: selectedFlight,
+        InspectingPosition: session.Position,
+        Date: dateStr,
+        Timestamp: timestampStr,
+        InspectionPeriodId: currentPeriodId,
+        Score: score,
+        Notes: document.getElementById("notes-input").value.trim()
+      };
+
+      Api.writeRow("PhysicalAssessments", row, { matchColumns: ["StudentCapId", "Date"] });
+
+      const capId = String(selectedStudent.CapId);
+      const bucket = inspectionsByType.assessment;
+      const list = bucket.byStudent[capId] || (bucket.byStudent[capId] = []);
+      const idx = list.findIndex(h => h.Date === dateStr);
+      if (idx >= 0) list[idx] = row; else list.unshift(row);
+      list.sort((a, b) => (a.Date < b.Date ? 1 : -1));
+
+      const allIdx = bucket.all.findIndex(h => String(h.StudentCapId) === capId && h.Date === dateStr);
+      if (allIdx >= 0) bucket.all[allIdx] = row; else bucket.all.push(row);
+      Api.setCachedRows("PhysicalAssessments", bucket.all);
+
+      Shell.showToast("Assessment saved.", { type: "success" });
+      selectedInspectionDate = null;
+      renderHistory();
+    }
+
+    /**
      * Flight-vs-flight averages. `basis` is either "all" (every historical
      * entry, all-time) or a specific InspectionPeriods Id — scoping the
      * averages to just that ONE scheduled period's results, the same
@@ -2330,6 +2504,10 @@
         reindexInspections("pt", fresh.rows || []);
         renderActiveView();
       });
+      const assessmentHandle = Api.getSheetCached("PhysicalAssessments", (fresh) => {
+        reindexInspections("assessment", fresh.rows || []);
+        renderActiveView();
+      });
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
         inspectionPeriods = fresh.rows || [];
         // Same "period vanished" handling as deletePeriod() — covers a
@@ -2353,13 +2531,14 @@
       // allCachedNow gates BOTH behind every one of the four sheets
       // being ready together — either synchronously right now (warm
       // cache) or once the cold load's Promise.all resolves below.
-      const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && ptHandle.data && periodsHandle.data);
+      const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && ptHandle.data && assessmentHandle.data && periodsHandle.data);
 
       if (allCachedNow) {
         rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         reindexInspections("uniform", uniformHandle.data.rows || []);
         reindexInspections("room", roomHandle.data.rows || []);
         reindexInspections("pt", ptHandle.data.rows || []);
+        reindexInspections("assessment", assessmentHandle.data.rows || []);
         inspectionPeriods = periodsHandle.data.rows || [];
         revealTabsBar();
         renderPeriodsSection();
@@ -2368,12 +2547,13 @@
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
-      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, ptHandle.ready, periodsHandle.ready])
-        .then(([rosterData, uniformData, roomData, ptData, periodsData]) => {
+      return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, ptHandle.ready, assessmentHandle.ready, periodsHandle.ready])
+        .then(([rosterData, uniformData, roomData, ptData, assessmentData, periodsData]) => {
           rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
           reindexInspections("uniform", uniformData.rows || []);
           reindexInspections("room", roomData.rows || []);
           reindexInspections("pt", ptData.rows || []);
+          reindexInspections("assessment", assessmentData.rows || []);
           inspectionPeriods = periodsData.rows || [];
           // Only re-render here on a COLD load — when everything was
           // already cached and rendered together above, this same

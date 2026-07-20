@@ -16,7 +16,7 @@ import { getRuntimeConfig } from "./runtimeConfig.js";
 
 export const ALLOWED_SHEETS = [
   "Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations",
-  "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"
+  "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights", "PhysicalAssessments"
 ];
 
 // Device token lifetimes, the KV read-cache TTL, and the per-token rate
@@ -61,7 +61,14 @@ export const SHEET_PERMISSIONS = {
   // case below, the same way Roster gets a special case for its own
   // narrower write rules. "any" here just means "not blocked by
   // assertPermission before that admin check ever runs."
-  FlightStandingsWeights: { read: "any", write: "any" }
+  FlightStandingsWeights: { read: "any", write: "any" },
+  // Readable by any signed-in position (Awards/Overview need every
+  // cadet's score to fold into their calculations), but writing is
+  // restricted to an Administrator directly in handleWrite's
+  // PhysicalAssessments special case below — same shape as
+  // FlightStandingsWeights above — since the 34-point assessment is
+  // scored by IAT/admin staff only, not flight/squadron positions.
+  PhysicalAssessments: { read: "any", write: "any" }
 };
 
 export const PAGE_WRITE_GATES = {
@@ -131,7 +138,26 @@ export const PT_INSPECTION_COLUMNS = [
 // is only meaningful when Category is "uniform" — blank for a room
 // period. Surfaced on pages/inspections.html so a person starting a new
 // inspection sees what's scheduled for today rather than guessing.
+// Category is "uniform", "room", or "pt". "pt" is kept ONLY for backend/
+// data-model compatibility with any PT periods scheduled before this
+// option was pulled from the front end (see pages/inspections.html's
+// period-type toggle, which no longer offers a "PT" button) — a future
+// pass may re-enable scheduling PT periods from the UI, so the category
+// and its scoring path (PTInspections, PT_INSPECTION_COLUMNS above)
+// stay fully intact, just unreachable from the Inspect tab's own UI.
 export const INSPECTION_PERIOD_COLUMNS = ["Id", "Date", "Category", "UniformType", "CreatedBy", "CreatedAt"];
+// The 34-Point Physical Assessment — a single overall score (0-34) per
+// cadet per date, distinct from the per-item PT_INSPECTION_COLUMNS test
+// above. Entered by Administrators only (see PhysicalAssessments' write
+// gate in SHEET_PERMISSIONS/handleWrite's special case) since this
+// assessment's scoring is an admin/IAT-only responsibility, not
+// something flight/squadron positions log — pages/inspections.html only
+// shows this type's tile/scorecard to a signed-in Administrator.
+export const PHYSICAL_ASSESSMENT_COLUMNS = [
+  "StudentCapId", "StudentName", "Flight", "InspectingPosition",
+  "Date", "Timestamp", "InspectionPeriodId",
+  "Score", "Notes"
+];
 export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // Subject is free text — either a name typed/picked from the Roster (a
 // person can reference a cadet just by name, since CapId lookups are a
@@ -158,7 +184,7 @@ export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedA
 // handleWrite's FlightStandingsWeights special case in index.js).
 // Values are the same 0-100-ish shares computeFlightStandings() in
 // overview.html already used as hardcoded defaults.
-export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "PT", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
+export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "PT", "Assessment", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the
 // same tag on the same student twice in a week records two separate

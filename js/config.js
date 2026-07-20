@@ -120,7 +120,7 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"],
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"],
 
   // Which sheets each page actually reads. Used to warm ONLY the sheets a
   // signed-in position could actually reach (see accessiblePrefetchSheets_
@@ -130,12 +130,12 @@ window.APP_CONFIG = {
   // Keys are NAV_ITEMS ids; a page absent here contributes no sheets.
   // When a new page starts reading a sheet, add it here too.
   PAGE_SHEETS: {
-    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "Observations", "BlackFlagStatus", "FlightStandingsWeights"],
+    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Observations", "BlackFlagStatus", "FlightStandingsWeights"],
     schedule:        ["Schedule"],
     roster:          ["Roster"],
-    inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods"],
+    inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments"],
     observations:    ["Roster", "Observations"],
-    recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations", "UniformInspections", "RoomInspections", "PTInspections", "Observations"],
+    recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations", "UniformInspections", "RoomInspections", "PTInspections", "PhysicalAssessments", "Observations"],
     notes:           ["Roster", "Notes"],
     announcements:   ["Announcements", "BlackFlagStatus"],
     admin:           ["Roster"]

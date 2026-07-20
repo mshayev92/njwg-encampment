@@ -848,6 +848,7 @@
 
     const STANDINGS_UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
     const STANDINGS_ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
+    const STANDINGS_ASSESSMENT_MAX_SCORE = 34; // see ASSESSMENT_SCORE_ITEMS in pages/inspections.html
 
     // Uniform/Room/PT are each already a natural 0-1 rate (points scored
     // out of the possible total) — weighted and summed AS-IS, on their own
@@ -866,7 +867,7 @@
     // are a personal judgment call for picking an Honor Cadet/Flight, not
     // a shared setting. These defaults are only what's shown before the
     // sheet has loaded (or if it comes back empty).
-    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 30, room: 20, pt: 20, posObs: 30, concernObs: 20 };
+    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, pt: 15, assessment: 15, posObs: 30, concernObs: 20 };
 
     /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, pt, posObs, concernObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
     function weightsFromRow(row) {
@@ -886,6 +887,7 @@
         uniform: pick("Uniform", DEFAULT_STANDINGS_WEIGHTS.uniform),
         room: pick("Room", DEFAULT_STANDINGS_WEIGHTS.room),
         pt: pick("PT", DEFAULT_STANDINGS_WEIGHTS.pt),
+        assessment: pick("Assessment", DEFAULT_STANDINGS_WEIGHTS.assessment),
         posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs),
         concernObs: pick("ConcernObservations", DEFAULT_STANDINGS_WEIGHTS.concernObs)
       };
@@ -894,7 +896,7 @@
     function num_(v) { return Number(v) || 0; }
     function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
 
-    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights) {
+    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights) {
       // Deliberately NOT scoped by isFlightAllowed/allowedFlights, unlike
       // every other per-cadet computation on this page (Today's
       // Inspections, the "happening now" banner, etc.) — this is a shared
@@ -913,7 +915,7 @@
 
       const byCap = {};
       cadets.forEach(c => {
-        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], ptPassed: 0, ptAttempted: 0, posObs: 0, concernObs: 0 };
+        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], ptPassed: 0, ptAttempted: 0, assessment: [], posObs: 0, concernObs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num_(r.TotalPoints) / STANDINGS_UNIFORM_ITEM_COUNT); });
@@ -922,6 +924,7 @@
         const e = byCap[String(r.StudentCapId)];
         if (e) { e.ptPassed += num_(r.TotalPoints); e.ptAttempted += num_(r.ItemsAttempted); }
       });
+      assessmentRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.assessment.push(num_(r.Score) / STANDINGS_ASSESSMENT_MAX_SCORE); });
       observationRows.forEach(r => {
         const e = byCap[String(r.StudentCapId)];
         if (!e) return;
@@ -942,6 +945,7 @@
           uniformAvg: mean_(members.flatMap(m => m.uniform)),
           roomAvg: mean_(members.flatMap(m => m.room)),
           ptRate: ptTotals.attempted ? ptTotals.passed / ptTotals.attempted : null,
+          assessmentAvg: mean_(members.flatMap(m => m.assessment)),
           posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length,
           concernPerCadet: members.reduce((s, m) => s + m.concernObs, 0) / members.length
         };
@@ -958,6 +962,7 @@
           weights.uniform * (f.uniformAvg || 0) +
           weights.room * (f.roomAvg || 0) +
           weights.pt * (f.ptRate || 0) +
+          weights.assessment * (f.assessmentAvg || 0) +
           weights.posObs * posNorm -
           weights.concernObs * concernNorm
         ));
@@ -974,12 +979,13 @@
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/PT are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/PT/34-Point Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
           </p>
           <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--space-3);">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pt">Physical Training</label><input type="number" id="w-pt" min="0" max="100" value="${esc(weights.pt)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-assessment">34-Point Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-concern">Concern Observations (penalty)</label><input type="number" id="w-concern" min="0" max="100" value="${esc(weights.concernObs)}"></div>
           </div>
@@ -990,8 +996,8 @@
         </div>`;
     }
 
-    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights) {
-      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights);
+    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights) {
+      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights);
       if (!standings.length && !editingStandingsWeights) return "";
 
       return `
@@ -1073,6 +1079,7 @@
     let lastUniformRows = null;
     let lastRoomRows = null;
     let lastPtRows = null;
+    let lastAssessmentRows = null;
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
     let lastBlackFlagStatus = null;
@@ -1091,13 +1098,14 @@
     let uniformLoaded = false;
     let roomLoaded = false;
     let ptLoaded = false;
+    let assessmentLoaded = false;
     let periodsLoaded = false;
     let observationsLoaded = false;
     let blackFlagLoaded = false;
     let standingsWeightsLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded || !standingsWeightsLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !assessmentLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded || !standingsWeightsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -1109,7 +1117,7 @@
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
-          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastObservationRows || [], lastStandingsWeights)}
+          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastAssessmentRows || [], lastObservationRows || [], lastStandingsWeights)}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
@@ -1130,6 +1138,7 @@
             Uniform: Number(document.getElementById("w-uniform").value) || 0,
             Room: Number(document.getElementById("w-room").value) || 0,
             PT: Number(document.getElementById("w-pt").value) || 0,
+            Assessment: Number(document.getElementById("w-assessment").value) || 0,
             PositiveObservations: Number(document.getElementById("w-pos").value) || 0,
             ConcernObservations: Number(document.getElementById("w-concern").value) || 0
           };
@@ -1254,6 +1263,18 @@
         ptLoaded = true;
         // See the matching comment on Roster's ready.finally() above.
         if (!ptHadCache) renderAll();
+      });
+
+      const assessmentHandle = Api.getSheetCached("PhysicalAssessments", (fresh) => {
+        lastAssessmentRows = fresh.rows || [];
+        renderAll();
+      });
+      const assessmentHadCache = !!assessmentHandle.data;
+      if (assessmentHandle.data) { lastAssessmentRows = assessmentHandle.data.rows || []; assessmentLoaded = true; }
+      assessmentHandle.ready.catch(() => { /* surfaced by the Inspections page itself if it matters */ }).finally(() => {
+        assessmentLoaded = true;
+        // See the matching comment on Roster's ready.finally() above.
+        if (!assessmentHadCache) renderAll();
       });
 
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {

@@ -12,7 +12,7 @@
  */
 
 import {
-  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
+  UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, PHYSICAL_ASSESSMENT_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
   HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS, FLIGHT_STANDINGS_WEIGHTS_COLUMNS,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
   checkRateLimit, assertAllowedSheet, assertPermission,
@@ -927,6 +927,11 @@ async function handleWrite(env, body, session, ctx) {
       rowData = resolved.row;
       matchColumns = resolved.matchColumns;
     }
+  } else if (sheetName === "PhysicalAssessments") {
+    // Same shape as FlightStandingsWeights below — no page owns this
+    // sheet's write access, an Administrator directly gates it, since
+    // the 34-Point Assessment is scored by admin/IAT staff only.
+    assertAdmin(session);
   } else if (sheetName === "FlightStandingsWeights") {
     // No nav page owns this sheet (it's not tied to a "page" the way
     // assertPageWriteAccess's PAGE_WRITE_GATES model expects — everyone
@@ -1037,6 +1042,9 @@ async function ensureAutoCreatedTab(env, sheetName) {
   if (sheetName === "PTInspections") {
     await ensureSheetExists(env, "PTInspections", PT_INSPECTION_COLUMNS);
   }
+  if (sheetName === "PhysicalAssessments") {
+    await ensureSheetExists(env, "PhysicalAssessments", PHYSICAL_ASSESSMENT_COLUMNS);
+  }
   if (sheetName === "HonorCadetRecommendations") {
     await ensureSheetExists(env, "HonorCadetRecommendations", HONOR_CADET_RECOMMENDATION_COLUMNS);
   }
@@ -1057,7 +1065,7 @@ async function ensureAutoCreatedTab(env, sheetName) {
     // pages/overview.html, so a device that reads this before anyone has
     // ever saved custom weights (or before this tab even exists) sees the
     // exact same scores either way.
-    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 30, 20, 20, 30, 20, "", ""]]);
+    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 25, 15, 15, 15, 30, 20, "", ""]]);
   }
   if (sheetName === "Observations") {
     await ensureSheetExists(env, "Observations", OBSERVATION_COLUMNS);
