@@ -1808,6 +1808,33 @@ const Shell = (() => {
         else reloading = false; // let a LATER real update prompt again
       });
     });
+
+    // controllerchange only fires once a NEW worker actually takes
+    // over — but the browser only checks service-worker.js for changes
+    // on its own schedule, at most once every ~24h, and only alongside
+    // a navigation. This app is used almost entirely as a home-screen
+    // PWA that staff open once and leave running (that's the whole
+    // point of an encampment-week app), so a session can go the entire
+    // week without a single qualifying navigation, meaning that
+    // built-in check never fires at all — which is exactly why a
+    // deploy previously required deleting and reinstalling the app to
+    // pick up. Force an explicit check ourselves: once right away,
+    // again whenever the app is foregrounded after being backgrounded
+    // (the common way someone actually returns to a home-screen PWA),
+    // and on a periodic timer as a safety net for a session that's
+    // simply never backgrounded. registration.update() is a cheap,
+    // idempotent fetch — safe to call redundantly from more than one
+    // of these triggers.
+    navigator.serviceWorker.ready.then((registration) => {
+      const checkForUpdate = () => registration.update().catch(() => {});
+      checkForUpdate();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") checkForUpdate();
+      });
+      window.addEventListener("focus", checkForUpdate);
+      window.addEventListener("pageshow", checkForUpdate);
+      setInterval(checkForUpdate, 30 * 60 * 1000);
+    });
   }
 
   function encampmentDayInfo() {

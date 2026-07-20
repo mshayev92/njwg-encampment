@@ -150,7 +150,7 @@ This is a real installable PWA, not just a bookmark — installed, it opens full
 
 Once installed, long-pressing the home screen icon (Android) or right-clicking the taskbar/dock icon (desktop) jumps straight to Schedule, Roster, Inspections, or Announcements via the manifest's `shortcuts` — useful for the pages staff open the most.
 
-**Updates:** a new deploy is picked up automatically the next time an installed device is online — the service worker always fetches fresh HTML/JS/CSS over the network when available (`network-first`, see `service-worker.js`), rather than serving a stale cached shell indefinitely. If a staffer already has the app open when that happens, they'll see a themed "Update available" prompt asking to refresh, rather than silently switching versions underneath unsaved work.
+**Updates:** a new deploy is picked up automatically — the app actively checks for a new service worker (on load, whenever the app is foregrounded, and on a periodic timer) instead of relying on the browser's own once-a-day-at-most check, which a home-screen PWA a staffer opens once and leaves running for the whole encampment could otherwise go days without ever triggering (see `initUpdatePrompt_` in `js/shell.js`). Once a new worker takes over, the service worker always fetches fresh HTML/JS/CSS over the network when available (`network-first`, see `service-worker.js`), rather than serving a stale cached shell indefinitely. If a staffer already has the app open when that happens, they'll see a themed "Update available" prompt asking to refresh, rather than silently switching versions underneath unsaved work.
 
 ## Adding a new feature page
 
