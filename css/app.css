@@ -1785,10 +1785,23 @@ button.date-field__day:hover {
    portrait screen, which is what read as "inherited from desktop and
    works a little weird." Matching on orientation too (in addition to
    the plain width for actual phones) means any portrait device up to
-   1024px wide gets this treatment instead; the same device rotated to
-   landscape still gets the wider tablet side rail from the rule above,
-   since only the width condition can match there. */
-@media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
+   1024px wide gets this treatment instead.
+   A phone rotated to LANDSCAPE still needs the same treatment — it's
+   still a phone, just short and wide — but neither of the two clauses
+   above catches it (its width is comfortably over 720px, and its
+   orientation obviously isn't portrait), so it fell all the way through
+   to the tablet breakpoint above and got the SAME cramped icon-only
+   compact rail a real landscape tablet gets, on a screen far too short
+   and narrow for it. The third clause here catches that case instead by
+   height rather than orientation: any device short enough (≤500px
+   tall) to be a phone on its side, not wide enough (≤1024px) to be an
+   actual tablet's landscape dimensions (~768-834px tall), gets the
+   drawer too. See MOBILE_PORTRAIT_QUERY in js/shell.js and the matching
+   blocks in pages/overview.html / pages/recommendations.html — all four
+   copies of this query must stay identical. */
+@media (max-width: 720px),
+       (max-width: 1024px) and (orientation: portrait),
+       (max-width: 1024px) and (max-height: 500px) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
@@ -1884,19 +1897,26 @@ button.date-field__day:hover {
     display: block;
   }
 
-  /* No crest/collapse toggle inside the drawer — collapsing is a
-     desktop-only affordance (see .app-shell--collapsed, which also
-     hides link labels, exactly what a mobile drawer must NOT do), and
-     the drawer already has its own open/close (the hamburger toggle and
-     the backdrop/Escape) with no need for a second one. A position that
-     collapsed the desktop rail on a previous, wider visit still carries
-     that same .app-shell--collapsed class (it's a persisted preference,
-     not reset per viewport) — override its label-hiding rules here too,
-     same fix the tablet breakpoint above already applies, so the
-     drawer's links never lose their labels because of stale desktop
-     collapse state. */
-  .nav-rail__crest { display: none; }
+  /* The crest (logo + unit name + its own divider) stays visible here,
+     same as the desktop rail — the drawer is meant to read as "the same
+     nav, presented as an overlay," not a stripped-down version missing
+     its branding. Clicking it still toggles the collapse preference
+     (same handler as desktop — see toggleNavCollapsed_ in js/shell.js),
+     but that's harmless here: the drawer already ignores
+     --nav-rail-width (it's a fixed-width overlay, not a grid column),
+     and the two overrides below force the crest text/link labels to
+     stay visible regardless of collapsed state, so a stray tap on it
+     can't visually break the drawer — it just silently updates a
+     preference that only matters again once the same device is back
+     above this breakpoint. A position that collapsed the desktop rail
+     on a previous, wider visit still carries that same
+     .app-shell--collapsed class into the drawer (it's a persisted
+     preference, not reset per viewport) — these overrides are the same
+     fix the tablet breakpoint above already applies for its own
+     link-label case, extended to the crest text too. */
+  .app-shell--collapsed .nav-rail__crest-text,
   .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
+  .app-shell--collapsed .nav-rail__crest { justify-content: flex-start; gap: var(--space-3); }
   .app-shell--collapsed .nav-rail__link { gap: var(--space-3); justify-content: flex-start; }
 
   /* Full vertical link list with labels, same as the desktop rail —
