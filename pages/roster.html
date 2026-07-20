@@ -108,6 +108,27 @@
       letter-spacing: var(--tracking-wide);
     }
 
+    /* Wraps the cadet table. padding:0 + overflow-x:auto lets a wide
+       table scroll edge-to-edge on desktop without the card's own
+       padding eating into the space available for columns. Below the
+       app's mobile breakpoint (see css/app.css), .data-table collapses
+       each row into its own bordered/padded box (no columns left to
+       scroll horizontally) — at that point padding:0 stops helping and
+       instead flattens the "boxes in boxes" look every other page's
+       table card has (Schedule, Admin's login log), where the row-boxes
+       sit inside a padded outer card instead of flush against its
+       edges. Restoring the normal card padding here keeps this table
+       looking the same as every other .data-table on a phone. */
+    .roster-table-card {
+      padding: 0;
+      overflow-x: auto;
+    }
+    @media (max-width: 720px) {
+      .roster-table-card {
+        padding: var(--space-5);
+      }
+    }
+
     /* Detail view header — shown once a flight is selected */
     .flight-detail-header {
       display: flex;
@@ -610,7 +631,7 @@
         </div>
         ${members.length ? renderLeadershipCard(flight, members) : ""}
         ${cadets.length ? `
-          <div class="card" style="padding: 0; overflow-x: auto;">
+          <div class="card roster-table-card">
             <table class="data-table">
               <thead>
                 <tr><th>CAPID</th><th>Name</th><th>Rank</th><th>Age</th><th>Sex</th><th>Room</th>${canEditRoster ? "<th></th>" : ""}</tr>
