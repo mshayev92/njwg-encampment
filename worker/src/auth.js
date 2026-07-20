@@ -439,6 +439,17 @@ export async function checkRateLimit(env, key) {
 // IP-keyed KV writes are inherently bounded by how often someone actually
 // attempts to log in — rare in steady state, and only spike under an
 // actual attack, which is exactly when paying for the write is worth it.
+// checkAuthAttemptRate below still applies the SAME isolate-local-memory
+// + flush-every-Nth-increment coordination checkRateLimit uses above
+// (rather than a KV write on every single call) — the "rare in steady
+// state" framing was true of how often the endpoint is CALLED, but the
+// original version still wrote to KV on every one of those calls, which
+// adds up across every device's normal sign-in traffic even though it's
+// not an attack. Batching it the same way costs nothing during an actual
+// attack (the cap is still enforced per-isolate against an in-memory
+// count, and heavy keys still persist so a burst can't be reset for free
+// by isolate churn — the failure-based escalating lockout below is the
+// hard defense either way, unaffected by this).
 
 export function getClientIp(request) {
   // CF-Connecting-IP is set by Cloudflare's edge on every request reaching
@@ -464,19 +475,45 @@ export async function assertNotLockedOut(env, ip) {
   }
 }
 
+const AUTH_ATTEMPT_FLUSH_EVERY = 3;
+const authAttemptMemory = new Map(); // cacheKey -> { count, windowStart, unflushed }
+
 /**
  * Tight per-IP cap on how often an auth endpoint can even be CALLED,
  * independent of whether the attempt succeeds — bounds raw request
  * volume (and thus Sheets API / Worker cost) from a single source before
- * the failure-based lockout below ever has to kick in.
+ * the failure-based lockout below ever has to kick in. Same isolate-
+ * local-memory + throttled-persistence shape as checkRateLimit above
+ * (see its own big comment for the full reasoning/tradeoffs) — a normal
+ * device signing in doesn't get anywhere near AUTH_ATTEMPT_LIMIT_PER_MINUTE,
+ * so it costs zero KV writes; only a key actually bursting toward the cap
+ * (i.e., something worth coordinating across isolates for) writes at all.
  */
 export async function checkAuthAttemptRate(env, ip) {
-  const key = "authrate:" + (await hashString(ip));
-  const current = Number((await env.NJWG_KV.get(key)) || 0);
-  if (current >= AUTH_ATTEMPT_LIMIT_PER_MINUTE) {
+  const cacheKey = "authrate:" + (await hashString(ip));
+  const now = Date.now();
+
+  let entry = authAttemptMemory.get(cacheKey);
+  if (!entry || now - entry.windowStart >= 60000) {
+    const stored = Number((await env.NJWG_KV.get(cacheKey)) || 0);
+    entry = { count: stored, windowStart: now, unflushed: 0 };
+    authAttemptMemory.set(cacheKey, entry);
+  }
+
+  if (entry.count >= AUTH_ATTEMPT_LIMIT_PER_MINUTE) {
     throw new Error("Too many attempts. Please wait a moment and try again.");
   }
-  await env.NJWG_KV.put(key, String(current + 1), { expirationTtl: 60 });
+
+  entry.count++;
+  entry.unflushed++;
+
+  const coordThreshold = Math.floor(AUTH_ATTEMPT_LIMIT_PER_MINUTE / 2);
+  const heavy = entry.count >= coordThreshold;
+  const reachedCap = entry.count >= AUTH_ATTEMPT_LIMIT_PER_MINUTE;
+  if (heavy && (entry.unflushed >= AUTH_ATTEMPT_FLUSH_EVERY || reachedCap)) {
+    await env.NJWG_KV.put(cacheKey, String(entry.count), { expirationTtl: 60 });
+    entry.unflushed = 0;
+  }
 }
 
 /**
