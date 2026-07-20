@@ -1396,34 +1396,24 @@ const Shell = (() => {
     });
   }
 
-  // ---- "Advanced Training School" flights (see Api.getAtsFlights) -------
+  // ---- "Advanced Training School" flights ------------------------------
   //
-  // Same persisted-snapshot-then-refresh shape as flight colors just
-  // above: an ATS-flagged position (see pages/admin.html's Staff Access
-  // form) has its Flight(s) excluded from Overview's Flight Standings and
-  // Awards' Weekly Standings for EVERY viewer, not just that position
-  // itself — so every signed-in device needs this list, not just Admin.
+  // A fixed, hardcoded set of flight names (not an admin-configurable
+  // toggle) — India and Juliet are ATS flights, full stop. They're
+  // excluded from Overview's Flight Standings and Awards' Weekly
+  // Standings for every viewer (see computeFlightStandings/
+  // cadetRawMetrics), and from the general/blank-audience "traditional"
+  // schedule (see scheduleAudienceMatches_ below) — everything else
+  // about them (Roster, Inspections, logins) works exactly like any
+  // other flight. Managing them day-to-day is just an ordinary
+  // StaffAccess position (e.g. one named "Advanced Training School"
+  // scoped to Flights: ["India", "Juliet"]) — nothing about THAT is
+  // special-cased in code.
+  const ATS_FLIGHT_NAMES = new Set(["india", "juliet"]);
 
-  let atsFlights_ = null; // null until the fetch below resolves (or fails) — treated as "none" until then
-  const ATS_FLIGHTS_STORAGE_KEY = "njwg_ats_flights_v1";
-
-  /** Whether `flight` currently belongs to an ATS-flagged position — case/whitespace-insensitive, same convention as flightColor_. */
+  /** Whether `flight` is one of the fixed ATS flights above — case/whitespace-insensitive, same convention as flightColor_. */
   function isAtsFlight_(flight) {
-    const key = String(flight || "").trim().toLowerCase();
-    return !!(key && atsFlights_ && atsFlights_.includes(key));
-  }
-
-  function initAtsFlightsSync_() {
-    try {
-      const raw = localStorage.getItem(ATS_FLIGHTS_STORAGE_KEY);
-      if (raw) atsFlights_ = JSON.parse(raw);
-    } catch (e) { /* corrupt/unavailable — falls through to the network fetch */ }
-
-    if (typeof Api === "undefined" || !Api.getAtsFlights) return;
-    Api.getAtsFlights().then((data) => {
-      atsFlights_ = (data && data.flights) || [];
-      try { localStorage.setItem(ATS_FLIGHTS_STORAGE_KEY, JSON.stringify(atsFlights_)); } catch (e) { /* ignore */ }
-    }).catch(() => { /* whatever was hydrated above still applies */ });
+    return ATS_FLIGHT_NAMES.has(String(flight || "").trim().toLowerCase());
   }
 
   /** The same flight color as flightColor_, at low opacity — for a tinted background behind that color's own text/border, matching the app's existing tint-pair convention (--gold-500/--gold-100, etc.). */
@@ -3297,7 +3287,6 @@ const Shell = (() => {
       wireIdleTimeout();
       loadGlobalAlerts_();
       initFlightColorSync_();
-      initAtsFlightsSync_();
       // Replay any writes queued while offline — now (in case this page
       // loaded back online) and whenever the tab is refocused.
       if (Api.flushOutbox) {

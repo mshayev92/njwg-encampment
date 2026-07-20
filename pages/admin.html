@@ -188,15 +188,6 @@
       cursor: pointer;
     }
 
-    /* Inspections/Awards, disabled+unchecked while ATS is checked (see
-       ATS_BLOCKED_PAGE_IDS) — dimmed so it reads as "unavailable," not
-       just "happens to be unchecked right now." */
-    .page-check.is-ats-blocked {
-      opacity: 0.5;
-    }
-    .page-check.is-ats-blocked .page-check__main {
-      cursor: not-allowed;
-    }
     .page-check__main input { width: 18px; height: 18px; flex-shrink: 0; }
     .page-check__label { overflow-wrap: break-word; min-width: 0; }
 
@@ -312,17 +303,12 @@
       ...window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label })),
       ...EDIT_GATES
     ];
-    // Mirrors ATS_BLOCKED_PAGES in worker/src/index.js — an "Advanced
-    // Training School" position can never hold these, so the form
-    // disables (and unchecks) them rather than letting someone check a
-    // box the backend will silently strip anyway.
-    const ATS_BLOCKED_PAGE_IDS = ["inspections", "recommendations"];
-
     let activeTab = "staff";
-    let staff = [];              // [{ Position, Pages[], Flights[], hasPassword, ATS }]
+    let staff = [];              // [{ Position, Pages[], Flights[], hasPassword }]
     let loginEntries = [];       // [{ Timestamp, Type, Identifier, Success }]
     let logTotal = 0;
     let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
+    let editingAllFlights = false; // "Edit all Flights" bulk form open — mutually exclusive with `editing`
     let failuresOnly = false;
     // Real flight names, sourced from the Roster tab (read is "any"
     // signed-in position per SHEET_PERMISSIONS, so this works regardless
@@ -357,10 +343,28 @@
       return flights.join(", ");
     }
 
+    // A "flight position" is any StaffAccess position whose NAME matches
+    // an actual flight in the Roster (the same "position name IS the
+    // flight name" convention index.html's login screen already uses) —
+    // data-driven off rosterFlightNames rather than a hardcoded list, so
+    // it never needs updating when a flight is added/renamed/removed.
+    // These are what "Edit all Flights" below bulk-applies Pages to.
+    function flightPositions() {
+      const flightNamesLower = new Set(rosterFlightNames.map(f => f.toLowerCase()));
+      return staff.filter(s => flightNamesLower.has(s.Position.toLowerCase()));
+    }
+
     function renderStaffForm() {
-      if (editing === null) {
-        return `<button class="btn btn--primary" id="add-position-btn">+ Add position</button>`;
+      if (editing === null && !editingAllFlights) {
+        const flights = flightPositions();
+        return `
+          <div style="display:flex; gap: var(--space-3); flex-wrap:wrap;">
+            <button class="btn btn--primary" id="add-position-btn">+ Add position</button>
+            ${flights.length ? `<button class="btn btn--ghost" id="edit-all-flights-btn" data-tooltip="Applies one set of Pages to every flight position at once — ${flights.map(f => esc(f.Position)).join(', ')}">Edit all Flights</button>` : ""}
+          </div>
+        `;
       }
+      if (editingAllFlights) return renderBulkFlightsForm();
       const isNew = editing === "";
       const current = isNew ? null : staff.find(s => s.Position === editing);
       const currentPages = current ? current.Pages.map(p => p.toLowerCase()) : [];
@@ -383,36 +387,22 @@
           <input type="text" id="pos-name" value="${esc(editing)}" ${isNew ? "" : "disabled"} placeholder="e.g. Bravo Flight, CCT, Administrator">
           ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
 
-          <label class="clear-pw">
-            <input type="checkbox" id="pos-ats" ${current && current.ATS ? "checked" : ""}>
-            Advanced Training School (ATS)
-          </label>
-          <div class="hint" style="margin-bottom: var(--space-4);">
-            Marks this position's Flight(s) as ATS — excluded from Overview's Flight Standings and Awards' Weekly Standings for every viewer (they're not in the running), and this position loses Inspections/Awards access entirely (below), since ATS flights don't run inspections or compete for awards. Schedule stays available — an ATS-audienced schedule item is still visible to it, just not the general/everyone-audienced one.
-          </div>
-
           <label class="field-label">Pages this position can access</label>
           <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page.</div>
-          <div class="page-checks" id="pos-pages-grid">
+          <div class="page-checks">
             ${basePages.map(p => {
               const editGate = editGateByBase.get(p.id);
               const viewChecked = currentPages.includes(p.id.toLowerCase());
               const editChecked = !!editGate && currentPages.includes(editGate.id.toLowerCase());
-              // ATS positions can never hold Inspections/Awards — see
-              // ATS_BLOCKED_PAGES in worker/src/index.js, which strips
-              // these server-side regardless of what this form sends.
-              // Disabling (and unchecking) them here just keeps the form
-              // honest about what will actually be saved.
-              const atsBlocked = current && current.ATS && ATS_BLOCKED_PAGE_IDS.includes(p.id);
               return `
-                <div class="page-check${atsBlocked ? " is-ats-blocked" : ""}" data-ats-blockable="${ATS_BLOCKED_PAGE_IDS.includes(p.id) ? "1" : ""}">
+                <div class="page-check">
                   <label class="page-check__main">
-                    <input type="checkbox" value="${esc(p.id)}" ${viewChecked && !atsBlocked ? "checked" : ""} ${atsBlocked ? "disabled" : ""}>
+                    <input type="checkbox" value="${esc(p.id)}" ${viewChecked ? "checked" : ""}>
                     <span class="page-check__label">${esc(p.label)}</span>
                   </label>
                   ${editGate ? `
-                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}" ${atsBlocked ? "disabled" : ""}>✎</button>
-                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked && !atsBlocked ? "checked" : ""} hidden>
+                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}">✎</button>
+                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked ? "checked" : ""} hidden>
                   ` : ""}
                 </div>
               `;
@@ -479,6 +469,58 @@
       `;
     }
 
+    /**
+     * "Edit all Flights" — since every flight position normally holds
+     * the same Pages, this applies one set of checkboxes to ALL of them
+     * in one Save instead of opening each one individually. It's a bulk
+     * WRITE, not a live-inheriting default: after using this, a specific
+     * flight can still be opened and edited on its own (the normal "Edit
+     * <flight>" flow below), exactly as before — that edit only touches
+     * that one flight and isn't overwritten by this form existing.
+     * Starts with nothing checked (there's no single "current" set of
+     * Pages to show when the flights might differ from each other) —
+     * Flights/Password are untouched per-position fields, so this form
+     * only ever has Pages checkboxes, no Flights/Password section.
+     */
+    function renderBulkFlightsForm() {
+      const flights = flightPositions();
+      const editGateByBase = new Map(EDIT_GATES.map(g => [g.id.replace(/^edit-/, ""), g]));
+      const basePages = window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label }));
+
+      return `
+        <div class="card admin-form">
+          <h2 class="card-title">Edit all Flights</h2>
+          <div class="hint" style="margin-top:0;">
+            Applies the Pages checked below to every flight position at once — ${flights.map(f => esc(f.Position)).join(", ")} — overwriting each one's current Pages. Each flight's own Flights scope and Password are left untouched. You can still open and edit one specific flight afterward to give it different access, the same as always.
+          </div>
+
+          <label class="field-label">Pages every flight can access</label>
+          <div class="page-checks">
+            ${basePages.map(p => {
+              const editGate = editGateByBase.get(p.id);
+              return `
+                <div class="page-check">
+                  <label class="page-check__main">
+                    <input type="checkbox" value="${esc(p.id)}">
+                    <span class="page-check__label">${esc(p.label)}</span>
+                  </label>
+                  ${editGate ? `
+                    <button type="button" class="page-check__edit" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="false" aria-label="${esc(editGate.label)}">✎</button>
+                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" hidden>
+                  ` : ""}
+                </div>
+              `;
+            }).join("")}
+          </div>
+
+          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
+            <button class="btn btn--primary" id="save-all-flights-btn">Apply to all ${flights.length} flights</button>
+            <button class="btn btn--ghost" id="cancel-all-flights-btn">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+
     // Positions whose "Preview access" panel is currently expanded — a
     // Set (not a single value) so more than one can be open for
     // side-by-side comparison. Purely a display toggle: computed entirely
@@ -534,7 +576,6 @@
                   <div class="staff-row__name">
                     ${esc(s.Position)}
                     ${isAdmin ? `<span class="badge badge--gold">Admin</span>` : ""}
-                    ${s.ATS ? `<span class="badge badge--gold" data-tooltip="Excluded from Flight Standings and Awards; no Inspections/Awards access">ATS</span>` : ""}
                     ${s.hasPassword ? `<span class="badge badge--garnet">🔒 Password</span>` : ""}
                   </div>
                   <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
@@ -578,11 +619,18 @@
 
       const addBtn = document.getElementById("add-position-btn");
       if (addBtn) addBtn.addEventListener("click", () => { editing = ""; renderStaffTab(); });
+      const editAllFlightsBtn = document.getElementById("edit-all-flights-btn");
+      if (editAllFlightsBtn) editAllFlightsBtn.addEventListener("click", () => { editingAllFlights = true; renderStaffTab(); });
 
       const saveBtn = document.getElementById("save-position-btn");
       if (saveBtn) saveBtn.addEventListener("click", savePosition);
       const cancelBtn = document.getElementById("cancel-position-btn");
       if (cancelBtn) cancelBtn.addEventListener("click", () => { editing = null; renderStaffTab(); });
+
+      const saveAllFlightsBtn = document.getElementById("save-all-flights-btn");
+      if (saveAllFlightsBtn) saveAllFlightsBtn.addEventListener("click", saveBulkFlights);
+      const cancelAllFlightsBtn = document.getElementById("cancel-all-flights-btn");
+      if (cancelAllFlightsBtn) cancelAllFlightsBtn.addEventListener("click", () => { editingAllFlights = false; renderStaffTab(); });
 
       contentEl.querySelectorAll("[data-edit]").forEach(b =>
         b.addEventListener("click", () => { editing = b.dataset.edit; renderStaffTab(); window.scrollTo({ top: 0, behavior: "smooth" }); }));
@@ -617,25 +665,6 @@
         });
       }
 
-      // Checking ATS live-disables (and unchecks) Inspections/Awards —
-      // same rule renderStaffForm already applied at initial render for
-      // an already-ATS position, kept in sync as this checkbox changes
-      // without needing to re-render the whole form.
-      const atsCheckbox = document.getElementById("pos-ats");
-      const pagesGrid = document.getElementById("pos-pages-grid");
-      if (atsCheckbox && pagesGrid) {
-        atsCheckbox.addEventListener("change", () => {
-          pagesGrid.querySelectorAll('[data-ats-blockable="1"]').forEach(row => {
-            row.classList.toggle("is-ats-blocked", atsCheckbox.checked);
-            row.querySelectorAll("input, button").forEach(el => { el.disabled = atsCheckbox.checked; });
-            if (atsCheckbox.checked) {
-              row.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-              row.querySelectorAll(".page-check__edit.is-active").forEach(btn => btn.classList.remove("is-active"));
-            }
-          });
-        });
-      }
-
       Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);
     }
@@ -652,9 +681,8 @@
         : Array.from(contentEl.querySelectorAll(".pos-flight-check:checked")).map(i => i.value);
       const passwordVal = document.getElementById("pos-password").value;
       const clearPw = document.getElementById("clear-pw");
-      const ats = document.getElementById("pos-ats").checked;
 
-      const row = { position, pages, flights, ats };
+      const row = { position, pages, flights };
       if (clearPw && clearPw.checked) row.clearPassword = true;
       else if (passwordVal) row.password = passwordVal;
 
@@ -669,6 +697,41 @@
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
         btn.disabled = false; btn.textContent = "Save changes";
+      }
+    }
+
+    /**
+     * Applies the checked Pages to every flight position in one go — one
+     * adminSaveStaffAccess call per flight, each preserving THAT flight's
+     * own Flights/Password (read from the already-loaded `staff` list)
+     * so this only ever touches Pages. Partial failure (one flight's
+     * save rejected — e.g. it would've dropped the last Administrator,
+     * vanishingly unlikely for a flight position but not impossible) is
+     * reported by name rather than silently losing track of which ones
+     * actually got the new Pages and which didn't.
+     */
+    async function saveBulkFlights() {
+      const pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
+      const flights = flightPositions();
+
+      const btn = document.getElementById("save-all-flights-btn");
+      btn.disabled = true; btn.textContent = "Applying…";
+
+      const results = await Promise.allSettled(flights.map(f =>
+        Api.adminSaveStaffAccess({ position: f.Position, pages, flights: f.Flights })
+      ));
+      const failed = results
+        .map((r, i) => ({ r, position: flights[i].Position }))
+        .filter(x => x.r.status === "rejected");
+
+      editingAllFlights = false;
+      renderStaffTab();
+      await loadStaff();
+
+      if (failed.length) {
+        Shell.showToast(`Applied to ${flights.length - failed.length}/${flights.length} flights. Failed: ${failed.map(f => f.position).join(", ")}.`, { type: "error" });
+      } else {
+        Shell.showToast(`Applied to all ${flights.length} flights.`, { type: "success" });
       }
     }
 

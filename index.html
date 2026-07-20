@@ -357,8 +357,12 @@
 
     // Flight names are fixed callsigns; anything matching "Squadron <n>"
     // is a squadron; everything else (CCT, Administrator, or any other
-    // custom position) is shown ungrouped.
-    const FLIGHT_NAMES = new Set(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]);
+    // custom position) is shown ungrouped. India/Juliet are the fixed
+    // Advanced Training School flights (see ATS_FLIGHT_NAMES in
+    // js/shell.js) — grouped here exactly like every other flight; ATS
+    // is a data-level exclusion (Flight Standings/Awards/the general
+    // schedule), not a different kind of login.
+    const FLIGHT_NAMES = new Set(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]);
     const SQUADRON_PATTERN = /^squadron\s*\d+$/i;
 
     function classifyPosition(position) {
