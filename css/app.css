@@ -995,6 +995,16 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-6);
   position: relative;
   animation: modal-in var(--duration-base) var(--ease-standard);
+  /* .modal-overlay centers this with equal padding above/below (see
+     its own --space-5 padding), so this is the tallest the card can be
+     without the top and/or bottom running past the viewport — a long
+     info modal body (e.g. the CSV-format-help table on Roster/Schedule)
+     otherwise just grew past the screen with no way to reach the rest
+     of it. The card's own content scrolls internally past this height
+     instead; the header/footer (title, actions) stay in the flow of
+     that same scroll, same as a native modal. */
+  max-height: calc(100vh - (2 * var(--space-5)));
+  overflow-y: auto;
 }
 
 @keyframes modal-in {
@@ -1164,6 +1174,14 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-2);
   z-index: var(--z-overlay);
   animation: overlay-in var(--duration-base) var(--ease-standard);
+  /* Nothing capped this before — a short viewport (or, in mobile
+     portrait, the extra quick-row of relocated header pills on top of
+     the usual action list — see relocateHeaderPillsForViewport_ in
+     js/shell.js) could grow this dropdown past the bottom of the
+     screen with no way to reach whatever scrolled off. --space-8 is a
+     rough allowance for the header row above it. */
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
 }
 
 .profile-menu__item {
@@ -1227,6 +1245,8 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-2);
   z-index: var(--z-overlay);
   animation: overlay-in var(--duration-base) var(--ease-standard);
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
 }
 
 .theme-menu__item {
@@ -2214,6 +2234,12 @@ button.date-field__day:hover {
     padding-top: calc(var(--space-6) + 10px);
     padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
     animation: sheet-rise var(--duration-base) var(--ease-standard);
+    /* Anchored to the bottom edge here instead of vertically centered,
+       so the base rule's centered-overlay max-height math doesn't apply
+       — cap it against the viewport directly instead, leaving a sliver
+       of the backdrop showing above so it's visually still a sheet
+       rather than a full-screen panel. */
+    max-height: 92vh;
   }
   .modal-card::before {
     content: "";
