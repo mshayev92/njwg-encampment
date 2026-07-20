@@ -478,7 +478,14 @@
             shortForecast: period.shortForecast,
             windSpeed: period.windSpeed,
             relativeHumidity: period.relativeHumidity && typeof period.relativeHumidity.value === "number" ? period.relativeHumidity.value : null,
-            icon: period.icon || ""
+            icon: period.icon || "",
+            // NWS computes this per hourly period from the actual
+            // sunrise/sunset at WEATHER_LAT/WEATHER_LON — see
+            // timeOfDayScene, which uses it as ground truth for whether
+            // it's actually light or dark outside right now, rather than
+            // guessing off fixed clock hours (which drift out of sync
+            // with real sunrise/sunset across the encampment's dates).
+            isDaytime: typeof period.isDaytime === "boolean" ? period.isDaytime : null
           }
         };
       } finally {
@@ -534,10 +541,30 @@
 
     /**
      * Which of the four CSS "scenes" (see .welcome-card--dawn/day/dusk/
-     * night above) matches the device's current local time.
+     * night above) matches right now — actually light or dark outside,
+     * not just the device's clock.
+     *
+     * Fixed clock-hour brackets (the old approach) drift out of sync
+     * with real sunrise/sunset: this app's encampment dates are in
+     * summer, when it's still bright well past 8pm, so a "night" scene
+     * keyed purely off the hour showed while it was clearly still light
+     * outside. weather.current.isDaytime comes straight from the
+     * National Weather Service's hourly forecast (see fetchWeather),
+     * which computes it from the real sunrise/sunset at
+     * WEATHER_LAT/WEATHER_LON — that's the ground truth for whether it's
+     * actually dark, used here whenever it's available. Clock hours only
+     * decide the finer dawn-vs-day / dusk-vs-night split (there's no
+     * "getting light"/"getting dark" signal in NWS's day/night boolean),
+     * and are the sole fallback before weather has loaded or if the call
+     * failed.
      */
-    function timeOfDayScene() {
+    function timeOfDayScene(weather) {
       const hour = new Date().getHours();
+      const isDaytime = weather && weather.current && typeof weather.current.isDaytime === "boolean" ? weather.current.isDaytime : null;
+
+      if (isDaytime === true) return hour < 8 ? "dawn" : "day";
+      if (isDaytime === false) return (hour >= 17 && hour < 20) ? "dusk" : "night";
+
       if (hour >= 5 && hour < 8) return "dawn";
       if (hour >= 8 && hour < 17) return "day";
       if (hour >= 17 && hour < 20) return "dusk";
@@ -669,7 +696,7 @@
      * time/weather change while the tab stays open.
      */
     function renderWelcomeCard(weather) {
-      const scene = timeOfDayScene();
+      const scene = timeOfDayScene(weather);
       const condition = weatherConditionBucket(weather);
       const position = (session && (session.Position || session.position)) || "Staff";
       return `
