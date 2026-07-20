@@ -868,10 +868,20 @@
     function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
 
     function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, observationRows, weights) {
+      // Deliberately NOT scoped by isFlightAllowed/allowedFlights, unlike
+      // every other per-cadet computation on this page (Today's
+      // Inspections, the "happening now" banner, etc.) — this is a shared
+      // ranking ACROSS flights, so a Flight Commander scoped to just
+      // their own flight still needs to see every flight's rank to know
+      // where their own stands. Roster is readable by any signed-in
+      // session regardless of Flights scoping (see SHEET_PERMISSIONS in
+      // worker/src/auth.js), so the full roster is already available
+      // here — this was purely a display restriction, not a data one.
+      //
       // Flight Commander/Sergeant roster rows (Role populated) are flight
       // staff, not cadets — excluded, same as every other per-cadet
       // computation on this page.
-      const cadets = rosterRows.filter(r => isFlightAllowed(r.Flight) && String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r));
+      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r));
       if (!cadets.length) return [];
 
       const byCap = {};
