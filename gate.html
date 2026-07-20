@@ -168,10 +168,15 @@
        there): below the app's standard 720px mobile breakpoint, let the
        screen scroll instead of hiding overflow, so a taller card (e.g.
        the device-type choice plus an error message) is never clipped
-       with no way to reach the rest of it on a short phone viewport. */
+       with no way to reach the rest of it on a short phone viewport.
+       `safe center` keeps the card vertically centered when it fits and
+       only falls back to top-alignment if it's taller than the
+       viewport — plain `center` here left the card pinned to the top
+       with a big empty gap below on phones where it comfortably fits. */
     @media (max-width: 720px) {
       .gate-screen {
-        align-items: flex-start;
+        align-items: center;
+        align-items: safe center;
         overflow-y: auto;
         padding: var(--space-5) var(--space-4);
       }

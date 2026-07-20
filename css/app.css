@@ -1070,6 +1070,17 @@ html.nav-rail-collapsed .nav-rail__crest {
   transform: translateY(0);
 }
 
+/* Hover tooltips read as a desktop-only affordance — on a touch device
+   there's no hover to reveal them deliberately, so they only ever
+   appeared as an unwanted popup left over from tapping a button (which
+   focuses it, triggering the same show logic as a mouse hover). Devices
+   with no hover capability at all never show the bubble. */
+@media (hover: none) {
+  .tooltip-bubble {
+    display: none !important;
+  }
+}
+
 /* ---- Announcements popover (bell dropdown) ---- */
 .announcements-popover {
   position: fixed;
