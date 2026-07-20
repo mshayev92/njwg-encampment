@@ -353,6 +353,11 @@
     const sessionFlightList = (Array.isArray(session?.Flights) ? session.Flights : []).filter(Boolean);
     const ownFlights = sessionFlightList.filter(f => f.toLowerCase() !== "all");
 
+    /** Blank/"all" Flights (CCT/Administrator) is unscoped; everyone else only reaches their own assigned flight(s) — same rule the backend enforces for real in resolveRosterWrite's Room exception. */
+    function isFlightAllowed(flight) {
+      return Shell.flightMatchesAudience(sessionFlightList, flight);
+    }
+
     // Wingman assignment is its OWN capability, separate from general
     // roster editing — a flight profile (a position whose session is
     // scoped to exactly ONE flight, e.g. a Flight Commander) can manage
@@ -650,7 +655,9 @@
                     <td data-label="Age">${esc(m.Age) || "—"}</td>
                     <td data-label="Sex">${esc(m.Sex) || "—"}</td>
                     <td data-label="Room">
-                      <input type="text" class="room-input" inputmode="numeric" placeholder="—" aria-label="Room number for ${esc(m.Name)}" data-capid="${esc(m.CapId)}" value="${esc(m.Room || "")}">
+                      ${isFlightAllowed(flight)
+                        ? `<input type="text" class="room-input" inputmode="numeric" placeholder="—" aria-label="Room number for ${esc(m.Name)}" data-capid="${esc(m.CapId)}" value="${esc(m.Room || "")}">`
+                        : esc(m.Room) || "—"}
                     </td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
@@ -682,9 +689,13 @@
       if (members.length) wireWingmanCard(target, flight, members);
 
       // Room assignment: unlike everything else on this table, ANY
-      // signed-in position can edit it — no edit-roster, no flight
-      // scoping (see resolveRosterWrite's Room exception in
-      // worker/src/index.js). Saves on blur ("change"), and Enter is
+      // signed-in position can edit it without edit-roster — but ONLY
+      // for a cadet in one of the session's own assigned Flights (blank/
+      // "all" Flights, e.g. CCT/Administrator, is unscoped); a flight
+      // this session isn't allowed into renders the Room as plain text
+      // above instead of an input. See resolveRosterWrite's Room
+      // exception in worker/src/index.js for the real (backend-enforced)
+      // version of this same check. Saves on blur ("change"), and Enter is
       // wired to blur() so it saves immediately too — without this, an
       // Enter press neither blurs a plain <input> nor fires "change" by
       // itself, so someone typing a number and hitting Enter (the
@@ -978,35 +989,54 @@
     }
 
     /**
-     * Room assignment — open to ANY signed-in position (no edit-roster,
-     * no flight scoping), unlike everything else Roster writes. Skips
-     * the write entirely if the value didn't actually change (e.g. the
-     * field was merely focused and blurred), same "don't write a no-op"
-     * discipline as the rest of the app's optimistic writes.
+     * Room assignment — open to ANY signed-in position (no edit-roster
+     * needed), unlike everything else Roster writes, but ONLY for a
+     * cadet in one of the session's own assigned Flights — see
+     * isFlightAllowed above and resolveRosterWrite's Room exception in
+     * worker/src/index.js for the real, backend-enforced version of
+     * that same scoping. Skips the write entirely if the value didn't
+     * actually change (e.g. the field was merely focused and blurred),
+     * same "don't write a no-op" discipline as the rest of the app's
+     * optimistic writes.
      *
      * Unlike persistRosterRow (used for leadership/wingman), this AWAITS
      * the real server round-trip ({ optimistic: false }) instead of
-     * firing-and-forgetting. Room is a plain text field someone might
-     * type into and never revisit, so a failed write needs to be
-     * impossible to miss — with the normal optimistic path, a rejected
-     * write only shows up as a quiet change to the header's sync
-     * indicator (see js/api.js), never a toast, so it would look saved
-     * (the input still shows what was typed) right up until a reload
-     * silently reverted it. Awaiting here means a failure surfaces
-     * immediately as an error toast AND visibly reverts the input back
-     * to the last known-saved value, instead of leaving a phantom value
-     * on screen that was never actually persisted.
+     * firing-and-forgetting, WHEN online. Room is a plain text field
+     * someone might type into and never revisit, so a failed write needs
+     * to be impossible to miss — with the normal optimistic path, a
+     * rejected write only shows up as a quiet change to the header's
+     * sync indicator (see js/api.js), never a toast, so it would look
+     * saved (the input still shows what was typed) right up until a
+     * reload silently reverted it. Awaiting here means a failure
+     * surfaces immediately as an error toast AND visibly reverts the
+     * input back to the last known-saved value, instead of leaving a
+     * phantom value on screen that was never actually persisted. Offline,
+     * there's no real round-trip to await, so this falls back to the
+     * normal optimistic path instead — see the offline check below.
      */
     async function saveRoomAssignment(capId, room, inputEl) {
       const idx = allRows.findIndex(r => String(r.CapId) === String(capId));
       if (idx < 0) return;
       const current = allRows[idx];
+      // Defense in depth — the input for a flight this session isn't
+      // allowed into is never rendered in the first place (see
+      // renderFlightDetail above), but resolveRosterWrite in
+      // worker/src/index.js is the real enforcement either way.
+      if (!isFlightAllowed(current.Flight)) return;
       const previousRoom = current.Room || "";
       if (String(previousRoom) === String(room || "")) return;
 
       const payload = toRosterRow({ ...current, Room: room });
+      // Offline: there's no real server round-trip to await, so fall
+      // back to the normal optimistic path — Api.writeRow queues it in
+      // the durable outbox and resolves right away instead of rejecting,
+      // same as every other write on this page. Online, this still
+      // awaits the real result ({ optimistic: false }) so a genuine
+      // failure (e.g. a permission error) surfaces immediately instead
+      // of silently as a background sync error.
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
       try {
-        await Api.writeRow("Roster", payload, { matchColumn: "CapId", optimistic: false });
+        await Api.writeRow("Roster", payload, { matchColumn: "CapId", optimistic: offline });
       } catch (err) {
         if (inputEl) inputEl.value = previousRoom;
         Shell.showToast(err.message || "Couldn't save that room number.", { type: "error" });
@@ -1016,7 +1046,7 @@
       const withName = { ...payload, Name: Shell.cadetDisplayName(payload) };
       allRows[idx] = withName;
       syncRosterCache();
-      Shell.showToast("Room updated.", { type: "success" });
+      Shell.showToast(offline ? "Room saved — will sync once you're back online." : "Room updated.", { type: "success" });
     }
 
     /**

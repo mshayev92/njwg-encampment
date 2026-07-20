@@ -622,6 +622,33 @@ const Api = (() => {
     }
   }
 
+  /**
+   * The { optimistic: false } path for writeRow/deleteRow — a caller
+   * awaiting the real result (e.g. to react to a permission error
+   * before updating its own UI) still needs offline writes to end up
+   * queued in the durable outbox rather than just rejecting and being
+   * lost, same as the optimistic path already does. There's no real
+   * server round-trip to await while offline, so this resolves with a
+   * synthetic "queued" result instead of throwing — a genuine, non-
+   * network failure (permission error, validation error) still rejects
+   * normally so the caller's error handling still runs.
+   */
+  async function performNonOptimisticWrite_(action, body, rowData) {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      enqueueOutbox_(action, body);
+      return { ok: true, action: "queued", row: rowData };
+    }
+    try {
+      return await performWrite_(action, body);
+    } catch (err) {
+      if (isNetworkError_(err)) {
+        enqueueOutbox_(action, body);
+        return { ok: true, action: "queued", row: rowData };
+      }
+      throw err;
+    }
+  }
+
   return {
     /**
      * Fetch all rows from a named sheet tab. Always hits the network
@@ -809,7 +836,7 @@ const Api = (() => {
       // freshness window.
       markSheetStale_(sheetName);
       const body = { sheet: sheetName, row: rowData, matchColumn, matchColumns };
-      if (!optimistic) return performWrite_("write", body);
+      if (!optimistic) return performNonOptimisticWrite_("write", body, rowData);
       // Already known offline — go straight to the outbox instead of
       // wasting up to ~30s (a full request timeout plus performWrite_'s
       // own retry) attempting a request that has no chance of landing.
@@ -836,7 +863,7 @@ const Api = (() => {
     deleteRow(sheetName, matchValues, { matchColumn = null, matchColumns = null, optimistic = true } = {}) {
       markSheetStale_(sheetName);
       const body = { sheet: sheetName, matchValues, matchColumn, matchColumns };
-      if (!optimistic) return performWrite_("delete", body);
+      if (!optimistic) return performNonOptimisticWrite_("delete", body);
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
         enqueueOutbox_("delete", body);
         return Promise.resolve({ ok: true, action: "queued" });
