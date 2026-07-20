@@ -719,13 +719,13 @@
       return item.better === "lower" ? value <= threshold : value >= threshold;
     }
 
-    // The 34-Point Physical Assessment has no per-item breakdown (unlike
+    // The EOW Physical Assessment has no per-item breakdown (unlike
     // Uniform/Room/PT above) — it's a single overall score out of 34
     // entered directly by an Administrator, so this is a one-item list
     // purely so the shared scorecard plumbing (activeItems(), etc.) has
     // something to iterate.
     const ASSESSMENT_SCORE_ITEMS = [
-      { key: "Score", label: "34-Point Assessment Score", max: 34 }
+      { key: "Score", label: "EOW Assessment Score", max: 34 }
     ];
 
     // Per-type config driving the shared flight/student/history/scorecard
@@ -749,7 +749,7 @@
         sectionTitle: "Physical Fitness Test",
         isPt: true // every item optional, scored via ptStandardFor() instead of a manual 0/1 toggle
       },
-      // The 34-Point Physical Assessment: one overall 0-34 score per
+      // The EOW Physical Assessment: one overall 0-34 score per
       // cadet per date, entered ONLY by an Administrator (see isAdmin
       // below) — every render site that lists inspection types (ad-hoc
       // start buttons, merged history, Periods tab) filters this key out
@@ -758,7 +758,7 @@
       assessment: {
         sheet: "PhysicalAssessments",
         items: ASSESSMENT_SCORE_ITEMS,
-        sectionTitle: "34-Point Physical Assessment",
+        sectionTitle: "EOW Physical Assessment",
         isAssessment: true,
         adminOnly: true
       }
@@ -807,7 +807,7 @@
     // Roster/Schedule (see PAGE_WRITE_GATES in worker/src/auth.js).
     const sessionPages = (session?.Pages || []).map(p => String(p).toLowerCase());
     const canEditInspections = sessionPages.includes("edit-inspections");
-    // Gates the 34-Point Physical Assessment everywhere on this page —
+    // Gates the EOW Physical Assessment everywhere on this page —
     // ad-hoc start buttons, merged student history, the Periods tab —
     // since only an Administrator may see or enter that score. Same
     // "Pages includes admin" convention as pages/overview.html's isAdmin.
@@ -1480,7 +1480,7 @@
       Shell.animateIn(contentEl);
     }
 
-    const TYPE_LABELS = { uniform: "Uniform", room: "Room", pt: "Physical Training", assessment: "34-Point Assessment" };
+    const TYPE_LABELS = { uniform: "Uniform", room: "Room", pt: "Physical Training", assessment: "EOW Assessment" };
 
     /**
      * This student's Uniform + Room + PT inspections, merged into one
@@ -1525,7 +1525,7 @@
         // an ad-hoc fallback here used to let anyone open a blank
         // scorecard with no period behind it at all, which is exactly
         // the "start with no inspection period" gap this closes. An
-        // Administrator can still log the 34-Point Assessment ad-hoc
+        // Administrator can still log the EOW Assessment ad-hoc
         // (see the isAdmin branch below) since that score isn't tied to
         // the uniform/room/pt scheduling flow the same way.
         if (!scheduledToday.length) {
@@ -2043,7 +2043,7 @@
     }
 
     /**
-     * The 34-Point Assessment's scorecard: a single 0-34 number entry,
+     * The EOW Assessment's scorecard: a single 0-34 number entry,
      * not a per-item toggle grid — reachable only via the isAdmin-gated
      * buttons in renderHistory(), and re-checked here (an Administrator
      * navigating here is the only supported path, but activeType could
@@ -2053,7 +2053,7 @@
      */
     function renderAssessmentScorecard() {
       if (!isAdmin) {
-        contentEl.innerHTML = `<div class="state-message"><p>Only an Administrator can enter the 34-Point Assessment.</p></div>`;
+        contentEl.innerHTML = `<div class="state-message"><p>Only an Administrator can enter the EOW Assessment.</p></div>`;
         return;
       }
       const history = activeInspectionsByStudent()[String(selectedStudent.CapId)] || [];

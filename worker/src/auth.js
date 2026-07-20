@@ -66,7 +66,7 @@ export const SHEET_PERMISSIONS = {
   // cadet's score to fold into their calculations), but writing is
   // restricted to an Administrator directly in handleWrite's
   // PhysicalAssessments special case below — same shape as
-  // FlightStandingsWeights above — since the 34-point assessment is
+  // FlightStandingsWeights above — since the EOW assessment is
   // scored by IAT/admin staff only, not flight/squadron positions.
   PhysicalAssessments: { read: "any", write: "any" }
 };
@@ -146,7 +146,7 @@ export const PT_INSPECTION_COLUMNS = [
 // and its scoring path (PTInspections, PT_INSPECTION_COLUMNS above)
 // stay fully intact, just unreachable from the Inspect tab's own UI.
 export const INSPECTION_PERIOD_COLUMNS = ["Id", "Date", "Category", "UniformType", "CreatedBy", "CreatedAt"];
-// The 34-Point Physical Assessment — a single overall score (0-34) per
+// The EOW Physical Assessment — a single overall score (0-34) per
 // cadet per date, distinct from the per-item PT_INSPECTION_COLUMNS test
 // above. Entered by Administrators only (see PhysicalAssessments' write
 // gate in SHEET_PERMISSIONS/handleWrite's special case) since this

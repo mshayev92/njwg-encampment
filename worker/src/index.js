@@ -946,7 +946,7 @@ async function handleWrite(env, body, session, ctx) {
   } else if (sheetName === "PhysicalAssessments") {
     // Same shape as FlightStandingsWeights below — no page owns this
     // sheet's write access, an Administrator directly gates it, since
-    // the 34-Point Assessment is scored by admin/IAT staff only.
+    // the EOW Assessment is scored by admin/IAT staff only.
     assertAdmin(session);
   } else if (sheetName === "FlightStandingsWeights") {
     // No nav page owns this sheet (it's not tied to a "page" the way

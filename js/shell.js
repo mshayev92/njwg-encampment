@@ -2958,7 +2958,12 @@ const Shell = (() => {
       overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
       document.getElementById("modal-cancel-btn").addEventListener("click", () => cleanup(false));
       document.getElementById("modal-confirm-btn").addEventListener("click", () => cleanup(true));
-      document.getElementById("modal-confirm-btn").focus();
+      const confirmBtn = document.getElementById("modal-confirm-btn");
+      confirmBtn.focus();
+      // Focusing a button below the fold scrolls .modal-card's own
+      // overflow-y:auto to reveal it — on a tall message this opened the
+      // modal already scrolled to the actions row instead of the title.
+      overlay.querySelector(".modal-card").scrollTop = 0;
     });
   }
 
@@ -3019,6 +3024,11 @@ const Shell = (() => {
     if (cancelBtn) cancelBtn.addEventListener("click", () => dismiss(false));
     document.getElementById("info-modal-close-btn").addEventListener("click", () => dismiss(true));
     document.getElementById("info-modal-close-btn").focus();
+    // Focusing a button below the fold scrolls .modal-card's own
+    // overflow-y:auto to reveal it — on a long body (e.g. the CSV-
+    // format-help table) this opened the modal already scrolled to the
+    // actions row instead of the title/body content.
+    overlay.querySelector(".modal-card").scrollTop = 0;
   }
 
   // ---- Blocking "new alert" popup (announcements / black flag) ---------
@@ -3060,6 +3070,10 @@ const Shell = (() => {
       showNextAlertModal_();
     });
     document.getElementById("alert-modal-dismiss-btn").focus();
+    // See showInfoModal_'s matching comment — focusing the dismiss
+    // button below the fold otherwise scrolls a long body straight to
+    // the bottom before the user sees the top.
+    overlay.querySelector(".modal-card").scrollTop = 0;
   }
 
   // A popup for something that happened while nobody was actually
