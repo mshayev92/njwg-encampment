@@ -1060,8 +1060,10 @@
     function cadetRawMetrics() {
       // Flight Commander/Sergeant roster rows (Role populated) are staff,
       // not cadets — excluded from this per-cadet standings computation
-      // (see Shell.isStaffRosterRow).
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r));
+      // (see Shell.isStaffRosterRow). An "Advanced Training School"
+      // flight is excluded too — it isn't in the running for Honor
+      // Cadet/Honor Flight, for anyone viewing standings.
+      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       const byCap = {};
       cadets.forEach(c => {
         byCap[String(c.CapId)] = { uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0, hcRecs: 0 };

@@ -990,8 +990,12 @@ const Api = (() => {
 
     /**
      * Creates or updates a StaffAccess position. row = { position, pages[],
-     * flights[], password?, clearPassword? }. Omitting password keeps the
-     * existing one; clearPassword:true removes it.
+     * flights[], password?, clearPassword?, ats? }. Omitting password keeps
+     * the existing one; clearPassword:true removes it. ats:true marks this
+     * position's Flight(s) as "Advanced Training School" — excluded from
+     * Overview's Flight Standings and Awards' Weekly Standings, and the
+     * backend strips Inspections/Awards from `pages` for it regardless of
+     * what's sent (see ATS_BLOCKED_PAGES in worker/src/index.js).
      */
     adminSaveStaffAccess(row) {
       return request("adminSaveStaffAccess", {
@@ -1051,6 +1055,18 @@ const Api = (() => {
      */
     getFlightColors() {
       return request("getFlightColors", { requireDevice: true, requireSession: true });
+    },
+
+    /**
+     * Returns { flights: [lowercased flight names] } — every flight
+     * belonging to an "Advanced Training School" position (see
+     * Shell.isAtsFlight). Recomputed automatically on every
+     * adminSaveStaffAccess/adminDeleteStaffAccess; any signed-in session
+     * can read it since Overview's Flight Standings and Awards' Weekly
+     * Standings both need it to exclude these flights for every viewer.
+     */
+    getAtsFlights() {
+      return request("getAtsFlights", { requireDevice: true, requireSession: true });
     },
 
     /** Re-reads Roster's Flight column cell colors and saves them as the new shared flightColors map. Admin-only; the backend re-checks. */

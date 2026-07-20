@@ -363,7 +363,21 @@ const Shell = (() => {
     applyCollapsedState_(isNavCollapsed_());
 
     const crestBtn = document.getElementById("nav-rail-crest");
-    if (crestBtn) crestBtn.addEventListener("click", toggleNavCollapsed_);
+    if (crestBtn) {
+      crestBtn.addEventListener("click", () => {
+        // Collapsing to icons-only is a desktop affordance; inside the
+        // mobile drawer the crest is pure branding (see the CSS forcing
+        // the unit name/divider to stay visible there regardless of
+        // collapsed state) — toggling the preference from a tap here
+        // used to still fire, which is what visibly blanked the unit
+        // name for an instant (the collapsed state's opacity/width
+        // transition briefly applying before this same breakpoint's
+        // override caught up). Checked live at click time (not just
+        // once at render) so it stays correct across a rotation too.
+        if (typeof window !== "undefined" && window.matchMedia && window.matchMedia(MOBILE_PORTRAIT_QUERY).matches) return;
+        toggleNavCollapsed_();
+      });
+    }
   }
 
   function renderHeader(activePage) {
@@ -1382,6 +1396,36 @@ const Shell = (() => {
     });
   }
 
+  // ---- "Advanced Training School" flights (see Api.getAtsFlights) -------
+  //
+  // Same persisted-snapshot-then-refresh shape as flight colors just
+  // above: an ATS-flagged position (see pages/admin.html's Staff Access
+  // form) has its Flight(s) excluded from Overview's Flight Standings and
+  // Awards' Weekly Standings for EVERY viewer, not just that position
+  // itself — so every signed-in device needs this list, not just Admin.
+
+  let atsFlights_ = null; // null until the fetch below resolves (or fails) — treated as "none" until then
+  const ATS_FLIGHTS_STORAGE_KEY = "njwg_ats_flights_v1";
+
+  /** Whether `flight` currently belongs to an ATS-flagged position — case/whitespace-insensitive, same convention as flightColor_. */
+  function isAtsFlight_(flight) {
+    const key = String(flight || "").trim().toLowerCase();
+    return !!(key && atsFlights_ && atsFlights_.includes(key));
+  }
+
+  function initAtsFlightsSync_() {
+    try {
+      const raw = localStorage.getItem(ATS_FLIGHTS_STORAGE_KEY);
+      if (raw) atsFlights_ = JSON.parse(raw);
+    } catch (e) { /* corrupt/unavailable — falls through to the network fetch */ }
+
+    if (typeof Api === "undefined" || !Api.getAtsFlights) return;
+    Api.getAtsFlights().then((data) => {
+      atsFlights_ = (data && data.flights) || [];
+      try { localStorage.setItem(ATS_FLIGHTS_STORAGE_KEY, JSON.stringify(atsFlights_)); } catch (e) { /* ignore */ }
+    }).catch(() => { /* whatever was hydrated above still applies */ });
+  }
+
   /** The same flight color as flightColor_, at low opacity — for a tinted background behind that color's own text/border, matching the app's existing tint-pair convention (--gold-500/--gold-100, etc.). */
   function flightColorTint_(flight) {
     const color = flightColor_(flight);
@@ -1855,9 +1899,43 @@ const Shell = (() => {
    * Roster/Notes/Inspections) and to rows whose Day/Date matches today.
    * Both null if nothing today has a parseable Time.
    */
+  /**
+   * Same as flightMatchesAudience, but "Advanced Training School"-aware
+   * — only used for Schedule's own audience matching (the Overview Now/
+   * Next banner; see currentAndNextScheduleItems below), not the generic
+   * helper every other page's visibility check shares, since only
+   * Schedule has an "ATS"-audienced item concept.
+   *
+   * An unscoped viewer (CCT/Administrator — blank/"all" Flights) still
+   * sees every schedule item, same as always. Otherwise: a viewer whose
+   * OWN flight(s) are ALL ATS-flagged doesn't match the general/blank
+   * "All" audience (the traditional encampment schedule isn't meant for
+   * them) — only an "ATS"-audienced item, or one addressed to their own
+   * flight/squadron by name same as anyone else. A viewer who ISN'T
+   * ATS-only never matches an "ATS"-audienced item, the same "not their
+   * audience" treatment a squadron they don't belong to already gets.
+   */
+  function scheduleAudienceMatches_(viewerFlights, targetFlight) {
+    const flights = Array.isArray(viewerFlights) ? viewerFlights : [];
+    const unscoped = !flights.length || flights.some((f) => String(f).toLowerCase() === "all");
+    if (unscoped) return true;
+
+    const target = String(targetFlight || "").trim();
+    const isAtsTarget = target.toLowerCase() === "ats";
+    const viewerIsAtsOnly = flights.every((f) => isAtsFlight_(f));
+
+    if (viewerIsAtsOnly) {
+      if (isAtsTarget) return true;
+      if (!target) return false;
+      return flightMatchesAudience_(flights, target);
+    }
+    if (isAtsTarget) return false;
+    return flightMatchesAudience_(flights, target);
+  }
+
   function currentAndNextScheduleItems(rows, flights) {
     const flightList = Array.isArray(flights) ? flights : [];
-    const isAllowed = (row) => flightMatchesAudience_(flightList, row.Flight);
+    const isAllowed = (row) => scheduleAudienceMatches_(flightList, row.Flight);
 
     const now = new Date();
     const nowMinutes = now.getHours() * 60 + now.getMinutes();
@@ -3219,6 +3297,7 @@ const Shell = (() => {
       wireIdleTimeout();
       loadGlobalAlerts_();
       initFlightColorSync_();
+      initAtsFlightsSync_();
       // Replay any writes queued while offline — now (in case this page
       // loaded back online) and whenever the tab is refocused.
       if (Api.flushOutbox) {
@@ -3331,6 +3410,7 @@ const Shell = (() => {
     currentAndNextScheduleItems, parseScheduleTime: parseScheduleTime_,
     flightMatchesAudience: flightMatchesAudience_,
     flightColor: flightColor_, flightColorTint: flightColorTint_, refreshFlightColors: refreshFlightColors_,
+    isAtsFlight: isAtsFlight_,
     cadetDisplayName: cadetDisplayName_, isStaffRosterRow: isStaffRosterRow_,
     rosterNameMatches: rosterNameMatches_, normalizeRosterRows: normalizeRosterRows_,
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,

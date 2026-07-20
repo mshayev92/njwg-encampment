@@ -39,7 +39,17 @@ export const DEFAULT_RUNTIME_CONFIG = {
   // Shell.flightColor). Readable by any signed-in session (see the
   // getFlightColors action) since flight-color accents show up on
   // ordinary staff pages, not just Admin.
-  flightColors: {}
+  flightColors: {},
+  // Lowercased names of every flight belonging to an "Advanced Training
+  // School" position (a StaffAccess row with its ATS column checked —
+  // see handleAdminSaveStaffAccess/computeAtsFlights_ in index.js, which
+  // recomputes this automatically on every StaffAccess save/delete, the
+  // same "admin edits the source, everyone reads the derived result"
+  // shape flightColors above already uses). Readable by any signed-in
+  // session (see the getAtsFlights action) — Overview's Flight Standings
+  // and Awards' Weekly Standings both need to exclude these flights from
+  // their rankings for every viewer, not just the ATS position itself.
+  atsFlights: []
 };
 
 // Every numeric field is clamped to these bounds on save, so a mistyped
@@ -104,6 +114,12 @@ export async function saveRuntimeConfig(env, patch) {
       }
     }
     next.flightColors = clean;
+  }
+  if ("atsFlights" in patch && Array.isArray(patch.atsFlights)) {
+    // Same shape as flightColors above — this is populated by our own
+    // computeAtsFlights_ (index.js), never a client-supplied value, but
+    // validated anyway rather than trusted verbatim.
+    next.atsFlights = [...new Set(patch.atsFlights.filter((f) => typeof f === "string" && f.trim()).map((f) => f.trim().toLowerCase()))].sort();
   }
 
   await env.NJWG_KV.put(CONFIG_KV_KEY, JSON.stringify(next));

@@ -975,8 +975,11 @@
       //
       // Flight Commander/Sergeant roster rows (Role populated) are flight
       // staff, not cadets — excluded, same as every other per-cadet
-      // computation on this page.
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r));
+      // computation on this page. An "Advanced Training School" flight
+      // (see Shell.isAtsFlight/pages/admin.html's Staff Access form) is
+      // excluded entirely too — it isn't in the running for this
+      // standings ranking, for anyone viewing it.
+      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       if (!cadets.length) return [];
 
       const byCap = {};

@@ -187,6 +187,16 @@
       min-width: 0;
       cursor: pointer;
     }
+
+    /* Inspections/Awards, disabled+unchecked while ATS is checked (see
+       ATS_BLOCKED_PAGE_IDS) — dimmed so it reads as "unavailable," not
+       just "happens to be unchecked right now." */
+    .page-check.is-ats-blocked {
+      opacity: 0.5;
+    }
+    .page-check.is-ats-blocked .page-check__main {
+      cursor: not-allowed;
+    }
     .page-check__main input { width: 18px; height: 18px; flex-shrink: 0; }
     .page-check__label { overflow-wrap: break-word; min-width: 0; }
 
@@ -302,9 +312,14 @@
       ...window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label })),
       ...EDIT_GATES
     ];
+    // Mirrors ATS_BLOCKED_PAGES in worker/src/index.js — an "Advanced
+    // Training School" position can never hold these, so the form
+    // disables (and unchecks) them rather than letting someone check a
+    // box the backend will silently strip anyway.
+    const ATS_BLOCKED_PAGE_IDS = ["inspections", "recommendations"];
 
     let activeTab = "staff";
-    let staff = [];              // [{ Position, Pages[], Flights[], hasPassword }]
+    let staff = [];              // [{ Position, Pages[], Flights[], hasPassword, ATS }]
     let loginEntries = [];       // [{ Timestamp, Type, Identifier, Success }]
     let logTotal = 0;
     let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
@@ -368,22 +383,36 @@
           <input type="text" id="pos-name" value="${esc(editing)}" ${isNew ? "" : "disabled"} placeholder="e.g. Bravo Flight, CCT, Administrator">
           ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
 
+          <label class="clear-pw">
+            <input type="checkbox" id="pos-ats" ${current && current.ATS ? "checked" : ""}>
+            Advanced Training School (ATS)
+          </label>
+          <div class="hint" style="margin-bottom: var(--space-4);">
+            Marks this position's Flight(s) as ATS — excluded from Overview's Flight Standings and Awards' Weekly Standings for every viewer (they're not in the running), and this position loses Inspections/Awards access entirely (below), since ATS flights don't run inspections or compete for awards. Schedule stays available — an ATS-audienced schedule item is still visible to it, just not the general/everyone-audienced one.
+          </div>
+
           <label class="field-label">Pages this position can access</label>
           <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page.</div>
-          <div class="page-checks">
+          <div class="page-checks" id="pos-pages-grid">
             ${basePages.map(p => {
               const editGate = editGateByBase.get(p.id);
               const viewChecked = currentPages.includes(p.id.toLowerCase());
               const editChecked = !!editGate && currentPages.includes(editGate.id.toLowerCase());
+              // ATS positions can never hold Inspections/Awards — see
+              // ATS_BLOCKED_PAGES in worker/src/index.js, which strips
+              // these server-side regardless of what this form sends.
+              // Disabling (and unchecking) them here just keeps the form
+              // honest about what will actually be saved.
+              const atsBlocked = current && current.ATS && ATS_BLOCKED_PAGE_IDS.includes(p.id);
               return `
-                <div class="page-check">
+                <div class="page-check${atsBlocked ? " is-ats-blocked" : ""}" data-ats-blockable="${ATS_BLOCKED_PAGE_IDS.includes(p.id) ? "1" : ""}">
                   <label class="page-check__main">
-                    <input type="checkbox" value="${esc(p.id)}" ${viewChecked ? "checked" : ""}>
+                    <input type="checkbox" value="${esc(p.id)}" ${viewChecked && !atsBlocked ? "checked" : ""} ${atsBlocked ? "disabled" : ""}>
                     <span class="page-check__label">${esc(p.label)}</span>
                   </label>
                   ${editGate ? `
-                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}">✎</button>
-                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked ? "checked" : ""} hidden>
+                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}" ${atsBlocked ? "disabled" : ""}>✎</button>
+                    <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked && !atsBlocked ? "checked" : ""} hidden>
                   ` : ""}
                 </div>
               `;
@@ -505,6 +534,7 @@
                   <div class="staff-row__name">
                     ${esc(s.Position)}
                     ${isAdmin ? `<span class="badge badge--gold">Admin</span>` : ""}
+                    ${s.ATS ? `<span class="badge badge--gold" data-tooltip="Excluded from Flight Standings and Awards; no Inspections/Awards access">ATS</span>` : ""}
                     ${s.hasPassword ? `<span class="badge badge--garnet">🔒 Password</span>` : ""}
                   </div>
                   <div class="staff-row__meta">${esc(flightsSummary(s.Flights))} · ${s.Pages.length} page${s.Pages.length === 1 ? "" : "s"}</div>
@@ -587,6 +617,25 @@
         });
       }
 
+      // Checking ATS live-disables (and unchecks) Inspections/Awards —
+      // same rule renderStaffForm already applied at initial render for
+      // an already-ATS position, kept in sync as this checkbox changes
+      // without needing to re-render the whole form.
+      const atsCheckbox = document.getElementById("pos-ats");
+      const pagesGrid = document.getElementById("pos-pages-grid");
+      if (atsCheckbox && pagesGrid) {
+        atsCheckbox.addEventListener("change", () => {
+          pagesGrid.querySelectorAll('[data-ats-blockable="1"]').forEach(row => {
+            row.classList.toggle("is-ats-blocked", atsCheckbox.checked);
+            row.querySelectorAll("input, button").forEach(el => { el.disabled = atsCheckbox.checked; });
+            if (atsCheckbox.checked) {
+              row.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+              row.querySelectorAll(".page-check__edit.is-active").forEach(btn => btn.classList.remove("is-active"));
+            }
+          });
+        });
+      }
+
       Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);
     }
@@ -603,8 +652,9 @@
         : Array.from(contentEl.querySelectorAll(".pos-flight-check:checked")).map(i => i.value);
       const passwordVal = document.getElementById("pos-password").value;
       const clearPw = document.getElementById("clear-pw");
+      const ats = document.getElementById("pos-ats").checked;
 
-      const row = { position, pages, flights };
+      const row = { position, pages, flights, ats };
       if (clearPw && clearPw.checked) row.clearPassword = true;
       else if (passwordVal) row.password = passwordVal;
 

@@ -154,6 +154,19 @@ async function handleGet(request, env) {
     return respond({ ok: true, colors: config.flightColors || {} });
   }
 
+  if (action === "getAtsFlights") {
+    // Not admin-gated, same reasoning as getFlightColors — Overview's
+    // Flight Standings and Awards' Weekly Standings both need to exclude
+    // these flights from their rankings for EVERY viewer, not just an
+    // Administrator. Only a StaffAccess save/delete (admin-only) changes
+    // this — see computeAtsFlights_.
+    await requireDeviceToken(env, params.deviceToken);
+    await requireSession(env, params.token);
+    await checkRateLimit(env, params.token);
+    const config = await getRuntimeConfig(env);
+    return respond({ ok: true, flights: config.atsFlights || [] });
+  }
+
   return respond({ ok: false, error: "Unknown or missing action for GET." });
 }
 
@@ -396,7 +409,48 @@ async function logLoginAttempt(env, entry) {
 // a hasPassword flag is. Bootstrapping the first admin is a one-time
 // manual edit of the StaffAccess sheet (add "admin" to a position's Pages).
 
-const STAFF_ACCESS_HEADERS = ["Position", "Pages", "Flights", "Password"];
+const STAFF_ACCESS_HEADERS = ["Position", "Pages", "Flights", "Password", "ATS"];
+
+// Pages an "Advanced Training School" position may never hold — Inspections
+// and Awards are removed from its own view entirely (see
+// handleAdminSaveStaffAccess) since ATS flights don't run inspections or
+// compete for awards; enforced here (not just by pages/admin.html not
+// offering the checkboxes) so a stale/hand-edited Sheet row can't grant
+// them anyway.
+const ATS_BLOCKED_PAGES = ["inspections", "recommendations", "edit-inspections"];
+
+function isAtsTruthy(value) {
+  const v = String(value || "").trim().toLowerCase();
+  return v === "true" || v === "1" || v === "yes";
+}
+
+/**
+ * The set of lowercased flight names belonging to any ATS-flagged
+ * position, recomputed from the CURRENT StaffAccess values every time a
+ * position is saved or deleted (see the two callers below) and persisted
+ * into runtimeConfig.atsFlights — the same "derive once on the admin
+ * action that could have changed it, everyone else just reads the
+ * result" shape adminSyncFlightColors already uses, just automatic
+ * instead of a manual sync button (StaffAccess writes are already admin-
+ * gated and infrequent, so recomputing this on every one of them costs
+ * nothing extra worth avoiding).
+ */
+function computeAtsFlights_(values) {
+  const headers = values[0] || [];
+  const flightsCol = headers.indexOf("Flights");
+  const atsCol = headers.indexOf("ATS");
+  if (flightsCol === -1 || atsCol === -1) return [];
+  const set = new Set();
+  values.slice(1).forEach((row) => {
+    if (!isAtsTruthy(row[atsCol])) return;
+    splitList(row[flightsCol]).forEach((f) => set.add(f.trim().toLowerCase()));
+  });
+  return [...set].sort();
+}
+
+async function refreshAtsFlightsConfig_(env, values) {
+  await saveRuntimeConfig(env, { atsFlights: computeAtsFlights_(values) });
+}
 
 function assertAdmin(session) {
   const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
@@ -438,6 +492,7 @@ async function handleAdminListStaffAccess(env) {
   const pagesCol = headers.indexOf("Pages");
   const flightsCol = headers.indexOf("Flights");
   const pwCol = headers.indexOf("Password");
+  const atsCol = headers.indexOf("ATS");
   if (posCol === -1) return { ok: true, positions: [] };
 
   const positions = values.slice(1)
@@ -447,7 +502,8 @@ async function handleAdminListStaffAccess(env) {
       Pages: pagesCol !== -1 ? splitList(row[pagesCol]) : [],
       Flights: flightsCol !== -1 ? splitList(row[flightsCol]) : [],
       // Never expose the password itself — only whether one is set.
-      hasPassword: pwCol !== -1 && !!String(row[pwCol] || "").trim()
+      hasPassword: pwCol !== -1 && !!String(row[pwCol] || "").trim(),
+      ATS: atsCol !== -1 && isAtsTruthy(row[atsCol])
     }));
 
   return { ok: true, positions };
@@ -457,8 +513,14 @@ async function handleAdminSaveStaffAccess(env, body, session) {
   const position = String(body.position || "").trim();
   if (!position) throw new Error("Position name is required.");
 
-  const pages = (Array.isArray(body.pages) ? body.pages : [])
+  const ats = !!body.ats;
+  let pages = (Array.isArray(body.pages) ? body.pages : [])
     .map((p) => String(p).trim().toLowerCase()).filter(Boolean);
+  // An ATS position never holds Inspections/Awards access — stripped
+  // here regardless of what the client sent, not just left to
+  // pages/admin.html's form not offering the checkboxes (see
+  // ATS_BLOCKED_PAGES above).
+  if (ats) pages = pages.filter((p) => !ATS_BLOCKED_PAGES.includes(p));
   const flights = (Array.isArray(body.flights) ? body.flights : [])
     .map((f) => String(f).trim()).filter(Boolean);
 
@@ -505,17 +567,31 @@ async function handleAdminSaveStaffAccess(env, body, session) {
     Position: position,
     Pages: pages.join(", "),
     Flights: flights.join(", "),
-    Password: newPassword
+    Password: newPassword,
+    ATS: ats ? "TRUE" : ""
   };
   // Preserve any other columns that already exist on an edited row.
   const rowArray = headers.map((h, i) => (h in rowData ? rowData[h] : (existingRow ? (existingRow[i] ?? "") : "")));
 
   if (rowNumber > 0) {
     await setRow(env, "StaffAccess", rowNumber, rowArray);
-    return { ok: true, action: "updated", position };
+  } else {
+    await appendRow(env, "StaffAccess", rowArray);
   }
-  await appendRow(env, "StaffAccess", rowArray);
-  return { ok: true, action: "created", position };
+
+  // Recompute the shared ATS-flights list from the sheet's new state —
+  // cheap (one more small read + a runtimeConfig write, on an already
+  // infrequent admin-only action) and keeps Overview/Awards' exclusions
+  // correct immediately, with no separate manual sync step. Built from
+  // `headers` (which may have just grown with a new column above) plus
+  // every OTHER row unchanged, with this save's own row swapped/appended
+  // in — cheaper than re-reading the sheet a second time.
+  const dataRows = values.slice(1);
+  if (rowNumber > 0) dataRows[rowNumber - 2] = rowArray;
+  else dataRows.push(rowArray);
+  await refreshAtsFlightsConfig_(env, [headers, ...dataRows]);
+
+  return { ok: true, action: rowNumber > 0 ? "updated" : "created", position };
 }
 
 async function handleAdminDeleteStaffAccess(env, body, session) {
@@ -547,6 +623,12 @@ async function handleAdminDeleteStaffAccess(env, body, session) {
   if (!rowNumber) throw new Error("Position not found.");
 
   await deleteRow(env, "StaffAccess", rowNumber);
+
+  // Same recompute as handleAdminSaveStaffAccess above — deleting an
+  // ATS position must not leave its flight(s) stuck excluded forever.
+  const remainingRows = values.slice(1).filter((_, i) => i !== rowNumber - 2);
+  await refreshAtsFlightsConfig_(env, [headers, ...remainingRows]);
+
   return { ok: true, action: "deleted", position };
 }
 
