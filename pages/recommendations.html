@@ -136,6 +136,28 @@
     }
     .weight-field__dir--neg { color: var(--red-600); }
 
+    /* Same overflow bug, same fix as pages/overview.html's matching
+       comment on .weights-fields-grid — auto-fit's column count is
+       based on the container's width, and once a screen is too narrow
+       to fit every field across that many columns, the row-pinned
+       label/input/dir-note trick above pushes the overflow into
+       unconstrained implicit columns off the right edge instead of
+       wrapping. Below the same mobile-portrait breakpoint, abandon the
+       row-pinned grid and stack each field as an ordinary column. */
+    @media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
+      .weights-grid {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+      .weights-grid .field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+      .weight-field__dir { grid-row: unset; }
+    }
+
     .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
     .standings-row {
       display: flex;
