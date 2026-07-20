@@ -184,7 +184,7 @@ export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedA
 // handleWrite's FlightStandingsWeights special case in index.js).
 // Values are the same 0-100-ish shares computeFlightStandings() in
 // overview.html already used as hardcoded defaults.
-export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "PT", "Assessment", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
+export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "Assessment", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the
 // same tag on the same student twice in a week records two separate

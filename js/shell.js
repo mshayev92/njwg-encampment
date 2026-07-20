@@ -66,7 +66,11 @@ const Shell = (() => {
     moon:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>',
     monitor:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
     printer:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
-    upload:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>'
+    upload:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>',
+    // Hamburger — the mobile-portrait nav drawer's trigger (see
+    // #mobile-nav-toggle-btn in renderHeader), replacing the bottom tab
+    // bar on narrow portrait viewports.
+    menu:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
   };
 
   // All of these used to be single GLOBAL localStorage keys, shared by
@@ -363,6 +367,11 @@ const Shell = (() => {
     const positionLabel = session ? (session.Position || session.position || "Staff") : "";
 
     header.innerHTML = `
+      ${session ? `
+        <button class="btn btn--ghost" id="mobile-nav-toggle-btn" aria-haspopup="true" aria-expanded="false" aria-label="Open navigation menu" style="padding: var(--space-2);">
+          <span style="width:20px;height:20px;display:inline-flex;">${ICONS.menu}</span>
+        </button>
+      ` : ""}
       <h1 class="app-header__title">${title}</h1>
       <div class="app-header__user">
         ${session ? `
@@ -374,7 +383,7 @@ const Shell = (() => {
           <button class="btn btn--ghost" id="global-search-btn" data-tooltip="Search (Ctrl+K / ⌘+K)" aria-label="Search" style="padding: var(--space-2);">
             <span style="width:18px;height:18px;display:inline-flex;">${ICONS.search}</span>
           </button>
-          <div class="theme-menu-wrap">
+          <div class="theme-menu-wrap" id="theme-menu-wrap">
             <button class="btn btn--ghost" id="theme-menu-btn" aria-haspopup="true" aria-expanded="false" data-tooltip="Theme" aria-label="Theme" style="padding: var(--space-2);">
               <span id="theme-menu-icon" style="width:18px;height:18px;display:inline-flex;"></span>
             </button>
@@ -405,6 +414,13 @@ const Shell = (() => {
               <span class="profile-menu__label">${escapeHtml_(positionLabel)}</span>
             </button>
             <div class="profile-menu" id="profile-menu" hidden>
+              <!-- Empty (and hidden via CSS :empty) except in mobile
+                   portrait, where relocateHeaderPillsForViewport_ below
+                   moves the black flag pill/sync indicator/search/theme/
+                   notifications out of .app-header__user and in here, so
+                   the always-visible header row stays just the nav
+                   toggle, the page title, and this profile tab. -->
+              <div class="profile-menu__quick-row" id="profile-menu-quick-row"></div>
               <button class="profile-menu__item" id="hard-refresh-btn" data-tooltip="Refresh all data now">
                 <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
                 <span class="profile-menu__item-icon hard-refresh-icon" aria-hidden="true">${ICONS.refresh}</span>
@@ -509,6 +525,8 @@ const Shell = (() => {
     updateThemeMenuUI_(getThemePreference_(), resolveTheme_(getThemePreference_()));
     wireSyncIndicator_();
     wireTooltips_(header);
+    wireMobileNavDrawer_();
+    relocateHeaderPillsForViewport_();
   }
 
   // ---- Profile menu (top-right — replaces the old nav-rail "signed in
@@ -560,6 +578,110 @@ const Shell = (() => {
   function wireProfileMenu_() {
     const btn = document.getElementById("profile-menu-btn");
     if (btn) btn.addEventListener("click", () => toggleProfileMenu_());
+  }
+
+  // ---- Mobile-portrait header layout ----
+  //
+  // In mobile portrait (see the matching CSS media query in css/app.css)
+  // the header keeps only the nav toggle, the page title, and the
+  // profile tab on one row — the black flag pill, sync indicator,
+  // search, theme, and notifications live in the profile dropdown
+  // instead of their own always-visible row. Everywhere else (desktop,
+  // tablet, mobile landscape) they stay right where they've always been,
+  // in .app-header__user next to the profile tab. Rather than rendering
+  // two copies (duplicate ids/listeners), the SAME elements are moved
+  // between the two containers with plain DOM appendChild — cheap, and
+  // every element keeps its own event listeners and popover positioning
+  // logic (the notifications popover and theme menu both work out
+  // wherever their trigger currently sits on screen) with no extra code.
+  const MOBILE_PORTRAIT_QUERY = "(max-width: 720px), (max-width: 1024px) and (orientation: portrait)";
+  const HEADER_QUICK_ROW_IDS = ["black-flag-pill", "sync-indicator", "global-search-btn", "theme-menu-wrap", "announcements-bell-btn"];
+  let mobilePortraitMql_ = null;
+
+  function relocateHeaderPillsForViewport_() {
+    const quickRow = document.getElementById("profile-menu-quick-row");
+    const userCluster = document.querySelector(".app-header__user");
+    const profileWrap = document.querySelector(".profile-menu-wrap");
+    if (!quickRow || !userCluster || !profileWrap) return;
+
+    const isMobilePortrait = typeof window !== "undefined" && window.matchMedia && window.matchMedia(MOBILE_PORTRAIT_QUERY).matches;
+    const target = isMobilePortrait ? quickRow : userCluster;
+    // Re-insert each element right before the profile tab when it's
+    // headed back to .app-header__user, preserving the original
+    // black-flag/sync/search/theme/bell -> profile-tab order — appendChild
+    // alone would append after profile-menu-wrap instead.
+    HEADER_QUICK_ROW_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (isMobilePortrait) target.appendChild(el);
+      else userCluster.insertBefore(el, profileWrap);
+    });
+
+    // Listen for the breakpoint actually changing (e.g. rotating the
+    // device, or resizing a desktop browser window) so this stays
+    // correct for the rest of the page's life, not just at load —
+    // registered once per page (renderHeader only runs once), removing
+    // any previous listener first in case this is ever called again.
+    if (!mobilePortraitMql_) {
+      mobilePortraitMql_ = window.matchMedia(MOBILE_PORTRAIT_QUERY);
+      const onChange = () => relocateHeaderPillsForViewport_();
+      if (mobilePortraitMql_.addEventListener) mobilePortraitMql_.addEventListener("change", onChange);
+      else if (mobilePortraitMql_.addListener) mobilePortraitMql_.addListener(onChange); // older Safari
+    }
+  }
+
+  // ---- Mobile-portrait nav drawer ----
+  //
+  // Replaces the bottom tab bar in mobile portrait (see the same
+  // MOBILE_PORTRAIT_QUERY breakpoint above) with a slide-in drawer that
+  // reuses the EXACT same #nav-rail element/links every other layout
+  // already renders (renderNav above) — just toggled visible via a class
+  // on <html> instead of always sitting in the layout, with a translucent
+  // backdrop behind it, the same pattern as every other overlay in this
+  // file (announcements popover, search overlay, modals).
+  const MOBILE_NAV_OPEN_CLASS = "mobile-nav-open";
+  let mobileNavBackdropEl_ = null;
+
+  function closeMobileNavDrawer_() {
+    document.documentElement.classList.remove(MOBILE_NAV_OPEN_CLASS);
+    const toggleBtn = document.getElementById("mobile-nav-toggle-btn");
+    if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "false");
+  }
+
+  function openMobileNavDrawer_() {
+    document.documentElement.classList.add(MOBILE_NAV_OPEN_CLASS);
+    const toggleBtn = document.getElementById("mobile-nav-toggle-btn");
+    if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "true");
+  }
+
+  function wireMobileNavDrawer_() {
+    const toggleBtn = document.getElementById("mobile-nav-toggle-btn");
+    if (!toggleBtn) return;
+
+    // The backdrop is a single persistent element (created once, reused
+    // across renderHeader calls) rather than rebuilt every time — nothing
+    // about it depends on the current page.
+    if (!mobileNavBackdropEl_) {
+      mobileNavBackdropEl_ = document.createElement("div");
+      mobileNavBackdropEl_.className = "mobile-nav-backdrop";
+      mobileNavBackdropEl_.addEventListener("click", closeMobileNavDrawer_);
+      document.body.appendChild(mobileNavBackdropEl_);
+    }
+
+    toggleBtn.addEventListener("click", () => {
+      if (document.documentElement.classList.contains(MOBILE_NAV_OPEN_CLASS)) closeMobileNavDrawer_();
+      else openMobileNavDrawer_();
+    });
+
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMobileNavDrawer_(); });
+
+    // Tapping any nav link should close the drawer immediately rather
+    // than leaving it open behind the page the link is about to
+    // navigate to — a real cross-document navigation makes this mostly
+    // moot (the whole page unloads), but a same-page anchor or a link
+    // to the page already active wouldn't otherwise close it.
+    const rail = document.getElementById("nav-rail");
+    if (rail) rail.addEventListener("click", (e) => { if (e.target.closest(".nav-rail__link")) closeMobileNavDrawer_(); });
   }
 
   // ---- Theme menu (header, between search and the bell) — same

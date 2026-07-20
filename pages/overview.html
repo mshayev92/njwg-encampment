@@ -72,19 +72,26 @@
        input wherever its own label happened to end, so a label that
        wraps to two lines ("Concern Observations (penalty)") pushed just
        THAT input a row lower than every single-line-label field next to
-       it. Reserving a fixed two-line height for every label, regardless
-       of whether it actually wraps, keeps every input's top edge level
-       across the whole row. */
+       it. A guessed min-height on the label doesn't reliably fix this
+       (get the estimate even slightly wrong and the wrapped label is
+       STILL taller than the guess, so it's still misaligned) — instead,
+       `.field` is flattened with display:contents so its label/input/
+       note become direct children of THIS grid, each explicitly pinned
+       to its own grid row (1/2/3). Native grid row-sizing then makes
+       row 1 exactly as tall as its tallest (possibly 2-line) label,
+       and every row-2 input starts immediately after it — pixel-exact
+       alignment with no magic number to get wrong. */
     .weights-fields-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: var(--space-3);
+      column-gap: var(--space-3);
+      row-gap: var(--space-2);
     }
-    .weights-fields-grid .field label {
-      min-height: 2.4em;
-      display: flex;
-      align-items: flex-start;
+    .weights-fields-grid .field {
+      display: contents;
     }
+    .weights-fields-grid .field label { grid-row: 1; align-self: end; }
+    .weights-fields-grid .field input { grid-row: 2; }
 
     /* ---- Welcome card: a time-of-day "scene" (gradient sky + sun/moon/
        stars/clouds), purely CSS — no images or network calls, so it
@@ -852,11 +859,19 @@
     // ---- Flight Standings --------------------------------------------------
     //
     // A single blended score per flight from data the app already collects
-    // every day — Uniform/Room/PT inspection results, positive vs. concern
-    // Observations — so that routine logging surfaces as something worth
-    // glancing at, not just raw records nobody sees until Trends or an
-    // awards review. Uses only sheets this page already loads for the
-    // cards above; no extra fetch, no extra Worker/KV cost.
+    // every day — Uniform/Room inspection results, the 34-Point
+    // Assessment, positive vs. concern Observations — so that routine
+    // logging surfaces as something worth glancing at, not just raw
+    // records nobody sees until Trends or an awards review. Uses only
+    // sheets this page already loads for the cards above; no extra
+    // fetch, no extra Worker/KV cost.
+    //
+    // Physical Training does NOT factor in here (or into Awards' Weekly
+    // Standings) — the 34-Point Assessment is this app's actual physical
+    // readiness score now; PTInspections/PT_SCORE_ITEMS stay fully intact
+    // elsewhere (logging, history, the Inspect tab's own scorecard,
+    // Today's Inspections progress below) purely as a record, not a
+    // scoring input anywhere.
     //
     // Deliberately a FIXED formula, NOT the tunable weights Recommendations'
     // own Weekly Standings uses (see RANKING_METRICS there) — those are a
@@ -868,10 +883,11 @@
     const STANDINGS_ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
     const STANDINGS_ASSESSMENT_MAX_SCORE = 34; // see ASSESSMENT_SCORE_ITEMS in pages/inspections.html
 
-    // Uniform/Room/PT are each already a natural 0-1 rate (points scored
-    // out of the possible total) — weighted and summed AS-IS, on their own
-    // absolute scale, not relative to other flights, so a flight scoring
-    // 92% reads as 92%, not merely "better than the others this week."
+    // Uniform/Room/the 34-Point Assessment are each already a natural 0-1
+    // rate (points scored out of the possible total) — weighted and
+    // summed AS-IS, on their own absolute scale, not relative to other
+    // flights, so a flight scoring 92% reads as 92%, not merely "better
+    // than the others this week."
     // Positive/concern Observations have no natural upper bound (it's
     // whatever staff happened to log), so those two are normalized against
     // the highest per-cadet rate among the flights actually being compared
@@ -885,9 +901,9 @@
     // are a personal judgment call for picking an Honor Cadet/Flight, not
     // a shared setting. These defaults are only what's shown before the
     // sheet has loaded (or if it comes back empty).
-    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, pt: 15, assessment: 15, posObs: 30, concernObs: 20 };
+    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, assessment: 30, posObs: 30, concernObs: 20 };
 
-    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, pt, posObs, concernObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
+    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, assessment, posObs, concernObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
     function weightsFromRow(row) {
       if (!row) return { ...DEFAULT_STANDINGS_WEIGHTS };
       const pick = (col, fallback) => {
@@ -904,7 +920,6 @@
       return {
         uniform: pick("Uniform", DEFAULT_STANDINGS_WEIGHTS.uniform),
         room: pick("Room", DEFAULT_STANDINGS_WEIGHTS.room),
-        pt: pick("PT", DEFAULT_STANDINGS_WEIGHTS.pt),
         assessment: pick("Assessment", DEFAULT_STANDINGS_WEIGHTS.assessment),
         posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs),
         concernObs: pick("ConcernObservations", DEFAULT_STANDINGS_WEIGHTS.concernObs)
@@ -914,7 +929,7 @@
     function num_(v) { return Number(v) || 0; }
     function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
 
-    function computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights) {
+    function computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights) {
       // Deliberately NOT scoped by isFlightAllowed/allowedFlights, unlike
       // every other per-cadet computation on this page (Today's
       // Inspections, the "happening now" banner, etc.) — this is a shared
@@ -933,15 +948,11 @@
 
       const byCap = {};
       cadets.forEach(c => {
-        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], ptPassed: 0, ptAttempted: 0, assessment: [], posObs: 0, concernObs: 0 };
+        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num_(r.TotalPoints) / STANDINGS_UNIFORM_ITEM_COUNT); });
       roomRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.room.push(num_(r.TotalPoints) / STANDINGS_ROOM_ITEM_COUNT); });
-      ptRows.forEach(r => {
-        const e = byCap[String(r.StudentCapId)];
-        if (e) { e.ptPassed += num_(r.TotalPoints); e.ptAttempted += num_(r.ItemsAttempted); }
-      });
       assessmentRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.assessment.push(num_(r.Score) / STANDINGS_ASSESSMENT_MAX_SCORE); });
       observationRows.forEach(r => {
         const e = byCap[String(r.StudentCapId)];
@@ -956,13 +967,11 @@
 
       const flights = Object.keys(byFlight).sort().map(flight => {
         const members = byFlight[flight];
-        const ptTotals = members.reduce((acc, m) => ({ passed: acc.passed + m.ptPassed, attempted: acc.attempted + m.ptAttempted }), { passed: 0, attempted: 0 });
         return {
           flight,
           cadetCount: members.length,
           uniformAvg: mean_(members.flatMap(m => m.uniform)),
           roomAvg: mean_(members.flatMap(m => m.room)),
-          ptRate: ptTotals.attempted ? ptTotals.passed / ptTotals.attempted : null,
           assessmentAvg: mean_(members.flatMap(m => m.assessment)),
           posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length,
           concernPerCadet: members.reduce((s, m) => s + m.concernObs, 0) / members.length
@@ -979,7 +988,6 @@
         const score = Math.max(0, Math.round(
           weights.uniform * (f.uniformAvg || 0) +
           weights.room * (f.roomAvg || 0) +
-          weights.pt * (f.ptRate || 0) +
           weights.assessment * (f.assessmentAvg || 0) +
           weights.posObs * posNorm -
           weights.concernObs * concernNorm
@@ -997,12 +1005,11 @@
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/PT/34-Point Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/34-Point Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
           </p>
           <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
-            <div class="field" style="margin-bottom:0;"><label for="w-pt">Physical Training</label><input type="number" id="w-pt" min="0" max="100" value="${esc(weights.pt)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-assessment">34-Point Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-concern">Concern Observations (penalty)</label><input type="number" id="w-concern" min="0" max="100" value="${esc(weights.concernObs)}"></div>
@@ -1014,8 +1021,8 @@
         </div>`;
     }
 
-    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights) {
-      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, ptRows, assessmentRows, observationRows, weights);
+    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights) {
+      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights);
       if (!standings.length && !editingStandingsWeights) return "";
 
       return `
@@ -1135,7 +1142,7 @@
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
-          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastAssessmentRows || [], lastObservationRows || [], lastStandingsWeights)}
+          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastAssessmentRows || [], lastObservationRows || [], lastStandingsWeights)}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
@@ -1155,7 +1162,6 @@
             RecordKey: "singleton",
             Uniform: Number(document.getElementById("w-uniform").value) || 0,
             Room: Number(document.getElementById("w-room").value) || 0,
-            PT: Number(document.getElementById("w-pt").value) || 0,
             Assessment: Number(document.getElementById("w-assessment").value) || 0,
             PositiveObservations: Number(document.getElementById("w-pos").value) || 0,
             ConcernObservations: Number(document.getElementById("w-concern").value) || 0

@@ -297,6 +297,16 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--ink-600);
 }
 
+/* Mobile-portrait-only nav drawer toggle/backdrop (see the
+   max-width:720px/portrait media query below for their actual
+   appearance) — hidden everywhere else by default so the toggle button
+   never shows up on desktop/tablet/landscape, and the backdrop (a
+   single element js/shell.js creates once per page load, up front,
+   regardless of viewport) never renders as a stray block-level div
+   taking up space at the end of the page body. */
+#mobile-nav-toggle-btn { display: none; }
+.mobile-nav-backdrop { display: none; }
+
 /* ---- Sync status indicator (header) ----
    Shown next to the position name whenever a write is queued or in
    flight, so a person always knows whether their last save actually
@@ -985,6 +995,16 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-6);
   position: relative;
   animation: modal-in var(--duration-base) var(--ease-standard);
+  /* .modal-overlay centers this with equal padding above/below (see
+     its own --space-5 padding), so this is the tallest the card can be
+     without the top and/or bottom running past the viewport — a long
+     info modal body (e.g. the CSV-format-help table on Roster/Schedule)
+     otherwise just grew past the screen with no way to reach the rest
+     of it. The card's own content scrolls internally past this height
+     instead; the header/footer (title, actions) stay in the flow of
+     that same scroll, same as a native modal. */
+  max-height: calc(100vh - (2 * var(--space-5)));
+  overflow-y: auto;
 }
 
 @keyframes modal-in {
@@ -1154,6 +1174,14 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-2);
   z-index: var(--z-overlay);
   animation: overlay-in var(--duration-base) var(--ease-standard);
+  /* Nothing capped this before — a short viewport (or, in mobile
+     portrait, the extra quick-row of relocated header pills on top of
+     the usual action list — see relocateHeaderPillsForViewport_ in
+     js/shell.js) could grow this dropdown past the bottom of the
+     screen with no way to reach whatever scrolled off. --space-8 is a
+     rough allowance for the header row above it. */
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
 }
 
 .profile-menu__item {
@@ -1217,6 +1245,8 @@ html.nav-rail-collapsed .nav-rail__crest {
   padding: var(--space-2);
   z-index: var(--z-overlay);
   animation: overlay-in var(--duration-base) var(--ease-standard);
+  max-height: calc(100vh - var(--space-8));
+  overflow-y: auto;
 }
 
 .theme-menu__item {
@@ -1746,98 +1776,141 @@ button.date-field__day:hover {
   .app-main { padding: var(--space-5); }
 }
 
-/* Mobile: nav rail becomes a bottom tab bar.
+/* Mobile: nav rail becomes a slide-in drawer, opened by a hamburger
+   toggle next to the page title, instead of a docked side rail OR a
+   bottom tab bar — see js/shell.js's wireMobileNavDrawer_.
    Plain max-width alone made a portrait tablet/large phone (e.g. an
    iPad Mini at 768px wide) fall into the >720px tablet breakpoint
    above instead — a desktop-shaped side rail squeezed onto a narrow
    portrait screen, which is what read as "inherited from desktop and
    works a little weird." Matching on orientation too (in addition to
    the plain width for actual phones) means any portrait device up to
-   1024px wide gets the bottom tab bar instead; the same device rotated
-   to landscape still gets the wider tablet side rail from the rule
-   above, since only the width condition can match there. */
+   1024px wide gets this treatment instead; the same device rotated to
+   landscape still gets the wider tablet side rail from the rule above,
+   since only the width condition can match there. */
 @media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr var(--bottom-tab-height);
+    grid-template-rows: auto 1fr;
     grid-template-areas:
       "header"
-      "main"
-      "nav";
+      "main";
   }
 
+  /* One row — nav toggle, page title, profile tab — never wrapping.
+     The title truncates instead of wrapping so it can never push the
+     profile tab (which must stay reachable) off the row entirely. */
   .app-header {
     padding: var(--space-4);
     gap: var(--space-3);
+    flex-wrap: nowrap;
   }
-  .app-header__title { font-size: var(--fs-lg); }
+  .app-header__title {
+    font-size: var(--fs-lg);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #mobile-nav-toggle-btn { display: inline-flex; flex-shrink: 0; }
 
-  /* In portrait, the action cluster (black flag pill, sync status,
-     search, theme, notifications) used to wrap in DOM order right next
-     to the profile tab, landing wherever there happened to be room —
-     visually cluttered next to the page title. Pinning the profile tab
-     to its own full-width row (order:-1 + flex-basis:100% forces every
-     OTHER flex item in this wrap container onto the next line, same
-     trick as a forced flex break) puts every pill/button underneath it
-     as a single row instead. */
-  .app-header__user { justify-content: flex-start; }
-  .profile-menu-wrap {
-    order: -1;
-    flex: 1 0 100%;
+  /* Only the profile tab stays in the always-visible row now — the
+     black flag pill/sync indicator/search/theme/notifications are
+     relocated INTO its dropdown by relocateHeaderPillsForViewport_
+     (js/shell.js) whenever this breakpoint matches, so there's nothing
+     left here to wrap in the first place. */
+  .app-header__user { flex: 0 0 auto; flex-wrap: nowrap; }
+
+  /* Holds whatever relocateHeaderPillsForViewport_ moved in — a plain
+     wrapping row of the same pills/buttons, right above the existing
+     Refresh/Export/Print/etc. action list, separated from it the same
+     way .profile-menu__divider separates every other section of this
+     dropdown. :empty (nothing moved in — not mobile portrait) hides it
+     and its divider entirely rather than leaving a blank gap. */
+  .profile-menu__quick-row {
     display: flex;
-    justify-content: flex-end;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) var(--space-2) var(--space-3);
+    margin-bottom: var(--space-2);
+    border-bottom: 1px solid var(--line);
+  }
+  .profile-menu__quick-row:empty {
+    display: none;
+    margin: 0;
+    padding: 0;
+    border-bottom: none;
+  }
+  .profile-menu {
+    /* The quick row's pills can run wider than the action list below —
+       let the dropdown grow to fit them instead of clipping/wrapping
+       awkwardly at the usual 200px minimum. */
+    min-width: min(280px, 88vw);
   }
 
   .nav-rail {
-    flex-direction: row;
-    align-items: stretch;
-    justify-content: space-around;
-    padding: 0;
-    border-top: 1px solid var(--indigo-700);
-    position: sticky;
-    top: auto;
-    bottom: 0;
-    height: auto;
-    z-index: var(--z-nav);
-    /* Keep the tab bar clear of the iOS/Android home indicator. */
-    padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-
-  /* The bottom tab bar scrolls horizontally when there are more items than
-     fit (an Administrator has 9) — previously the extra items ("Announce-
-     ments", "Admin") overflowed and were clipped by body{overflow-x:hidden},
-     i.e. unreachable. flex:1 0 auto lets a few items fill the width evenly
-     while many items keep their size and scroll instead. Shell.renderNav
-     scrolls the active tab into view so the current page is never off-screen.
-     The scrollbar itself stays hidden (see the .nav-rail__links rule near
-     the top of this file). */
-  .nav-rail__links {
-    flex-direction: row;
-    overflow-x: auto;
-    overflow-y: hidden;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  .nav-rail__crest { display: none; }
-
-  .nav-rail__link {
-    flex: 1 0 auto;
-    min-width: 4.25rem;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(280px, 82vw);
+    grid-area: unset;
     flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    padding: var(--space-2) var(--space-1);
-    font-size: var(--fs-2xs);
-    text-align: center;
+    align-items: stretch;
+    padding: var(--space-5) var(--space-3);
+    border-top: none;
+    border-right: 1px solid rgba(240, 180, 41, 0.2);
+    transform: translateX(-100%);
+    transition: transform var(--duration-base) var(--ease-standard);
+    z-index: var(--z-modal);
+    padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0));
   }
-  .nav-rail__link-label { display: block; font-size: 10px; }
-  .nav-rail__link-icon { width: 22px; height: 22px; }
+  html.mobile-nav-open .nav-rail {
+    transform: translateX(0);
+  }
 
-  .nav-rail__link[aria-current="page"] {
-    box-shadow: none;
-    border-top: 2px solid var(--gold-500);
-    border-radius: 0;
+  /* Translucent backdrop behind the open drawer (js/shell.js creates
+     this once and toggles the same html.mobile-nav-open class) —
+     tapping it closes the drawer, same as every other overlay/modal in
+     the app. */
+  .mobile-nav-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(13, 18, 80, 0.35);
+    z-index: calc(var(--z-modal) - 1);
   }
+  html.mobile-nav-open .mobile-nav-backdrop {
+    display: block;
+  }
+
+  /* No crest/collapse toggle inside the drawer — collapsing is a
+     desktop-only affordance (see .app-shell--collapsed, which also
+     hides link labels, exactly what a mobile drawer must NOT do), and
+     the drawer already has its own open/close (the hamburger toggle and
+     the backdrop/Escape) with no need for a second one. A position that
+     collapsed the desktop rail on a previous, wider visit still carries
+     that same .app-shell--collapsed class (it's a persisted preference,
+     not reset per viewport) — override its label-hiding rules here too,
+     same fix the tablet breakpoint above already applies, so the
+     drawer's links never lose their labels because of stale desktop
+     collapse state. */
+  .nav-rail__crest { display: none; }
+  .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
+  .app-shell--collapsed .nav-rail__link { gap: var(--space-3); justify-content: flex-start; }
+
+  /* Full vertical link list with labels, same as the desktop rail —
+     this is a real drawer now, not a compact icon strip, so there's no
+     need for the bottom tab bar's stacked-icon/horizontal-scroll
+     treatment. */
+  .nav-rail__link {
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-2);
+  }
+  .nav-rail__link-label { font-size: var(--fs-sm); }
+  .nav-rail__link-icon { width: 20px; height: 20px; }
 
   .app-main { padding: var(--space-4); }
   .page-header h1 { font-size: var(--fs-xl); }
@@ -1883,11 +1956,6 @@ button.date-field__day:hover {
     --space-6: 1.5rem;
   }
   .app-header__title { font-size: var(--fs-md); }
-  .nav-rail__link-label { display: none; } /* icons only when very narrow */
-  /* With labels hidden, the icon-only tabs pack small enough that all of
-     them fit without scrolling — drop the wider min-width the >380 bottom
-     bar uses so they don't needlessly overflow into a scroll here. */
-  .nav-rail__link { min-width: 0; flex: 1; }
 }
 
 /* ---- Touch devices (phones + tablets): larger hit targets ----
@@ -2166,6 +2234,12 @@ button.date-field__day:hover {
     padding-top: calc(var(--space-6) + 10px);
     padding-bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
     animation: sheet-rise var(--duration-base) var(--ease-standard);
+    /* Anchored to the bottom edge here instead of vertically centered,
+       so the base rule's centered-overlay max-height math doesn't apply
+       — cap it against the viewport directly instead, leaving a sliver
+       of the backdrop showing above so it's visually still a sheet
+       rather than a full-screen panel. */
+    max-height: 92vh;
   }
   .modal-card::before {
     content: "";
@@ -2216,7 +2290,7 @@ button.date-field__day:hover {
   #schedule-form-container, #roster-form-container,
   .roster-toolbar, .btn, .schedule-item-row, .toast,
   .modal-overlay, .search-overlay, .announcements-popover, .theme-menu,
-  .profile-menu, .context-menu, .tooltip-bubble {
+  .profile-menu, .context-menu, .tooltip-bubble, .mobile-nav-backdrop {
     display: none !important;
   }
   html, body, .app-shell, .app-main {
