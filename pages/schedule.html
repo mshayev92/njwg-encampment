@@ -179,6 +179,7 @@
     let editingRow = null; // the original row object being edited, or null for "adding new"
     let pendingRows = []; // staged rows in "add" mode, written all together on Save All
     let currentAudience = ""; // selected audience chip value; "" = All
+    let addFormIsAts = false; // whether the current add/edit form session is scoped to the ATS schedule (restricts the Audience dropdown to All (ATS)/India/Juliet)
     let formDate = ""; // carried across staged rows in "add" mode for convenience
 
     // Different "schedules" are really just distinct Date values — an
@@ -211,20 +212,45 @@
     }
 
     /**
+     * Whether a row belongs to the "Advanced Training School" schedule
+     * rather than the general one for its date — Flight === "ATS" is the
+     * blanket-audience marker an ATS-scoped "+ New Schedule"/"+ Add Item"
+     * session writes (see openAddForm's isAts param), and a row audienced
+     * directly to India or Juliet (the fixed ATS flights, see
+     * Shell.isAtsFlight) counts the same way even without that marker.
+     */
+    function isAtsScheduleRow(row) {
+      const f = String(row.Flight || "").trim();
+      if (!f) return false;
+      return f.toLowerCase() === "ats" || Shell.isAtsFlight(f);
+    }
+
+    /**
      * Groups rows into one "schedule" per distinct Date value (falling
-     * back to the legacy Day text for rows saved before Date existed),
-     * sorted chronologically with any legacy undated groups trailing at
-     * the end.
+     * back to the legacy Day text for rows saved before Date existed) —
+     * AND, within a date, splits ATS-scheduled rows (see
+     * isAtsScheduleRow) into their own separate group/tab alongside the
+     * general one, so a single day can carry two independent schedules
+     * instead of interleaving both audiences' items in one table. Sorted
+     * chronologically, general before its own ATS counterpart, with any
+     * legacy undated groups trailing at the end.
      */
     function groupSchedule(rows) {
       const groups = new Map();
       rows.forEach(row => {
-        const key = row.Date || row.Day || "Unscheduled";
-        if (!groups.has(key)) groups.set(key, { key, date: row.Date || "", label: groupLabel(row.Date, row), items: [] });
+        const dateKey = row.Date || row.Day || "Unscheduled";
+        const isAts = isAtsScheduleRow(row);
+        const key = isAts ? `${dateKey}::ats` : dateKey;
+        if (!groups.has(key)) {
+          groups.set(key, { key, date: row.Date || "", label: groupLabel(row.Date, row) + (isAts ? " · ATS" : ""), isAts, items: [] });
+        }
         groups.get(key).items.push(row);
       });
       return Array.from(groups.values()).sort((a, b) => {
-        if (a.date && b.date) return a.date < b.date ? -1 : a.date > b.date ? 1 : 0;
+        if (a.date && b.date) {
+          if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+          return (a.isAts ? 1 : 0) - (b.isAts ? 1 : 0);
+        }
         if (a.date && !b.date) return -1;
         if (!a.date && b.date) return 1;
         return a.label.localeCompare(b.label);
@@ -387,20 +413,15 @@
 
       if (!canEditSchedule) {
         // Regular staff only ever see the one schedule matching today's
-        // date on their own device — never a picker of other days.
+        // date on their own device — never a picker of other days. An
+        // ATS-only session sees today's ATS-schedule group (if one
+        // exists) instead of the general one — groupSchedule already
+        // splits them apart, so this is just picking the right bucket,
+        // not filtering items after the fact.
         scheduleTabsBarEl.style.display = "none";
-        const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
-        // An ATS-only session doesn't see the general/blank-audience
-        // "traditional" encampment schedule — only items specifically
-        // audienced to "ATS" (or to their own flight/squadron by name,
-        // unaffected below). Every OTHER item (flight/squadron-specific,
-        // shown to everyone today regardless of match, by design — this
-        // is a shared team view, not a per-flight filtered one) is
-        // unaffected either way.
-        const visibleGroup = (todaysGroup && isAtsOnlySession())
-          ? { ...todaysGroup, items: todaysGroup.items.filter(r => String(r.Flight || "").trim()) }
-          : todaysGroup;
-        contentEl.innerHTML = renderScheduleCard(visibleGroup);
+        const atsOnly = isAtsOnlySession();
+        const todaysGroup = groups.find(g => g.isAts === atsOnly && g.items.some(r => Shell.isScheduleRowToday(r))) || null;
+        contentEl.innerHTML = renderScheduleCard(todaysGroup);
         wireRowActions();
         Shell.animateIn(contentEl);
         return;
@@ -458,18 +479,25 @@
      * (enhanceSelect), same as everywhere else the app replaces a native
      * <select>.
      */
-    function renderAudienceField(selected) {
-      // "ATS" is a fixed extra option (not a StaffAccess position, so it
-      // never comes back from loadAudienceOptions) — lets an editor
-      // schedule something (e.g. an inspection) specifically for
-      // Advanced Training School flights, distinct from the general
-      // "All" audience those flights no longer see (see
-      // isAtsOnlySession/scheduleAudienceMatches_).
-      const options = [
-        { label: "All", value: "" },
-        { label: "Advanced Training School (ATS)", value: "ATS" },
-        ...audienceOptions.map(p => ({ label: p, value: p }))
-      ];
+    function renderAudienceField(selected, atsMode) {
+      // Two disjoint option sets rather than one dropdown with an "ATS"
+      // entry mixed in — which schedule (general vs Advanced Training
+      // School) an item belongs to is now decided up front by "+ New
+      // Schedule"/whichever tab "+ Add Item" is adding to (see
+      // openAddForm's isAts param), not by a manual per-item audience
+      // pick. An ATS-scheduled item can only ever be audienced to
+      // everyone in ATS (Flight: "ATS", see isAtsScheduleRow) or to one
+      // of its two fixed flights.
+      const options = atsMode
+        ? [
+            { label: "All (ATS)", value: "ATS" },
+            { label: "India", value: "India" },
+            { label: "Juliet", value: "Juliet" }
+          ]
+        : [
+            { label: "All", value: "" },
+            ...audienceOptions.map(p => ({ label: p, value: p }))
+          ];
       return `
         <select id="f-audience">
           ${options.map(o => `<option value="${esc(o.value)}" ${(selected || "") === o.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}
@@ -527,7 +555,7 @@
             <div class="field"><label for="f-time">Time</label><input type="time" id="f-time" value="${esc(timeValue)}"></div>
             <div class="field"><label for="f-activity">Activity</label><input id="f-activity" value="${esc(activityValue)}"></div>
             <div class="field"><label for="f-location">Location</label><input id="f-location" value="${esc(locationValue)}"></div>
-            <div class="field"><label for="f-audience">Audience</label>${renderAudienceField(currentAudience)}</div>
+            <div class="field"><label for="f-audience">Audience</label>${renderAudienceField(currentAudience, addFormIsAts)}</div>
             <div class="schedule-form-actions">
               ${mode === "add" ? `
                 <button class="btn btn--ghost" id="add-row-btn">+ Add Row</button>
@@ -573,18 +601,24 @@
      * "add more items to this existing schedule" (the "+ Add Item"
      * button); omitting it means "+ New Schedule" — an empty date field
      * the person must pick via the calendar, starting a brand new
-     * schedule tab once they save at least one item under it.
+     * schedule tab once they save at least one item under it. `isAts`
+     * scopes this whole add session to the Advanced Training School
+     * schedule — every row staged gets Flight defaulted to (and the
+     * Audience dropdown restricted to) "ATS"/India/Juliet, so it lands in
+     * that date's ATS tab instead of its general one (see groupSchedule).
      */
-    function openAddForm(prefillDate) {
+    function openAddForm(prefillDate, isAts = false) {
       editingRow = null;
       pendingRows = [];
-      currentAudience = "";
+      addFormIsAts = isAts;
+      currentAudience = isAts ? "ATS" : "";
       formDate = prefillDate || "";
       renderFormUI("add");
     }
 
     function openEditForm(row) {
       editingRow = row;
+      addFormIsAts = isAtsScheduleRow(row);
       currentAudience = row.Flight || "";
       renderFormUI("edit", row);
     }
@@ -795,12 +829,30 @@
     }
 
     addItemBtn.addEventListener("click", () => {
-      // Add to whatever schedule (date) is currently active, if any.
+      // Add to whatever schedule (date) is currently active, if any —
+      // inheriting whether that tab is the general or the ATS schedule
+      // for its date, so the Audience dropdown matches what's already
+      // on screen instead of defaulting back to the general list.
       const groups = groupSchedule(scheduleRows);
       const active = groups.find(g => g.key === activeGroupKey);
-      openAddForm(active ? active.date : "");
+      openAddForm(active ? active.date : "", active ? !!active.isAts : false);
     });
-    addScheduleBtn.addEventListener("click", () => openAddForm(""));
+    addScheduleBtn.addEventListener("click", async () => {
+      // A brand new schedule is either a normal day's schedule or one
+      // scoped entirely to Advanced Training School — asking up front
+      // replaces the old "ATS" entry in the per-item Audience dropdown
+      // (see renderAudienceField), since which schedule an item belongs
+      // to is a property of the whole add session now, not a per-row
+      // pick.
+      const isAts = await Shell.confirm({
+        title: "New schedule",
+        message: "Is this schedule for Advanced Training School? It'll get its own tab, separate from the general schedule for that date, and its items will only be audienced to ATS/India/Juliet.",
+        confirmLabel: "Yes, ATS",
+        cancelLabel: "No, general",
+        danger: false
+      });
+      openAddForm("", isAts);
+    });
     importCsvBtn.addEventListener("click", showScheduleCsvFormatHelp);
     if (canEditSchedule) loadAudienceOptions();
 
