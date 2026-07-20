@@ -67,9 +67,9 @@ const Shell = (() => {
     monitor:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
     printer:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
     upload:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg>',
-    // Hamburger — the mobile-portrait nav drawer's trigger (see
+    // Hamburger — the mobile nav drawer's trigger (see
     // #mobile-nav-toggle-btn in renderHeader), replacing the bottom tab
-    // bar on narrow portrait viewports.
+    // bar on narrow/phone viewports (portrait, or landscape).
     menu:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
   };
 
@@ -258,16 +258,26 @@ const Shell = (() => {
     return pref === "system" ? (systemPrefersDark_() ? "dark" : "light") : pref;
   }
 
-  /** Applies `pref` to <html> + the mobile theme-color meta, and refreshes the toggle button/menu if the header's currently on screen. Does NOT persist — see setThemePreference_ for that. */
+  /** Applies `pref` to <html> + the mobile theme-color/status-bar meta, and refreshes the toggle button/menu if the header's currently on screen. Does NOT persist — see setThemePreference_ for that. */
   function applyTheme_(pref) {
     const resolved = resolveTheme_(pref);
     document.documentElement.setAttribute("data-theme", resolved);
-    // The address-bar/status-bar tint on mobile — matches the surface
-    // color it's sitting above rather than staying the fixed brand
-    // indigo regardless of theme, the same reasoning --bg itself
-    // unifies with the nav rail's color in dark mode (see tokens.css).
+    // The address-bar/status-bar tint on mobile — matches --bg (the
+    // actual page background, see tokens.css) for whichever theme is
+    // resolved, instead of a value that only ever matched ONE theme.
+    // This used to hardcode "#0d1250" (the brand indigo) for light mode
+    // specifically — which is the nav rail's color, not light mode's
+    // actual (much lighter) page background — so a light-theme device's
+    // status bar always read as a dark indigo strip sitting on top of a
+    // visibly lighter page underneath it.
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute("content", resolved === "dark" ? "#080a38" : "#0d1250");
+    if (meta) meta.setAttribute("content", resolved === "dark" ? "#080a38" : "#f4f5fa");
+    // iOS PWA (standalone launch) status bar style — "black" forces a
+    // solid dark bar regardless of page content, which is exactly the
+    // same light-theme mismatch as above; "default" gives light mode
+    // its normal light bar with dark icons/clock instead.
+    const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (statusBarMeta) statusBarMeta.setAttribute("content", resolved === "dark" ? "black" : "default");
     updateThemeMenuUI_(pref, resolved);
   }
 
@@ -580,21 +590,23 @@ const Shell = (() => {
     if (btn) btn.addEventListener("click", () => toggleProfileMenu_());
   }
 
-  // ---- Mobile-portrait header layout ----
+  // ---- Mobile header layout ----
   //
-  // In mobile portrait (see the matching CSS media query in css/app.css)
-  // the header keeps only the nav toggle, the page title, and the
-  // profile tab on one row — the black flag pill, sync indicator,
-  // search, theme, and notifications live in the profile dropdown
-  // instead of their own always-visible row. Everywhere else (desktop,
-  // tablet, mobile landscape) they stay right where they've always been,
-  // in .app-header__user next to the profile tab. Rather than rendering
-  // two copies (duplicate ids/listeners), the SAME elements are moved
-  // between the two containers with plain DOM appendChild — cheap, and
-  // every element keeps its own event listeners and popover positioning
-  // logic (the notifications popover and theme menu both work out
-  // wherever their trigger currently sits on screen) with no extra code.
-  const MOBILE_PORTRAIT_QUERY = "(max-width: 720px), (max-width: 1024px) and (orientation: portrait)";
+  // On a phone — portrait, or landscape (see the matching CSS media
+  // query in css/app.css, which also catches a landscape phone by its
+  // short height rather than orientation) — the header keeps only the
+  // nav toggle, the page title, and the profile tab on one row; the
+  // black flag pill, sync indicator, search, theme, and notifications
+  // live in the profile dropdown instead of their own always-visible
+  // row. Everywhere else (desktop, tablet) they stay right where
+  // they've always been, in .app-header__user next to the profile tab.
+  // Rather than rendering two copies (duplicate ids/listeners), the SAME
+  // elements are moved between the two containers with plain DOM
+  // appendChild — cheap, and every element keeps its own event listeners
+  // and popover positioning logic (the notifications popover and theme
+  // menu both work out wherever their trigger currently sits on screen)
+  // with no extra code.
+  const MOBILE_PORTRAIT_QUERY = "(max-width: 720px), (max-width: 1024px) and (orientation: portrait), (max-width: 1024px) and (max-height: 500px)";
   const HEADER_QUICK_ROW_IDS = ["black-flag-pill", "sync-indicator", "global-search-btn", "theme-menu-wrap", "announcements-bell-btn"];
   let mobilePortraitMql_ = null;
 

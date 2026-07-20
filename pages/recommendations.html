@@ -29,10 +29,10 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Awards — NJWG Encampment</title>
-  <meta name="theme-color" content="#0d1250">
+  <meta name="theme-color" content="#f4f5fa">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="../manifest.json">
   <link rel="icon" href="../icons/favicon.ico" sizes="any">
@@ -143,8 +143,12 @@
        label/input/dir-note trick above pushes the overflow into
        unconstrained implicit columns off the right edge instead of
        wrapping. Below the same mobile-portrait breakpoint, abandon the
-       row-pinned grid and stack each field as an ordinary column. */
-    @media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
+       row-pinned grid and stack each field as an ordinary column. Must
+       stay the SAME query as MOBILE_PORTRAIT_QUERY in js/shell.js and
+       its other copies. */
+    @media (max-width: 720px),
+           (max-width: 1024px) and (orientation: portrait),
+           (max-width: 1024px) and (max-height: 500px) {
       .weights-grid {
         display: flex;
         flex-direction: column;

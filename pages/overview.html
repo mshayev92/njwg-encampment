@@ -29,10 +29,10 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Overview — NJWG Encampment</title>
-  <meta name="theme-color" content="#0d1250">
+  <meta name="theme-color" content="#f4f5fa">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="../manifest.json">
   <link rel="icon" href="../icons/favicon.ico" sizes="any">
@@ -106,8 +106,14 @@
        "narrow" (see css/app.css), this abandons the row-pinned grid
        entirely and stacks each field as an ordinary label-above-input
        column instead — nothing left to misalign in a single column, so
-       the alignment trick isn't needed there anyway. */
-    @media (max-width: 720px), (max-width: 1024px) and (orientation: portrait) {
+       the alignment trick isn't needed there anyway. This must stay the
+       SAME query as MOBILE_PORTRAIT_QUERY in js/shell.js and its other
+       copy in css/app.css/pages/recommendations.html — see the comment
+       on the app.css copy for why the third clause (landscape phones)
+       is there too. */
+    @media (max-width: 720px),
+           (max-width: 1024px) and (orientation: portrait),
+           (max-width: 1024px) and (max-height: 500px) {
       .weights-fields-grid {
         display: flex;
         flex-direction: column;
