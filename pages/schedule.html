@@ -170,6 +170,11 @@
     // #schedule-content finished loading, instead of the whole page
     // appearing together like every other page.
 
+    /** True only when EVERY one of this session's own flights is ATS-flagged — a mixed squadron (some ATS, some not) is treated as NOT ats-only, same conservative "show more, not less" choice as elsewhere. */
+    function isAtsOnlySession() {
+      return sessionFlights.length > 0 && sessionFlights.every(f => Shell.isAtsFlight(f));
+    }
+
     let scheduleRows = [];
     let editingRow = null; // the original row object being edited, or null for "adding new"
     let pendingRows = []; // staged rows in "add" mode, written all together on Save All
@@ -385,7 +390,17 @@
         // date on their own device — never a picker of other days.
         scheduleTabsBarEl.style.display = "none";
         const todaysGroup = groups.find(g => g.items.some(r => Shell.isScheduleRowToday(r))) || null;
-        contentEl.innerHTML = renderScheduleCard(todaysGroup);
+        // An ATS-only session doesn't see the general/blank-audience
+        // "traditional" encampment schedule — only items specifically
+        // audienced to "ATS" (or to their own flight/squadron by name,
+        // unaffected below). Every OTHER item (flight/squadron-specific,
+        // shown to everyone today regardless of match, by design — this
+        // is a shared team view, not a per-flight filtered one) is
+        // unaffected either way.
+        const visibleGroup = (todaysGroup && isAtsOnlySession())
+          ? { ...todaysGroup, items: todaysGroup.items.filter(r => String(r.Flight || "").trim()) }
+          : todaysGroup;
+        contentEl.innerHTML = renderScheduleCard(visibleGroup);
         wireRowActions();
         Shell.animateIn(contentEl);
         return;
@@ -444,7 +459,17 @@
      * <select>.
      */
     function renderAudienceField(selected) {
-      const options = [{ label: "All", value: "" }, ...audienceOptions.map(p => ({ label: p, value: p }))];
+      // "ATS" is a fixed extra option (not a StaffAccess position, so it
+      // never comes back from loadAudienceOptions) — lets an editor
+      // schedule something (e.g. an inspection) specifically for
+      // Advanced Training School flights, distinct from the general
+      // "All" audience those flights no longer see (see
+      // isAtsOnlySession/scheduleAudienceMatches_).
+      const options = [
+        { label: "All", value: "" },
+        { label: "Advanced Training School (ATS)", value: "ATS" },
+        ...audienceOptions.map(p => ({ label: p, value: p }))
+      ];
       return `
         <select id="f-audience">
           ${options.map(o => `<option value="${esc(o.value)}" ${(selected || "") === o.value ? "selected" : ""}>${esc(o.label)}</option>`).join("")}

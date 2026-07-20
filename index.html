@@ -19,10 +19,20 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NJWG Encampment</title>
-  <meta name="theme-color" content="#f4f5fa">
+  <!-- Deliberately hardcoded dark, unlike every pages/*.html (which
+       start light and get corrected to the resolved theme by
+       js/shell.js's applyTheme_) — this login screen's own background
+       (.login-screen below) is ALWAYS the dark indigo brand color
+       regardless of light/dark theme, and this page never calls
+       Shell.init (the only thing that runs applyTheme_'s live
+       correction), so there's no later JS correction to rely on here —
+       whatever's set below is what actually applies. Matching it here
+       is what keeps the status bar/address
+       bar from reading as a mismatched light strip above a dark page. -->
+  <meta name="theme-color" content="#080a38">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/favicon.ico" sizes="any">
@@ -347,8 +357,12 @@
 
     // Flight names are fixed callsigns; anything matching "Squadron <n>"
     // is a squadron; everything else (CCT, Administrator, or any other
-    // custom position) is shown ungrouped.
-    const FLIGHT_NAMES = new Set(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel"]);
+    // custom position) is shown ungrouped. India/Juliet are the fixed
+    // Advanced Training School flights (see ATS_FLIGHT_NAMES in
+    // js/shell.js) — grouped here exactly like every other flight; ATS
+    // is a data-level exclusion (Flight Standings/Awards/the general
+    // schedule), not a different kind of login.
+    const FLIGHT_NAMES = new Set(["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]);
     const SQUADRON_PATTERN = /^squadron\s*\d+$/i;
 
     function classifyPosition(position) {

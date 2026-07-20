@@ -19,10 +19,13 @@
   </script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>You're Offline — NJWG Encampment</title>
-  <meta name="theme-color" content="#f4f5fa">
+  <!-- See the matching comment in index.html — .offline-screen below is
+       always dark regardless of theme, and this page doesn't load
+       shell.js at all, so this static value is never corrected by JS. -->
+  <meta name="theme-color" content="#080a38">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/favicon.ico" sizes="any">
