@@ -1873,28 +1873,59 @@ button.date-field__day:hover {
     padding: var(--space-5) var(--space-3);
     border-top: none;
     border-right: 1px solid rgba(240, 180, 41, 0.2);
-    transform: translateX(-100%);
-    transition: transform var(--duration-base) var(--ease-standard);
     z-index: var(--z-modal);
     padding-bottom: calc(var(--space-3) + env(safe-area-inset-bottom, 0));
+    /* Closed by default at this breakpoint: off-screen AND painted with
+       the page's own background (not the base rule's indigo, which
+       applies at every OTHER breakpoint) — belt-and-suspenders so
+       nothing indigo is ever visible while closed even for the split
+       second mid-transition, matching "blue only while the menu is
+       actually open, otherwise it reads as part of the page." visibility
+       is added on top of the transform for the same reason: switching
+       it off only once the slide-out transform finishes (the delayed
+       second transition below) means the panel is fully un-rendered
+       (unpaintable, non-interactive) the instant it's back off-screen,
+       rather than merely invisible-but-still-there — which is what
+       produced the flash this replaces: a translated-off-screen but
+       still-painted/still-in-the-render-tree element can still cause a
+       visible repaint blip right at the viewport edge when the layout
+       recalculates (e.g., on rotation), even though nothing of it should
+       be on screen. */
+    background: var(--bg);
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform var(--duration-base) var(--ease-standard),
+                visibility 0s linear var(--duration-base);
   }
   html.mobile-nav-open .nav-rail {
+    background: var(--indigo-950);
     transform: translateX(0);
+    visibility: visible;
+    transition: transform var(--duration-base) var(--ease-standard);
   }
 
   /* Translucent backdrop behind the open drawer (js/shell.js creates
      this once and toggles the same html.mobile-nav-open class) —
      tapping it closes the drawer, same as every other overlay/modal in
-     the app. */
+     the app. Fades via opacity/visibility (same delayed-visibility
+     trick as the drawer above) rather than an instant display:none/
+     block toggle, so opening/closing reads as one smooth motion instead
+     of the backdrop popping in/out a beat out of sync with the drawer's
+     own slide. */
   .mobile-nav-backdrop {
-    display: none;
     position: fixed;
     inset: 0;
     background: rgba(13, 18, 80, 0.35);
     z-index: calc(var(--z-modal) - 1);
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity var(--duration-base) var(--ease-standard),
+                visibility 0s linear var(--duration-base);
   }
   html.mobile-nav-open .mobile-nav-backdrop {
-    display: block;
+    opacity: 1;
+    visibility: visible;
+    transition: opacity var(--duration-base) var(--ease-standard);
   }
 
   /* The crest (logo + unit name + its own divider) stays visible here,
