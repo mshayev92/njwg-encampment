@@ -17,7 +17,7 @@
       document.documentElement.setAttribute("data-theme", njwgThemeResolved);
     } catch (e) { document.documentElement.setAttribute("data-theme", "light"); }
   </script>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Device Access — NJWG Encampment</title>
   <!-- See the matching comment in index.html — .gate-screen below is
        always dark regardless of theme, and this page never loads
@@ -25,7 +25,8 @@
   <meta name="theme-color" content="#080a38">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <!-- black-translucent (not black) — see index.html's matching comment. -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="NJWG Encampment">
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/favicon.ico" sizes="any">
@@ -53,6 +54,10 @@
       align-items: center;
       justify-content: center;
       padding: var(--space-5);
+      /* See index.html's matching comment — keeps content clear of the
+         now-transparent status bar/notch. Comes after the padding
+         shorthand above so it isn't immediately overwritten by it. */
+      padding-top: max(var(--space-5), env(safe-area-inset-top, 0px));
       position: relative;
       overflow: hidden;
       background:
