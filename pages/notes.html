@@ -346,6 +346,16 @@
     let editingNoteId = null; // Id of the note being edited, or null when adding a new one
     let showForm = false; // Whether the add-note form is open (editing always forces it open)
 
+    // Lets another page (Observations' per-cadet detail view) deep-link
+    // straight into "add a note about this cadet" via
+    // notes.html?subject=<name> instead of making staff retype/search
+    // the name again. Consumed once, right after the form's first
+    // render below — cleared immediately so it doesn't keep clobbering
+    // whatever the user types on later re-renders (e.g. after picking
+    // an autocomplete suggestion).
+    let prefillSubject = new URLSearchParams(window.location.search).get("subject") || "";
+    if (prefillSubject) showForm = true;
+
     // Only cadets in flights this position is scoped to are offered as
     // Subject suggestions — matches the same Flights-column scoping
     // Inspections uses, so a flight-restricted position can't browse
@@ -544,6 +554,12 @@
       const cancelEditBtn = document.getElementById("cancel-edit-note-btn");
       if (cancelEditBtn) cancelEditBtn.addEventListener("click", cancelEditNote);
       initSubjectAutocomplete();
+
+      if (prefillSubject) {
+        const subjectInput = document.getElementById("subject-input");
+        if (subjectInput) subjectInput.value = prefillSubject;
+        prefillSubject = "";
+      }
 
       contentEl.querySelectorAll("[data-edit-id]").forEach(btn => {
         btn.addEventListener("click", () => startEditNote(btn.dataset.editId));
