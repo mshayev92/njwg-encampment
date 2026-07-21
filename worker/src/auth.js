@@ -234,16 +234,24 @@ export const OBSERVATION_COLUMNS = [
 // No endorse/signature step: that's the Squadron/CC review workflow on
 // paper, which this app doesn't reproduce — see HonorFlightRecommendations,
 // submitted independently by squadron-scoped positions.
+// IsWinner ("TRUE"/"" — an Administrator's pick of the actual Honor
+// Cadet/Flight of the day among that day's recommendations, distinct
+// from the recommendations themselves) is gated to admin-only writes
+// in handleWrite, not by SHEET_PERMISSIONS (still write: "any" below,
+// same as before — an ordinary session's own recommendation write
+// never touches this column).
 export const HONOR_CADET_RECOMMENDATION_COLUMNS = [
   "Id", "Date", "Timestamp", "SubmittedByPosition", "Flight",
   "StudentCapId", "StudentName",
-  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes",
+  "IsWinner"
 ];
 // BE Form 60-13, Part II (Honor Flight), digitized — submitted by
 // squadron-scoped positions, independently of Honor Cadet recommendations.
 export const HONOR_FLIGHT_RECOMMENDATION_COLUMNS = [
   "Id", "Date", "Timestamp", "SubmittedByPosition", "Squadron", "Flight",
-  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes"
+  "DrillBarracksUniforms", "AcademicsKnowledge", "TeamworkLeadershipConduct", "AdditionalNotes",
+  "IsWinner"
 ];
 
 // ---- Hashing / signing ------------------------------------------------------

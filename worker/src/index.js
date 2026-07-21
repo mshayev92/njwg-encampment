@@ -962,6 +962,17 @@ async function handleWrite(env, body, session, ctx) {
     // can change it), so it gets the same kind of special case Roster
     // does above instead of the generic page-gate check.
     assertAdmin(session);
+  } else if (sheetName === "HonorCadetRecommendations" || sheetName === "HonorFlightRecommendations") {
+    // Ordinary submit/edit of a flight's/squadron's OWN recommendation
+    // is unchanged (write: "any" in SHEET_PERMISSIONS — same as
+    // before). Only the IsWinner column (the "Honor Cadet/Flight of the
+    // Day" designation an Administrator picks among the day's
+    // recommendations — see pages/recommendations.html) is gated:
+    // without this, any session could mark its own submission the
+    // winner via a direct API call, bypassing the admin-only UI.
+    if ("IsWinner" in rowData && String(rowData.IsWinner || "").trim() !== "") {
+      assertAdmin(session);
+    }
   } else {
     assertPageWriteAccess(sheetName, session);
   }

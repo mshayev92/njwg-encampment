@@ -98,6 +98,26 @@
     .rec-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
     .rec-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); margin-top: var(--space-2); white-space: pre-wrap; }
 
+    /* An Administrator's pick of the actual Honor Cadet/Flight of the
+       day (IsWinner), among that day's recommendations — see
+       markWinner_/submissionReviewRowHtml. Distinct from the
+       recommendations themselves, so it's a gold accent, not a color
+       already used for anything else on this page. */
+    .rec-history-row--winner { border-color: var(--gold-500); box-shadow: 0 0 0 1px var(--gold-500); }
+    .rec-history-row__winner-badge {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--gold-600);
+      background: var(--gold-100);
+      border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+      display: inline-block;
+      margin-bottom: var(--space-2);
+    }
+
     /* ---- Weekly standings (aggregated top contenders) ---- */
     .rec-mode-tabs { margin-bottom: var(--space-5); }
 
@@ -126,15 +146,6 @@
     }
     .weights-grid .field label { grid-row: 1; align-self: end; }
     .weights-grid .field input { grid-row: 2; }
-    .weight-field__dir {
-      grid-row: 3;
-      font-size: var(--fs-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      color: var(--ink-600);
-      margin-top: var(--space-1);
-    }
-    .weight-field__dir--neg { color: var(--red-600); }
 
     /* Same overflow bug, same fix as pages/overview.html's matching
        comment on .weights-fields-grid — auto-fit's column count is
@@ -157,7 +168,6 @@
         flex-direction: column;
         gap: var(--space-2);
       }
-      .weight-field__dir { grid-row: unset; }
     }
 
     .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
@@ -1013,13 +1023,18 @@
       return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     }
 
+    /** Whether this recommendation is the Administrator's pick for its day (see markWinner_). */
+    function isWinner(r) { return String(r.IsWinner || "").toLowerCase() === "true"; }
+
     function submissionReviewRowHtml(r, kind) {
       const title = kind === "hc"
         ? `${esc(r.StudentName) || "—"} · ${esc(r.Flight) || "—"}`
         : `${esc(r.Flight) || "—"}`;
+      const winner = isWinner(r);
       return `
-        <div class="rec-history-row">
+        <div class="rec-history-row${winner ? " rec-history-row--winner" : ""}">
           <div class="rec-history-row__body">
+            ${winner ? `<div class="rec-history-row__winner-badge">★ Honor ${kind === "hc" ? "Cadet" : "Flight"} of the Day</div>` : ""}
             <div class="rec-history-row__title">${title}</div>
             <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
             ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
@@ -1027,7 +1042,50 @@
             ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
+          ${isAdmin ? `<button type="button" class="btn btn--ghost" data-mark-winner-id="${esc(r.Id)}" data-mark-winner-kind="${kind}">${winner ? "Unmark" : "Mark as Winner"}</button>` : ""}
         </div>`;
+    }
+
+    /**
+     * An Administrator's pick of the actual Honor Cadet/Flight of the
+     * day — distinct from the recommendations flights/squadrons submit
+     * themselves, which are just nominations. Only one winner per kind
+     * per day: marking a new one un-marks whichever other same-day row
+     * (if any) was previously marked, rather than leaving multiple
+     * "winners" for the same day. Gated admin-only server-side too (see
+     * handleWrite's IsWinner branch in worker/src/index.js) — this
+     * client-side isAdmin check is a convenience, not the real gate.
+     */
+    function markWinner_(kind, row) {
+      const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+      const sheet = kind === "hc" ? "HonorCadetRecommendations" : "HonorFlightRecommendations";
+      const alreadyWinner = isWinner(row);
+
+      rows.forEach((r, i) => {
+        if (r.Date !== row.Date || String(r.Id) === String(row.Id) || !isWinner(r)) return;
+        rows[i] = { ...r, IsWinner: "" };
+        Api.writeRow(sheet, rows[i], { matchColumns: ["Id"] });
+      });
+
+      const idx = rows.findIndex(r => String(r.Id) === String(row.Id));
+      if (idx >= 0) rows[idx] = { ...row, IsWinner: alreadyWinner ? "" : "true" };
+      Api.writeRow(sheet, rows[idx], { matchColumns: ["Id"] });
+      Api.setCachedRows(sheet, rows);
+
+      Shell.showToast(alreadyWinner ? "Unmarked." : `Marked as Honor ${kind === "hc" ? "Cadet" : "Flight"} of the Day.`, { type: "success" });
+      renderSubmissionsReviewList();
+    }
+
+    function wireSubmissionsReviewList() {
+      if (!isAdmin) return;
+      document.querySelectorAll("[data-mark-winner-id]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const kind = btn.dataset.markWinnerKind;
+          const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+          const row = rows.find(r => String(r.Id) === String(btn.dataset.markWinnerId));
+          if (row) markWinner_(kind, row);
+        });
+      });
     }
 
     function sortedByDay(rows) {
@@ -1147,6 +1205,7 @@
       listEl.innerHTML = rows.length
         ? rows.map(row => submissionReviewRowHtml(row, kind)).join("")
         : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${kind === "hc" ? "Honor Cadet" : "Honor Flight"} recommendations submitted${activeSubmissionsDay !== "all" ? " on this day" : ""} yet.</p>`;
+      wireSubmissionsReviewList();
     }
 
     // ---- Page assembly -----------------------------------------------------
@@ -1349,10 +1408,19 @@
       // (see Shell.isStaffRosterRow). An "Advanced Training School"
       // flight is excluded too — it isn't in the running for Honor
       // Cadet/Honor Flight, for anyone viewing standings.
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
+      // CapId OR Name (not CapId alone) — a cadet entered by name only,
+      // before CAPID assignment (routine mid-encampment), otherwise fails
+      // this filter and, worse, every such CapId-less cadet collides on
+      // the same blank byCap key below, silently merging them into one
+      // shared entry and dropping the rest of their flight from Honor
+      // Flight standings the moment every cadet in it is still
+      // CapId-less. Same bug/fix as pages/overview.html's
+      // computeFlightStandings (see its matching comment).
+      const cadets = rosterRows.filter(r => (String(r.CapId || "").trim() || String(r.Name || "").trim()) && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       const byCap = {};
-      cadets.forEach(c => {
-        byCap[String(c.CapId)] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
+      cadets.forEach((c, i) => {
+        const key = String(c.CapId || "").trim() || `noCapId:${i}`;
+        byCap[key] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
@@ -1367,8 +1435,9 @@
       });
       honorCadetRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.hcRecs++; });
 
-      return cadets.map(c => {
-        const e = byCap[String(c.CapId)];
+      return cadets.map((c, i) => {
+        const key = String(c.CapId || "").trim() || `noCapId:${i}`;
+        const e = byCap[key];
         return {
           name: c.Name || c.CapId || "—",
           flight: c.Flight || "Unassigned",
@@ -1420,12 +1489,10 @@
     }
 
     function weightFieldHtml(m, mode) {
-      const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
         <div class="field" style="margin-bottom:0;">
           <label for="w-${mode}-${m.id}">${esc(m.label)}</label>
           <input type="number" id="w-${mode}-${m.id}" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
-          <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
 

@@ -2339,7 +2339,16 @@
      * matching `type` here instead of computed fresh per period.
      */
     let trendsBasis = "all"; // "all" | an InspectionPeriods Id
-    let trendsType = "uniform"; // "uniform" | "room" — which inspection's trends are on screen
+    let trendsType = "uniform"; // "uniform" | "room" | "assessment" — which inspection's trends are on screen
+
+    // PT is deliberately excluded here — it's scored pass/fail per
+    // exercise against age/sex standards (ptStandardFor), not a
+    // TotalPoints-over-N-binary-items shape the trend computations
+    // above assume, so it's never offered as a trends type toggle.
+    // "assessment" is filtered through visibleInspectionTypeKeys() at
+    // the toggle's render site, same admin-only gate as everywhere else
+    // on this page.
+    const TRENDS_TYPE_LABELS = { uniform: "Uniform", room: "Room", assessment: "EOW Assessment" };
 
     /** The rows a basis of "all" or a specific period Id resolves to, out of one cadet's full history. */
     function historyForBasis(history, basis) {
@@ -2352,6 +2361,11 @@
       const byStudent = inspectionsByType[type].byStudent;
       const grouped = groupByFlight(rosterRows);
       const flightNames = Object.keys(grouped).sort();
+      // The EOW Assessment has no per-item 0/1 breakdown (a single raw
+      // Score out of 34, not a TotalPoints sum over binary items — see
+      // ASSESSMENT_SCORE_ITEMS' comment) — itemAverages stays empty for
+      // it, and totalAvg reads Score directly instead of TotalPoints.
+      const isAssessment = !!INSPECTION_TYPES[type].isAssessment;
 
       return flightNames.map(flight => {
         const members = grouped[flight];
@@ -2362,14 +2376,16 @@
         });
 
         const itemAverages = {};
-        items.forEach(item => {
-          const scored = relevantRows.filter(r => r[item.key] === 1 || r[item.key] === 0 || r[item.key] === "1" || r[item.key] === "0");
-          const passCount = scored.filter(r => Number(r[item.key]) === 1).length;
-          itemAverages[item.key] = scored.length ? passCount / scored.length : null;
-        });
+        if (!isAssessment) {
+          items.forEach(item => {
+            const scored = relevantRows.filter(r => r[item.key] === 1 || r[item.key] === 0 || r[item.key] === "1" || r[item.key] === "0");
+            const passCount = scored.filter(r => Number(r[item.key]) === 1).length;
+            itemAverages[item.key] = scored.length ? passCount / scored.length : null;
+          });
+        }
 
         const totalAvg = relevantRows.length
-          ? relevantRows.reduce((sum, r) => sum + (Number(r.TotalPoints) || 0), 0) / relevantRows.length
+          ? relevantRows.reduce((sum, r) => sum + (Number(isAssessment ? r.Score : r.TotalPoints) || 0), 0) / relevantRows.length
           : null;
 
         return { flight, count: relevantRows.length, studentsInspected: new Set(relevantRows.map(r => r.StudentCapId)).size, totalAvg, itemAverages };
@@ -2386,6 +2402,13 @@
      */
     function computeProgressionSeries(type) {
       const items = INSPECTION_TYPES[type].items;
+      const isAssessment = !!INSPECTION_TYPES[type].isAssessment;
+      // Score is already on the 0-34 scale ASSESSMENT_SCORE_ITEMS[0].max
+      // defines — items.length (always 1 for assessment, see that
+      // constant's comment) is the wrong denominator here, unlike
+      // Uniform/Room where TotalPoints really is a sum over items.length
+      // binary items.
+      const maxScore = isAssessment ? ASSESSMENT_SCORE_ITEMS[0].max : items.length;
       const grouped = groupByFlight(rosterRows); // already scoped to allowed flights
       const byStudent = inspectionsByType[type].byStudent;
 
@@ -2398,9 +2421,9 @@
       const buckets = new Map();
       Object.entries(byStudent).forEach(([capId, history]) => {
         const flight = flightOfCapId.get(capId);
-        if (!flight || !items.length) return;
+        if (!flight || !maxScore) return;
         history.forEach(row => {
-          const pct = (Number(row.TotalPoints) || 0) / items.length * 100;
+          const pct = (Number(isAssessment ? row.Score : row.TotalPoints) || 0) / maxScore * 100;
           if (!buckets.has(row.Date)) buckets.set(row.Date, {});
           const dayBucket = buckets.get(row.Date);
           dayBucket[flight] = dayBucket[flight] || { sum: 0, count: 0 };
@@ -2497,6 +2520,11 @@
       const items = INSPECTION_TYPES[trendsType].items;
       const byStudent = inspectionsByType[trendsType].byStudent;
       const data = computeFlightTrends(trendsType, trendsBasis);
+      const isAssessmentTrend = !!INSPECTION_TYPES[trendsType].isAssessment;
+      // items.length is the right "out of" denominator for Uniform/Room
+      // (TotalPoints really is a sum over that many binary items) but
+      // wrong for the Assessment's single raw 0-34 Score field.
+      const trendMaxScore = isAssessmentTrend ? ASSESSMENT_SCORE_ITEMS[0].max : items.length;
 
       // The per-item pass-rate breakdown below must respect the same
       // flight scoping the average cards use — otherwise a flight-scoped
@@ -2511,8 +2539,9 @@
       contentEl.innerHTML = `
         <div class="trends-toolbar">
           <div class="trends-type-toggle" id="trends-type-toggle">
-            <button type="button" class="${trendsType === "uniform" ? "is-selected" : ""}" data-type="uniform">Uniform</button>
-            <button type="button" class="${trendsType === "room" ? "is-selected" : ""}" data-type="room">Room</button>
+            ${visibleInspectionTypeKeys().filter(t => TRENDS_TYPE_LABELS[t]).map(t => `
+              <button type="button" class="${trendsType === t ? "is-selected" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
+            `).join("")}
           </div>
           <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
           <select id="trends-basis-select">
@@ -2522,7 +2551,7 @@
         </div>
 
         <h3 class="section-label">
-          ${trendsType === "room" ? "Room Inspection Trends" : "Uniform Inspection Trends"}
+          ${TRENDS_TYPE_LABELS[trendsType] || "Inspection"} Trends
         </h3>
 
         ${data.length ? `
@@ -2531,9 +2560,9 @@
               <div class="flight-avg-card">
                 <div class="flight-avg-card__name">${esc(d.flight)}</div>
                 ${d.totalAvg !== null ? `
-                  <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${items.length}</span></div>
+                  <div class="flight-avg-card__value">${d.totalAvg.toFixed(1)}<span> / ${trendMaxScore}</span></div>
                   <div class="flight-avg-card__bar-track">
-                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / items.length) * 100)}%; background:${Shell.flightColor(d.flight)};"></div>
+                    <div class="flight-avg-card__bar-fill" style="width:${Math.round((d.totalAvg / trendMaxScore) * 100)}%; background:${Shell.flightColor(d.flight)};"></div>
                   </div>
                   <div class="flight-avg-card__count">${d.studentsInspected} cadet${d.studentsInspected === 1 ? "" : "s"} · ${d.count} scorecard${d.count === 1 ? "" : "s"}</div>
                 ` : `
@@ -2543,6 +2572,7 @@
             `).join("")}
           </div>
 
+          ${isAssessmentTrend ? "" : `
           <div class="card">
             <h3 class="section-label">
               Pass rate by item, across all flights
@@ -2575,6 +2605,7 @@
               }).join("")}
             </div>
           </div>
+          `}
 
           <div class="card" style="margin-top: var(--space-4);">
             <h3 class="section-label">Average score over time, by flight</h3>
