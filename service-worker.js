@@ -25,14 +25,13 @@
    navigation strategy).
    ============================================================ */
 
-// Bumped to v16: js/shell.js now actively calls registration.update()
-// (on load, on foreground, and periodically) instead of only ever
-// relying on the browser's own once-a-day-at-most update check — see
-// initUpdatePrompt_ in js/shell.js. Bumping the cache name is what
-// gets THIS change itself in front of a device that's stuck on an old
-// worker; every deploy after this one should reach open, backgrounded
-// PWA sessions reliably without needing a reinstall.
-const CACHE_NAME = "njwg-encampment-v16";
+// Bumped to v17: the "Update available" confirm prompt in
+// initUpdatePrompt_ (js/shell.js) is gone — a real update now reloads
+// immediately with no confirmation, since writes are saved as they're
+// made and there's nothing an unannounced refresh could lose. Bumping
+// the cache name gets this change itself in front of a device that's
+// stuck on an old worker.
+const CACHE_NAME = "njwg-encampment-v17";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root

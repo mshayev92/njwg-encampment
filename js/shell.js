@@ -1779,17 +1779,23 @@ const Shell = (() => {
     });
   }
 
-  // ---- Service worker update prompt ---------------------------------------
+  // ---- Service worker update: applied silently in the background ---------
   //
   // service-worker.js calls self.skipWaiting() on install and clients.claim()
   // on activate, so a new deploy takes over almost immediately rather than
   // waiting for every tab to fully close first — but that means the CURRENT
   // page's already-loaded JS/CSS can end up mismatched with whatever the now-
   // active worker would serve on the next request. `controllerchange` fires
-  // the moment a new worker takes control; this asks before reloading (never
-  // silently) so a staffer isn't interrupted mid-scorecard, and only for a
-  // REAL update — the first-ever install of the service worker also fires
-  // this same event, which must NOT prompt (there's nothing to "update" yet).
+  // the moment a new worker takes control; this reloads right away, with no
+  // confirmation prompt — writes are saved as they're made (see every page's
+  // own save-on-change handlers), so there's nothing an unannounced refresh
+  // could actually lose, and this only fires for a REAL update — the
+  // first-ever install of the service worker also fires this same event,
+  // which must NOT reload (there's nothing to "update" yet, and every page
+  // would loop-reload on its very first load otherwise). A brief toast after
+  // the reload (see the sessionStorage flag below and its read in init())
+  // is the only sign this happened — not a permission prompt, just a
+  // heads-up once the new version is already showing.
   function initUpdatePrompt_() {
     if (!("serviceWorker" in navigator)) return;
     const hadController = !!navigator.serviceWorker.controller;
@@ -1797,16 +1803,8 @@ const Shell = (() => {
     navigator.serviceWorker.addEventListener("controllerchange", () => {
       if (reloading || !hadController) return;
       reloading = true;
-      confirmDialog({
-        title: "Update available",
-        message: "A new version of this app is ready. Refresh to use it? Any unsaved changes on this page won't be affected — writes are saved as you make them.",
-        confirmLabel: "Refresh",
-        cancelLabel: "Later",
-        danger: false
-      }).then((ok) => {
-        if (ok) window.location.reload();
-        else reloading = false; // let a LATER real update prompt again
-      });
+      try { sessionStorage.setItem("njwg_just_auto_updated", "1"); } catch (e) { /* ignore */ }
+      window.location.reload();
     });
 
     // controllerchange only fires once a NEW worker actually takes
@@ -3316,6 +3314,17 @@ const Shell = (() => {
     // through on the way in, not somewhere a mid-session deploy would
     // meaningfully interrupt anything.
     initUpdatePrompt_();
+    // Set by initUpdatePrompt_ right before the silent, no-confirmation
+    // reload it does on a real service worker update — sessionStorage
+    // (not a variable) survives exactly that reload and nothing more,
+    // so this fires once, on the very next page, then never again until
+    // another real update happens.
+    try {
+      if (sessionStorage.getItem("njwg_just_auto_updated")) {
+        sessionStorage.removeItem("njwg_just_auto_updated");
+        showToast("Updated to the latest version.");
+      }
+    } catch (e) { /* ignore */ }
     // Rotating the device mid-scroll leaves the browser holding onto the
     // OLD scrollY against the NEW (shorter or taller) reflowed layout —
     // landscape's shorter content can end up entirely above the
