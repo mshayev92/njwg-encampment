@@ -554,6 +554,7 @@
       if (!weather || !weather.current) {
         return `
           <div class="card weather-card">
+            <h2 class="card-title">Weather</h2>
             <div class="weather-card__body">
               <div>
                 <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
@@ -568,6 +569,7 @@
       const humidityText = c.relativeHumidity !== null ? `Humidity ${Math.round(c.relativeHumidity)}% · ` : "";
       return `
         <div class="card weather-card">
+          <h2 class="card-title">Weather</h2>
           <div class="weather-card__body">
             <div class="weather-card__temp">${Math.round(c.temperatureF)}°F</div>
             <div>
