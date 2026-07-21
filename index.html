@@ -66,23 +66,23 @@
     */
     html, body { background: var(--indigo-950); }
 
-    /* Login-page-specific styles (not needed elsewhere, kept local) */
+    /* Login-page-specific styles (not needed elsewhere, kept local).
+       Centering matches .gate-screen in gate.html — see the long comment
+       there: flex column + `margin: auto` on the card is overflow-safe
+       and engine-agnostic (no `align-items: safe center`, which iOS
+       Safari drops), `svh` is stable in a standalone PWA and under
+       Safari's collapsing toolbar, and `vh` is the universal fallback. */
     .login-screen {
-      /* Fallback for browsers/webviews without dvh support — see the
-         matching comment on .gate-screen in gate.html. */
       min-height: 100vh;
-      min-height: 100dvh;
+      min-height: 100svh;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: var(--space-5);
-      /* viewport-fit=cover + status-bar-style black-translucent (see
-         above) let this screen's background paint straight under the
-         notch/status bar — this keeps the actual crest/card content
-         clear of it instead of rendering underneath. */
-      padding-top: max(var(--space-5), env(safe-area-inset-top, 0px));
+      flex-direction: column;
+      overflow-y: auto;
+      padding:
+        max(var(--space-5), env(safe-area-inset-top, 0px))
+        var(--space-5)
+        max(var(--space-5), env(safe-area-inset-bottom, 0px));
       position: relative;
-      overflow: hidden;
       background:
         radial-gradient(ellipse 800px 500px at 50% -10%, rgba(240, 180, 41, 0.14) 0%, transparent 60%),
         var(--indigo-950);
@@ -91,6 +91,7 @@
     .login-card {
       width: 100%;
       max-width: 680px;
+      margin: auto;
       display: grid;
       grid-template-columns: 220px 1fr;
       background: var(--surface);
@@ -293,10 +294,8 @@
        position list or an error message makes it. */
     @media (max-width: 720px) {
       .login-screen {
-        align-items: center;
-        align-items: safe center;
-        overflow-y: auto;
-        padding: var(--space-5) var(--space-4);
+        padding-left: var(--space-4);
+        padding-right: var(--space-4);
       }
 
       .login-card {

@@ -48,25 +48,40 @@
        navy, and use 100dvh so the screen tracks the real viewport. */
     html, body { background: var(--indigo-950); }
 
+    /* Vertically-centered auth card that stays centered on every engine
+       and degrades safely when it's too tall to fit.
+
+       - The screen is a flex COLUMN and the card gets `margin: auto`.
+         Auto margins on a flex item absorb only POSITIVE free space, so
+         when the card is shorter than the screen it's centered, and when
+         it's taller the margins collapse to 0 and the whole card stays
+         reachable by scrolling (nothing clipped). This is the canonical
+         overflow-safe centering — it needs no `align-items: safe center`
+         (which iOS Safari has historically not supported, silently
+         dropping the declaration), which is why earlier attempts looked
+         centered in Chromium but stayed pinned high on real iPhones.
+       - `svh` (small viewport height) is the stable choice for an
+         installed standalone PWA and for Safari's collapsing toolbar:
+         it's the guaranteed-visible height, so the card is always
+         centered within what's actually on screen rather than within a
+         taller area that runs under the browser/OS chrome. `vh` is the
+         universal fallback for engines without the new viewport units. */
     .gate-screen {
-      /* Fallback for browsers/webviews without dvh support — without
-         this, min-height falls back to auto entirely (dvh isn't a
-         valid vh value to substitute), collapsing the screen to just
-         wrap the card and leaving the plain body background exposed
-         below it instead of a full-height, actually-centered flex
-         container. */
       min-height: 100vh;
-      min-height: 100dvh;
+      min-height: 100svh;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: var(--space-5);
-      /* See index.html's matching comment — keeps content clear of the
-         now-transparent status bar/notch. Comes after the padding
-         shorthand above so it isn't immediately overwritten by it. */
-      padding-top: max(var(--space-5), env(safe-area-inset-top, 0px));
+      flex-direction: column;
+      overflow-y: auto;
+      /* Symmetric safe-area padding on BOTH top and bottom so the card
+         clears the notch/status bar and the home indicator — the mobile
+         media query below only narrows the sides, never re-clobbering
+         these (an earlier `padding: x y` shorthand there silently reset
+         the top inset). */
+      padding:
+        max(var(--space-5), env(safe-area-inset-top, 0px))
+        var(--space-5)
+        max(var(--space-5), env(safe-area-inset-bottom, 0px));
       position: relative;
-      overflow: hidden;
       background:
         radial-gradient(ellipse 800px 500px at 50% -10%, rgba(240, 180, 41, 0.14) 0%, transparent 60%),
         var(--indigo-950);
@@ -75,6 +90,7 @@
     .gate-card {
       width: 100%;
       max-width: 420px;
+      margin: auto;
       background: var(--surface);
       border-radius: var(--radius-lg);
       padding: var(--space-7) var(--space-6);
@@ -171,21 +187,14 @@
 
     .gate-card .btn { width: 100%; }
 
-    /* Same fix as index.html's login screen (see the long comment
-       there): below the app's standard 720px mobile breakpoint, let the
-       screen scroll instead of hiding overflow, so a taller card (e.g.
-       the device-type choice plus an error message) is never clipped
-       with no way to reach the rest of it on a short phone viewport.
-       `safe center` keeps the card vertically centered when it fits and
-       only falls back to top-alignment if it's taller than the
-       viewport — plain `center` here left the card pinned to the top
-       with a big empty gap below on phones where it comfortably fits. */
+    /* Below the app's standard 720px mobile breakpoint, only narrow the
+       horizontal padding — the centering, scroll, and top/bottom
+       safe-area insets all come from the base .gate-screen rule and must
+       stay intact (see the long comment there). */
     @media (max-width: 720px) {
       .gate-screen {
-        align-items: center;
-        align-items: safe center;
-        overflow-y: auto;
-        padding: var(--space-5) var(--space-4);
+        padding-left: var(--space-4);
+        padding-right: var(--space-4);
       }
     }
   </style>
