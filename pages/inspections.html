@@ -113,14 +113,35 @@
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
-      cursor: pointer;
-      text-align: left;
-      font-family: inherit;
       width: 100%;
     }
 
     .student-row:hover {
       border-color: var(--gold-500);
+    }
+
+    /* The row itself is a plain div (not a button) so an Administrator's
+       inline EOW Assessment field (below) can sit inside it without
+       nesting an <input> inside a <button> — invalid HTML, and it would
+       make every keystroke also fire the row's own navigate-to-history
+       click. This inner button is the actual "open this cadet" click
+       target, sized to fill whatever space the assessment field isn't
+       using. A non-admin (no assessment field rendered at all) gets a
+       row that's effectively still fully clickable, same as before. */
+    .student-row__main {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+      gap: 2px;
+      background: none;
+      border: none;
+      padding: 0;
+      margin: 0;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      color: inherit;
     }
 
     .student-row__name {
@@ -132,6 +153,45 @@
       font-size: var(--fs-xs);
       color: var(--ink-600);
       font-family: var(--font-mono);
+    }
+
+    /* ---- Inline EOW Assessment quick-entry (Administrator only) ----
+       Same "edit without navigating away" pattern as Roster's own Room
+       column — EOW Assessment is always just a single ad-hoc number per
+       cadet per day (unlike Uniform/Room/PT, it's never tied to a
+       scheduled period), which is exactly the shape of field that's
+       needlessly slow to enter one full scorecard at a time across a
+       whole flight. */
+    .student-row__assessment {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex-shrink: 0;
+    }
+
+    .student-row__assessment-label {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--ink-600);
+    }
+
+    .assessment-quick-input {
+      width: 60px;
+      font-family: var(--font-mono);
+      font-size: var(--fs-sm);
+      text-align: center;
+      padding: var(--space-2);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-sm);
+      background: var(--surface-sunken);
+      color: var(--ink-900);
+    }
+
+    .assessment-quick-input:focus {
+      border-color: var(--gold-500);
+      outline: none;
     }
 
     .detail-header {
@@ -1331,6 +1391,125 @@
       Shell.animateIn(contentEl);
     }
 
+    /**
+     * Builds one cadet row for the Inspect tab's student list — shared by
+     * renderStudentList (a single already-selected flight) and
+     * renderOwnFlightsDirect (every one of the session's own flights,
+     * stacked). An Administrator gets an inline EOW Assessment score
+     * field right in the row (see saveQuickAssessment below) instead of
+     * having to open each cadet's full history/scorecard just to enter
+     * one number — the same "edit without navigating away" pattern
+     * Roster's own Room column uses, and a natural fit here since EOW
+     * Assessment (unlike Uniform/Room/PT) is never tied to a scheduled
+     * period, just a single ad-hoc score per cadet per day.
+     */
+    function renderStudentRow(m, flight) {
+      const todayStr = Shell.todayIso();
+      const todaysEntry = (inspectionsByType.assessment.byStudent[String(m.CapId)] || []).find(h => h.Date === todayStr);
+      const scoreValue = todaysEntry && todaysEntry.Score != null ? todaysEntry.Score : "";
+
+      return `
+        <div class="student-row">
+          <button class="student-row__main" data-flight="${esc(flight)}" data-capid="${esc(m.CapId)}">
+            <div class="student-row__name">${esc(m.Name) || "—"}</div>
+            <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
+          </button>
+          ${isAdmin ? `
+            <div class="student-row__assessment">
+              <label class="student-row__assessment-label" for="assess-${esc(m.CapId)}">EOW</label>
+              <input type="number" id="assess-${esc(m.CapId)}" class="assessment-quick-input" inputmode="numeric" min="0" max="34" step="1" placeholder="—" aria-label="EOW Assessment score for ${esc(m.Name) || "this cadet"}" data-capid="${esc(m.CapId)}" data-flight="${esc(flight)}" value="${esc(scoreValue)}">
+            </div>
+          ` : ""}
+        </div>`;
+    }
+
+    /** Wires every .student-row rendered by renderStudentRow within `root` — the click-to-open-history button and (Administrator only) the inline EOW Assessment field. */
+    function wireStudentRows(root, onOpenHistory) {
+      root.querySelectorAll(".student-row__main").forEach(btn => {
+        btn.addEventListener("click", () => onOpenHistory(btn.dataset.flight, btn.dataset.capid));
+      });
+      root.querySelectorAll(".assessment-quick-input").forEach(input => {
+        input.addEventListener("change", () => saveQuickAssessment(input.dataset.capid, input.dataset.flight, input.value.trim(), input));
+      });
+    }
+
+    /**
+     * Inline "just the score" EOW Assessment entry from the cadet list —
+     * writes/updates TODAY's PhysicalAssessments row for this cadet
+     * without navigating to their full scorecard. Same write shape as
+     * submitAssessmentScorecard's ad-hoc path, but preserves that day's
+     * existing Notes/InspectionPeriodId (if a full scorecard entry
+     * already exists) instead of overwriting them with blanks — a quick
+     * score edit here shouldn't silently wipe out notes someone already
+     * wrote elsewhere.
+     *
+     * Admin-only client-side (the field only exists in the DOM at all
+     * for isAdmin — see renderStudentRow); worker/src/index.js's
+     * handleWrite independently re-asserts admin for PhysicalAssessments
+     * regardless, same as submitAssessmentScorecard.
+     *
+     * Awaits the real write (optimistic: false, when online) rather than
+     * firing-and-forgetting, mirroring Roster's saveRoomAssignment: this
+     * is a field someone might type into once across a whole flight and
+     * never revisit, so a rejected write needs to surface immediately as
+     * an error and visibly revert the input, not just a quiet change to
+     * the header's sync indicator.
+     */
+    async function saveQuickAssessment(capId, flight, rawValue, inputEl) {
+      if (!isAdmin) return;
+      const student = rosterRows.find(r => String(r.CapId) === capId);
+      if (!student) return;
+
+      const todayStr = Shell.todayIso();
+      const bucket = inspectionsByType.assessment;
+      const history = bucket.byStudent[capId] || (bucket.byStudent[capId] = []);
+      const existing = history.find(h => h.Date === todayStr) || {};
+
+      const previousValue = existing.Score != null ? String(existing.Score) : "";
+      if (rawValue === previousValue) return; // no-op resend, e.g. focus+blur with no edit
+
+      let score = "";
+      if (rawValue !== "") {
+        const rawScore = Number(rawValue);
+        if (isNaN(rawScore)) {
+          inputEl.value = previousValue;
+          Shell.showToast("Enter a number for the EOW Assessment score.", { type: "error" });
+          return;
+        }
+        score = Math.max(0, Math.min(34, Math.round(rawScore)));
+      }
+
+      const row = {
+        StudentCapId: capId,
+        StudentName: student.Name,
+        Flight: flight,
+        InspectingPosition: session.Position,
+        Date: todayStr,
+        Timestamp: new Date().toISOString(),
+        InspectionPeriodId: existing.InspectionPeriodId || "",
+        Score: score,
+        Notes: existing.Notes || ""
+      };
+
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      try {
+        await Api.writeRow("PhysicalAssessments", row, { matchColumns: ["StudentCapId", "Date"], optimistic: offline });
+      } catch (err) {
+        inputEl.value = previousValue;
+        Shell.showToast(err.message || "Couldn't save that score.", { type: "error" });
+        return;
+      }
+
+      const idx = history.findIndex(h => h.Date === todayStr);
+      if (idx >= 0) history[idx] = row; else history.unshift(row);
+
+      const allIdx = bucket.all.findIndex(h => String(h.StudentCapId) === capId && h.Date === todayStr);
+      if (allIdx >= 0) bucket.all[allIdx] = row; else bucket.all.push(row);
+      Api.setCachedRows("PhysicalAssessments", bucket.all);
+
+      Shell.showToast(offline ? "Score saved — will sync once you're back online." : "EOW Assessment score saved.", { type: "success" });
+    }
+
     function renderFlightGrid() {
       currentView = "flights";
       const grouped = groupByFlight(rosterRows);
@@ -1400,14 +1579,7 @@
               </div>
               ${members.length ? `
                 <div class="student-list">
-                  ${members.map(m => `
-                    <button class="student-row" data-flight="${esc(flight)}" data-capid="${esc(m.CapId)}">
-                      <div>
-                        <div class="student-row__name">${esc(m.Name) || "—"}</div>
-                        <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
-                      </div>
-                    </button>`
-                  ).join("")}
+                  ${members.map(m => renderStudentRow(m, flight)).join("")}
                 </div>
               ` : `
                 <div class="state-message">
@@ -1420,12 +1592,10 @@
         }).join("")}
       `;
 
-      contentEl.querySelectorAll(".student-row").forEach(row => {
-        row.addEventListener("click", () => {
-          selectedFlight = row.dataset.flight;
-          selectedStudent = (grouped[selectedFlight] || []).find(m => String(m.CapId) === row.dataset.capid);
-          renderHistory();
-        });
+      wireStudentRows(contentEl, (flight, capId) => {
+        selectedFlight = flight;
+        selectedStudent = (grouped[flight] || []).find(m => String(m.CapId) === capId);
+        renderHistory();
       });
       Shell.animateIn(contentEl);
     }
@@ -1446,14 +1616,7 @@
         </div>
         ${members.length ? `
           <div class="student-list">
-            ${members.map(m => `
-              <button class="student-row" data-capid="${esc(m.CapId)}">
-                <div>
-                  <div class="student-row__name">${esc(m.Name) || "—"}</div>
-                  <div class="student-row__meta">${esc(m.CapId) || "—"} · ${esc(m.Rank) || "—"}</div>
-                </div>
-              </button>`
-            ).join("")}
+            ${members.map(m => renderStudentRow(m, selectedFlight)).join("")}
           </div>
         ` : `
           <div class="state-message">
@@ -1471,11 +1634,9 @@
         });
       }
 
-      contentEl.querySelectorAll(".student-row").forEach(row => {
-        row.addEventListener("click", () => {
-          selectedStudent = members.find(m => String(m.CapId) === row.dataset.capid);
-          renderHistory();
-        });
+      wireStudentRows(contentEl, (flight, capId) => {
+        selectedStudent = members.find(m => String(m.CapId) === capId);
+        renderHistory();
       });
       Shell.animateIn(contentEl);
     }
