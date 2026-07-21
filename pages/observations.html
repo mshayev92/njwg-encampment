@@ -232,11 +232,27 @@
        the list can't mistake one for the other. */
     .obs-history-row--note { border-left: 3px solid var(--indigo-500); }
     .obs-history-row--note .obs-history-row__tag { color: var(--indigo-500); }
-    .obs-hint {
-      font-size: var(--fs-2xs);
-      color: var(--ink-600);
-      margin: 0 0 var(--space-3);
+
+    /* Label row lets a section carry an inline info tooltip and/or a
+       trailing action link without a permanently-visible paragraph of
+       explanatory text under every heading — keeps this detail view
+       from getting longer/noisier every time a new section is added. */
+    .obs-category__label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
+    .obs-category__label-row .obs-category__label { margin-bottom: 0; }
+    .obs-info-icon {
+      display: inline-block;
+      margin-left: var(--space-1);
+      color: var(--ink-400);
+      cursor: help;
+      font-size: var(--fs-xs);
     }
+    .obs-note-link {
+      font-size: var(--fs-xs);
+      font-weight: 600;
+      color: var(--indigo-500);
+      white-space: nowrap;
+    }
+    .obs-note-link:hover { text-decoration: underline; }
 
     /* ---- Trends tab ---- */
     .obs-volume-grid {
@@ -680,8 +696,10 @@
         ${OBSERVATION_CATEGORIES.map(chipsHtml).join("")}
 
         <div class="obs-category">
-          <div class="obs-category__label">Custom note</div>
-          <p class="obs-hint">Always logs as a <strong>Positive</strong> observation — there's no neutral/negative option here. For anything that isn't positive, use a Note instead (button below).</p>
+          <div class="obs-category__label-row">
+            <div class="obs-category__label">Custom note</div>
+            <span class="obs-info-icon" tabindex="0" data-tooltip="Always logs as a Positive observation. For anything that isn't positive, use a Note instead.">ⓘ</span>
+          </div>
           <div class="obs-note-form">
             <textarea id="custom-note-input" aria-label="Custom observation note" placeholder="Anything that doesn't fit a preset tag…"></textarea>
             <button class="btn btn--primary" id="save-custom-note-btn">Log</button>
@@ -696,12 +714,15 @@
         </div>
 
         <div class="obs-category">
-          <div class="obs-category__label">Notes About This Cadet</div>
-          <p class="obs-hint">Separate from the Positive-only observations above — Notes can hold neutral or negative feedback and don't count toward Flight Standings scoring.</p>
+          <div class="obs-category__label-row">
+            <div class="obs-category__label">Notes About This Cadet
+              <span class="obs-info-icon" tabindex="0" data-tooltip="Separate from the Positive-only observations above — doesn't count toward Flight Standings scoring.">ⓘ</span>
+            </div>
+            <a class="obs-note-link" href="${esc(window.APP_BASE_PATH)}pages/notes.html?subject=${encodeURIComponent(selectedStudent.Name || "")}">+ Start a note</a>
+          </div>
           <div class="obs-history-list" id="obs-notes-list">
             ${notes.length ? notes.map(noteRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No notes yet for this cadet.</p>`}
           </div>
-          <a class="btn btn--ghost" style="margin-top: var(--space-3);" href="${esc(window.APP_BASE_PATH)}pages/notes.html?subject=${encodeURIComponent(selectedStudent.Name || "")}">+ Start a note about ${esc(selectedStudent.Name) || "this cadet"}</a>
         </div>
       `;
 
@@ -720,6 +741,7 @@
       wireChipHandlers();
       wireCustomNoteForm();
       wireHistoryDeleteHandlers();
+      Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);
     }
 

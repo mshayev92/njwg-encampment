@@ -731,6 +731,10 @@ html.nav-rail-collapsed .nav-rail__crest {
   font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
+  /* .btn is also used on plain <a> elements (e.g. Observations' "Start
+     a note" link) — without this, those pick up the browser's default
+     link underline that a <button> never has. */
+  text-decoration: none;
   transition: background var(--duration-fast) var(--ease-standard),
               border-color var(--duration-fast) var(--ease-standard),
               box-shadow var(--duration-fast) var(--ease-standard),
