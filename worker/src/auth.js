@@ -249,14 +249,27 @@ function base64UrlDecode(str) {
   return bytes;
 }
 
-async function hmacKey(env) {
-  return crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(env.SESSION_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
-  );
+// Memoized per isolate: env.SESSION_SECRET is a binding that's constant
+// for the isolate's life, and the derived CryptoKey is reusable for both
+// sign and verify — so import it once and reuse it instead of re-importing
+// on every signPayload/verifyToken, which runs at least twice per request
+// (the device token and the session token are both verified). Caching the
+// Promise (rather than the resolved key) is race-free and idiomatic. A
+// SESSION_SECRET rotation replaces the isolate with a fresh one, so this
+// can never serve a key derived from a stale secret.
+let hmacKeyPromise = null;
+
+function hmacKey(env) {
+  if (!hmacKeyPromise) {
+    hmacKeyPromise = crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(env.SESSION_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign", "verify"]
+    );
+  }
+  return hmacKeyPromise;
 }
 
 async function signPayload(env, payloadStr) {
@@ -279,12 +292,21 @@ export async function verifyToken(env, token) {
   if (parts.length !== 2) throw new Error("Malformed token. Please sign in again.");
 
   const [payloadStr, signature] = parts;
-  const expectedSignature = await signPayload(env, payloadStr);
 
-  // Constant-time-ish compare via Web Crypto's verify would be nicer,
-  // but a straight string compare against an HMAC we just recomputed is
-  // the same approach the previous Apps Script version used.
-  if (signature !== expectedSignature) {
+  // Verify the signature with Web Crypto's HMAC verify rather than
+  // recomputing the HMAC and string-comparing it: verify is constant-time
+  // (no early-exit on the first differing byte, so it leaks nothing about
+  // the expected signature through timing) and is the correct primitive
+  // for the job. A malformed signature that won't even base64url-decode is
+  // simply an invalid token.
+  const key = await hmacKey(env);
+  let valid = false;
+  try {
+    valid = await crypto.subtle.verify("HMAC", key, base64UrlDecode(signature), new TextEncoder().encode(payloadStr));
+  } catch (err) {
+    valid = false;
+  }
+  if (!valid) {
     throw new Error("Invalid token. Please sign in again.");
   }
 

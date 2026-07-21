@@ -102,18 +102,45 @@ async function fetchFreshAccessToken(env) {
   return { accessToken: data.access_token, expiresInSeconds: data.expires_in || 3600 };
 }
 
+// Isolate-local access-token cache, layered in front of the KV copy. A
+// single request commonly makes several Sheets API calls — a write reads
+// the header row, finds the matching row, then sets it (3+ calls) — and
+// each sheetsFetch() would otherwise do its own KV read for the token.
+// Caching it in the isolate collapses those to one, and also spares
+// repeated requests landing on a warm isolate. KV stays the cross-isolate
+// source of truth (and the authority on real expiry); this is only a front
+// layer, mirroring the isolate-local caches already used in readCache.js
+// (inFlightFetches) and auth.js (rate-limit counters).
+let isolateToken = null; // { token, expiresAtMs }
+
 /**
- * Returns a valid Google OAuth access token, reusing a cached one from
- * KV when possible so a normal read/write doesn't pay for a fresh
- * JWT sign + token exchange on every single request.
+ * Returns a valid Google OAuth access token, reusing a cached one —
+ * from the isolate first, then KV — so a normal read/write doesn't pay
+ * for a fresh JWT sign + token exchange (or even a KV read) on every
+ * single Sheets API call.
  */
 export async function getAccessToken(env) {
+  if (isolateToken && Date.now() < isolateToken.expiresAtMs) {
+    return isolateToken.token;
+  }
+
   const cached = await env.NJWG_KV.get(KV_TOKEN_KEY);
-  if (cached) return cached;
+  if (cached) {
+    // KV doesn't expose a key's remaining TTL, so hold a KV-sourced token
+    // in the isolate only briefly — long enough to cover a burst of Sheets
+    // calls in one request, short enough that KV (which DOES expire the
+    // token near the ~1h mark) stays the authority on when it's really
+    // gone. Serving it for up to this window is safe regardless, since a
+    // token is only ever rotated once the old one is already within its
+    // TOKEN_SAFETY_MARGIN_SECONDS and thus still valid for minutes more.
+    isolateToken = { token: cached, expiresAtMs: Date.now() + 60 * 1000 };
+    return cached;
+  }
 
   const { accessToken, expiresInSeconds } = await fetchFreshAccessToken(env);
   const ttl = Math.max(60, expiresInSeconds - TOKEN_SAFETY_MARGIN_SECONDS);
   await env.NJWG_KV.put(KV_TOKEN_KEY, accessToken, { expirationTtl: ttl });
+  isolateToken = { token: accessToken, expiresAtMs: Date.now() + ttl * 1000 };
 
   return accessToken;
 }
