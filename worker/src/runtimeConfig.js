@@ -28,6 +28,14 @@ const CONFIG_CACHE_MS = 60000;
 
 export const DEFAULT_RUNTIME_CONFIG = {
   rateLimitPerMinute: 60,
+  // An Administrator session's cap — deliberately much higher than the
+  // ordinary rateLimitPerMinute (not unlimited, so a runaway/malfunctioning
+  // admin device still can't hammer the Worker/Sheet without bound), since
+  // Admin legitimately does things an ordinary session doesn't — bulk
+  // Staff Access edits, CSV roster import, syncing flight colors, the
+  // "Add an Entry"/Delete actions on Awards, etc. — any of which can throw
+  // several requests in quick succession. See checkRateLimit in auth.js.
+  adminRateLimitPerMinute: 300,
   maintenanceMode: false,
   deviceTokenLifetimeHoursPersonal: 24 * 14,
   deviceTokenLifetimeHoursShared: 8,
@@ -47,6 +55,7 @@ export const DEFAULT_RUNTIME_CONFIG = {
 // or a cache TTL of a week making a direct-Sheet edit invisible for days).
 const BOUNDS = {
   rateLimitPerMinute: { min: 10, max: 300 },
+  adminRateLimitPerMinute: { min: 60, max: 1000 },
   deviceTokenLifetimeHoursPersonal: { min: 1, max: 24 * 30 },
   deviceTokenLifetimeHoursShared: { min: 1, max: 24 * 7 }
 };
@@ -83,6 +92,9 @@ export async function saveRuntimeConfig(env, patch) {
 
   if ("rateLimitPerMinute" in patch) {
     next.rateLimitPerMinute = clampNumber(patch.rateLimitPerMinute, BOUNDS.rateLimitPerMinute, current.rateLimitPerMinute);
+  }
+  if ("adminRateLimitPerMinute" in patch) {
+    next.adminRateLimitPerMinute = clampNumber(patch.adminRateLimitPerMinute, BOUNDS.adminRateLimitPerMinute, current.adminRateLimitPerMinute);
   }
   if ("deviceTokenLifetimeHoursPersonal" in patch) {
     next.deviceTokenLifetimeHoursPersonal = clampNumber(patch.deviceTokenLifetimeHoursPersonal, BOUNDS.deviceTokenLifetimeHoursPersonal, current.deviceTokenLifetimeHoursPersonal);

@@ -1065,11 +1065,43 @@
     // page's inline edit forms.
     let editingStandingsWeights = false;
 
+    // Every input this form edits, in the exact order the running total
+    // below sums them — matches Recommendations' RANKING_METRICS.hf
+    // list, since these two weight sets are meant to line up exactly
+    // (see DEFAULT_STANDINGS_WEIGHTS' comment above).
+    const STANDINGS_WEIGHT_FIELD_IDS = ["w-uniform", "w-room", "w-assessment", "w-pos", "w-hf-recs", "w-winner"];
+
+    /** Sum of the weights form's current (unsaved) input values — must read exactly 100 to allow Save, same rule Recommendations' own Scoring Weights panel enforces (see weightsTotal there). */
+    function standingsWeightsTotal() {
+      return STANDINGS_WEIGHT_FIELD_IDS.reduce((sum, id) => {
+        const el = document.getElementById(id);
+        return sum + (el ? Math.max(0, Number(el.value) || 0) : 0);
+      }, 0);
+    }
+
+    /** Updates the running total display and the Save button's enabled state to match the form's current input values. */
+    function updateStandingsWeightsFormState() {
+      const total = standingsWeightsTotal();
+      const isValidTotal = total === 100;
+
+      const totalEl = document.getElementById("standings-weights-total");
+      if (totalEl) {
+        totalEl.textContent = `Total: ${total}%`;
+        totalEl.style.color = isValidTotal ? "var(--green-600)" : "var(--red-600)";
+      }
+
+      const saveBtn = document.getElementById("save-standings-weights-btn");
+      if (saveBtn) saveBtn.disabled = !isValidTotal;
+
+      const note = document.getElementById("standings-weights-invalid-note");
+      if (note) note.style.display = isValidTotal ? "none" : "";
+    }
+
     function renderWeightsForm(weights) {
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale; Positive Observations/Nominations/Honor Flight of the Day are unbounded counts, scaled against whichever flight currently has the most. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale; Positive Observations/Nominations/Honor Flight of the Day are unbounded counts, scaled against whichever flight currently has the most. Must add up to 100% to save. Changes apply for every position, immediately.
           </p>
           <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
@@ -1079,9 +1111,11 @@
             <div class="field" style="margin-bottom:0;"><label for="w-hf-recs">Honor Flight Nominations</label><input type="number" id="w-hf-recs" min="0" max="100" value="${esc(weights.hfRecs)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-winner">Honor Flight of the Day</label><input type="number" id="w-winner" min="0" max="100" value="${esc(weights.winner)}"></div>
           </div>
-          <div style="display:flex; gap: var(--space-3); margin-top: var(--space-4);">
+          <div style="display:flex; align-items:center; gap: var(--space-3); margin-top: var(--space-4); flex-wrap:wrap;">
             <button class="btn btn--primary" id="save-standings-weights-btn">Save</button>
             <button class="btn btn--ghost" id="cancel-standings-weights-btn">Cancel</button>
+            <span id="standings-weights-total" style="font-size: var(--fs-sm); font-weight:600;"></span>
+            <span id="standings-weights-invalid-note" style="display:none; font-size: var(--fs-xs); color: var(--red-600);">Must add up to 100% before saving</span>
           </div>
         </div>`;
     }
@@ -1221,9 +1255,20 @@
       const editBtn = document.getElementById("edit-standings-weights-btn");
       if (editBtn) editBtn.addEventListener("click", () => { editingStandingsWeights = !editingStandingsWeights; renderAll(); });
 
+      // Live running total + Save-button gating, same rule
+      // Recommendations' own Scoring Weights panel enforces — typing in
+      // any field re-checks the sum without waiting for Save to be
+      // clicked, and Save stays disabled until it reads exactly 100.
+      STANDINGS_WEIGHT_FIELD_IDS.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener("input", updateStandingsWeightsFormState);
+      });
+      if (document.getElementById("standings-weights-total")) updateStandingsWeightsFormState();
+
       const saveBtn = document.getElementById("save-standings-weights-btn");
       if (saveBtn) {
         saveBtn.addEventListener("click", async () => {
+          if (standingsWeightsTotal() !== 100) return; // belt-and-suspenders — the button is already disabled in this case
           // ConcernObservations is deliberately NOT included here anymore
           // (see DEFAULT_STANDINGS_WEIGHTS' comment) — omitting it writes
           // that cell blank on save rather than leaving whatever an admin

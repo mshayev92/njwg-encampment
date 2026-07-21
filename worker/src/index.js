@@ -15,7 +15,7 @@ import {
   UNIFORM_INSPECTION_COLUMNS, ROOM_INSPECTION_COLUMNS, PT_INSPECTION_COLUMNS, INSPECTION_PERIOD_COLUMNS, PHYSICAL_ASSESSMENT_COLUMNS, ANNOUNCEMENT_COLUMNS, BLACK_FLAG_COLUMNS, NOTES_COLUMNS, OBSERVATION_COLUMNS,
   HONOR_CADET_RECOMMENDATION_COLUMNS, HONOR_FLIGHT_RECOMMENDATION_COLUMNS, FLIGHT_STANDINGS_WEIGHTS_COLUMNS,
   hashString, issueGenericToken, requireDeviceToken, requireSession, nextMidnight,
-  checkRateLimit, assertAllowedSheet, assertPermission,
+  checkRateLimit, isAdminSession, assertAllowedSheet, assertPermission,
   assertPageWriteAccess, ALLOWED_SHEETS,
   getClientIp, assertNotLockedOut, checkAuthAttemptRate, recordAuthResult,
   MAX_REQUEST_BODY_BYTES, assertReasonableRowPayload, assertReasonableMatchColumns
@@ -92,16 +92,16 @@ async function handleGet(request, env) {
   if (action === "read") {
     await requireDeviceToken(env, params.deviceToken);
     const session = await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    await checkRateLimit(env, params.token, session);
     return respond(await handleRead(env, params));
   }
 
   if (action === "batchRead") {
     await requireDeviceToken(env, params.deviceToken);
-    await requireSession(env, params.token);
+    const session = await requireSession(env, params.token);
     // ONE rate-limit hit for the whole batch — the entire point is that
     // warming N sheets costs one Worker invocation, not N.
-    await checkRateLimit(env, params.token);
+    await checkRateLimit(env, params.token, session);
     return respond(await handleBatchRead(env, params));
   }
 
@@ -113,15 +113,15 @@ async function handleGet(request, env) {
 
   if (action === "pushConfig") {
     await requireDeviceToken(env, params.deviceToken);
-    await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token, session);
     return respond(handlePushConfig(env));
   }
 
   if (action === "adminListStaffAccess") {
     await requireDeviceToken(env, params.deviceToken);
     const session = await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    await checkRateLimit(env, params.token, session);
     assertAdmin(session);
     return respond(await handleAdminListStaffAccess(env));
   }
@@ -129,7 +129,7 @@ async function handleGet(request, env) {
   if (action === "adminListLoginLog") {
     await requireDeviceToken(env, params.deviceToken);
     const session = await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    await checkRateLimit(env, params.token, session);
     assertAdmin(session);
     return respond(await handleAdminListLoginLog(env, params));
   }
@@ -137,7 +137,7 @@ async function handleGet(request, env) {
   if (action === "adminGetWorkerConfig") {
     await requireDeviceToken(env, params.deviceToken);
     const session = await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    await checkRateLimit(env, params.token, session);
     assertAdmin(session);
     return respond({ ok: true, config: await getRuntimeConfig(env) });
   }
@@ -148,8 +148,8 @@ async function handleGet(request, env) {
     // just Admin, so every signed-in session needs to be able to read
     // this. Only an admin can CHANGE it (see adminSyncFlightColors).
     await requireDeviceToken(env, params.deviceToken);
-    await requireSession(env, params.token);
-    await checkRateLimit(env, params.token);
+    const session = await requireSession(env, params.token);
+    await checkRateLimit(env, params.token, session);
     const config = await getRuntimeConfig(env);
     return respond({ ok: true, colors: config.flightColors || {} });
   }
@@ -179,28 +179,28 @@ async function handlePost(request, env, ctx) {
   if (body.action === "write") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     return respond(await handleWrite(env, body, session, ctx));
   }
 
   if (body.action === "delete") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     return respond(await handleDelete(env, body, session));
   }
 
   if (body.action === "savePushSubscription") {
     await requireDeviceToken(env, body.deviceToken);
     const pushSession = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, pushSession);
     return respond(await handleSavePushSubscription(env, body, pushSession));
   }
 
   if (body.action === "adminSaveStaffAccess") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     assertAdmin(session);
     return respond(await handleAdminSaveStaffAccess(env, body, session));
   }
@@ -208,7 +208,7 @@ async function handlePost(request, env, ctx) {
   if (body.action === "adminDeleteStaffAccess") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     assertAdmin(session);
     return respond(await handleAdminDeleteStaffAccess(env, body, session));
   }
@@ -216,7 +216,7 @@ async function handlePost(request, env, ctx) {
   if (body.action === "adminSaveWorkerConfig") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     assertAdmin(session);
     return respond({ ok: true, config: await saveRuntimeConfig(env, body.config || {}) });
   }
@@ -224,7 +224,7 @@ async function handlePost(request, env, ctx) {
   if (body.action === "adminSyncFlightColors") {
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     assertAdmin(session);
     return respond(await handleAdminSyncFlightColors(env));
   }
@@ -238,7 +238,7 @@ async function handlePost(request, env, ctx) {
     // KV deletes, no Sheets API calls of its own.
     await requireDeviceToken(env, body.deviceToken);
     const session = await requireSession(env, body.token);
-    await checkRateLimit(env, body.token);
+    await checkRateLimit(env, body.token, session);
     assertAdmin(session);
     await invalidateAllSheetCaches(env);
     return respond({ ok: true });
@@ -399,8 +399,7 @@ async function logLoginAttempt(env, entry) {
 const STAFF_ACCESS_HEADERS = ["Position", "Pages", "Flights", "Password"];
 
 function assertAdmin(session) {
-  const pages = (Array.isArray(session.pages) ? session.pages : []).map((p) => String(p).toLowerCase());
-  if (!pages.includes("admin")) {
+  if (!isAdminSession(session)) {
     throw new Error("Administrator access required.");
   }
 }

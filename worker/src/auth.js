@@ -437,9 +437,26 @@ export function nextMidnight() {
 const RATE_LIMIT_FLUSH_EVERY = 5;
 const rateLimitMemory = new Map(); // cacheKey -> { count, windowStart, unflushed }
 
-export async function checkRateLimit(env, key) {
+/** Same "Pages includes admin" check every admin-gated action (assertAdmin in index.js) already uses — a plain boolean here since checkRateLimit shouldn't throw just to decide which cap applies. */
+export function isAdminSession(session) {
+  const pages = (session && Array.isArray(session.pages)) ? session.pages : [];
+  return pages.map((p) => String(p).toLowerCase()).includes("admin");
+}
+
+/**
+ * `session` is optional (the two pre-auth endpoints — deviceLogin/login —
+ * call this before any session exists) and, when passed, only changes
+ * WHICH cap applies: an Administrator session gets adminRateLimitPerMinute
+ * instead of the ordinary rateLimitPerMinute — deliberately much higher,
+ * not unlimited, so Admin can do things like a bulk Staff Access edit, a
+ * CSV roster import, or several quick Awards admin actions without
+ * hitting "Too many requests," while a runaway/malfunctioning admin
+ * device still can't hammer the Worker/Sheet without any bound at all.
+ */
+export async function checkRateLimit(env, key, session) {
   if (!key) return;
-  const { rateLimitPerMinute } = await getRuntimeConfig(env);
+  const config = await getRuntimeConfig(env);
+  const rateLimitPerMinute = isAdminSession(session) ? config.adminRateLimitPerMinute : config.rateLimitPerMinute;
   const coordThreshold = Math.floor(rateLimitPerMinute / 2);
   const cacheKey = "rl:" + (await hashString(String(key)));
   const now = Date.now();
