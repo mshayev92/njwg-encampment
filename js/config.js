@@ -105,8 +105,8 @@ window.APP_CONFIG = {
     { id: "roster",       label: "Roster",       href: "pages/roster.html",       icon: "users" },
     { id: "inspections",  label: "Inspections",  href: "pages/inspections.html",  icon: "check" },
     { id: "observations", label: "Observations", href: "pages/observations.html", icon: "star" },
-    { id: "recommendations", label: "Awards", href: "pages/recommendations.html", icon: "award" },
     { id: "notes",        label: "Notes",        href: "pages/notes.html",        icon: "edit" },
+    { id: "recommendations", label: "Awards", href: "pages/recommendations.html", icon: "award" },
     { id: "announcements", label: "Announcements", href: "pages/announcements.html", icon: "file" },
     // Administrator-only: gated by the "admin" page token (server-enforced
     // too). Only positions granted "admin" in their StaffAccess Pages see it.

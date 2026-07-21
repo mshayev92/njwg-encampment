@@ -1876,17 +1876,38 @@ button.date-field__day:hover {
        still-painted/still-in-the-render-tree element can still cause a
        visible repaint blip right at the viewport edge when the layout
        recalculates (e.g., on rotation), even though nothing of it should
-       be on screen. */
+       be on screen.
+
+       No transition here on the base rule — see .nav-rail--animatable
+       below for why. Simply narrowing a desktop window across this
+       breakpoint jumps .nav-rail's computed transform straight from its
+       desktop value (none) to this rule's translateX(-100%); if a
+       transition were active for that jump, the rail would sit
+       on-screen — already repainted with THIS rule's light background —
+       for the whole transition duration before sliding out of view,
+       which is exactly the "flashes white, then becomes the hamburger"
+       bug this replaces. */
     background: var(--bg);
     transform: translateX(-100%);
     visibility: hidden;
-    transition: transform var(--duration-base) var(--ease-standard),
-                visibility 0s linear var(--duration-base);
   }
   html.mobile-nav-open .nav-rail {
     background: var(--indigo-950);
     transform: translateX(0);
     visibility: visible;
+  }
+  /* Adds the slide transition back, but ONLY once js/shell.js's
+     markNavRailAnimatable_ has added this class — which happens the
+     first time THIS breakpoint's own open/close is actually triggered
+     (tapping the hamburger, the backdrop, Escape, or a nav link), never
+     from a bare resize/rotation across the breakpoint. That keeps a
+     resize's implicit close instant (see the base rule's comment
+     above) while an explicit open/close still animates smoothly. */
+  .nav-rail--animatable {
+    transition: transform var(--duration-base) var(--ease-standard),
+                visibility 0s linear var(--duration-base);
+  }
+  html.mobile-nav-open .nav-rail--animatable {
     transition: transform var(--duration-base) var(--ease-standard);
   }
 

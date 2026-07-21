@@ -254,6 +254,17 @@
     }
     .obs-note-link:hover { text-decoration: underline; }
 
+    /* A hover-only tooltip is too easy to miss for something that
+       changes what a button actually does (the Custom note field
+       silently only ever logs Positive) — this stays as a plain,
+       always-visible line instead of the "ⓘ" tooltip treatment used
+       for the merely-informational Notes section below it. */
+    .obs-hint {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      margin: 0 0 var(--space-3);
+    }
+
     /* ---- Trends tab ---- */
     .obs-volume-grid {
       display: grid;
@@ -696,10 +707,8 @@
         ${OBSERVATION_CATEGORIES.map(chipsHtml).join("")}
 
         <div class="obs-category">
-          <div class="obs-category__label-row">
-            <div class="obs-category__label">Custom note</div>
-            <span class="obs-info-icon" tabindex="0" data-tooltip="Always logs as a Positive observation. For anything that isn't positive, use a Note instead.">ⓘ</span>
-          </div>
+          <div class="obs-category__label">Custom note</div>
+          <p class="obs-hint">Always logs as a <strong>Positive</strong> observation. For anything that isn't positive, use a Note instead.</p>
           <div class="obs-note-form">
             <textarea id="custom-note-input" aria-label="Custom observation note" placeholder="Anything that doesn't fit a preset tag…"></textarea>
             <button class="btn btn--primary" id="save-custom-note-btn">Log</button>
