@@ -2063,7 +2063,12 @@ button.date-field__day:hover {
    tighter desktop sizing while any finger-driven device gets ≥44px
    targets and zoom-proof 16px form fields. */
 @media (pointer: coarse) {
-  .btn { min-height: 44px; }
+  /* min-width alongside min-height so single-glyph action buttons
+     (✎ edit, ✕ delete, ⋮ menu — all .btn with tight inline padding)
+     are a full ~44px square touch target, not a 44px-tall but narrow
+     sliver. Text buttons are already wider than 44px, so this only
+     grows the icon-only ones. */
+  .btn { min-height: 44px; min-width: 44px; }
   .tabs__tab { min-height: 40px; }
   .nav-rail__link { min-height: 48px; }
   .dropdown__trigger,
