@@ -647,6 +647,13 @@ function isBlackFlagActive(row) {
  * Decides whether a write to Announcements / BlackFlagStatus warrants a
  * push, builds the payload, and fans it out in the background. Silent
  * no-op when push isn't configured or the sheet isn't a broadcast one.
+ *
+ * The frontend UI that used to WRITE BlackFlagStatus (Announcements'
+ * activate/deactivate toggle) was removed pending a future pass, so
+ * nothing currently calls the "write" action for this sheet — but this
+ * dispatch path itself is untouched and will fire correctly again the
+ * moment something does (a restored frontend control, a future admin
+ * tool, a direct API call).
  */
 function maybeDispatchPush(env, ctx, sheetName, rowData, action) {
   if (!env.VAPID_PUBLIC_KEY || !env.VAPID_PRIVATE_KEY) return;

@@ -328,20 +328,9 @@
       gap: var(--space-4);
     }
 
-    /* Black flag now lives inline in the weather card (Overview no
-       longer gets a separate full-width banner row — see js/shell.js'
-       renderBlackFlagBanner_) since weather/outdoor-activity impact is
-       exactly the context black flag status is most relevant to. */
-    .weather-card__blackflag {
-      background: #000;
-      color: #fff;
-      border-radius: var(--radius-md);
-      padding: var(--space-2) var(--space-3);
-      font-family: var(--font-display);
-      font-size: var(--fs-xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-    }
+    /* .weather-card__blackflag used to render an inline Black Flag
+       banner here — removed from the frontend pending a future pass
+       (see renderWeatherCard's comment below). */
 
     .weather-card__temp {
       font-family: var(--font-display);
@@ -552,25 +541,19 @@
     }
 
     /**
-     * Black flag now renders INLINE in the weather card (weather/outdoor-
-     * activity impact is exactly the context it's most relevant to)
-     * instead of Overview's old separate full-width banner row — see
-     * js/shell.js's renderBlackFlagBanner_, which used to own that
-     * banner on a completely independent load pipeline from the rest of
-     * this page. Gated behind the SAME "everything's ready" check as
-     * every other card here (see blackFlagLoaded below), so it settles
-     * in the same visual beat instead of popping in on its own.
+     * Black Flag used to render inline in this card (weather/outdoor-
+     * activity impact is exactly the context it's most relevant to), fed
+     * by a blackFlagStatus param and a BlackFlagStatus sheet read in
+     * load() below — removed from the frontend pending a future pass,
+     * along with the header pill and Overview's old separate full-width
+     * banner it replaced (see js/shell.js's Announcements-bell section
+     * comment). The BlackFlagStatus sheet and the Worker's support for
+     * it are untouched.
      */
-    function renderWeatherCard(weather, blackFlagStatus) {
-      const blackFlagActive = !!(blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true"));
-      const blackFlagHtml = blackFlagActive
-        ? `<div class="weather-card__blackflag">⚑ Black Flag — outdoor activity restricted</div>`
-        : "";
-
+    function renderWeatherCard(weather) {
       if (!weather || !weather.current) {
         return `
           <div class="card weather-card">
-            ${blackFlagHtml}
             <div class="weather-card__body">
               <div>
                 <div class="weather-card__location">${window.APP_CONFIG.WEATHER_LOCATION_NAME}</div>
@@ -585,7 +568,6 @@
       const humidityText = c.relativeHumidity !== null ? `Humidity ${Math.round(c.relativeHumidity)}% · ` : "";
       return `
         <div class="card weather-card">
-          ${blackFlagHtml}
           <div class="weather-card__body">
             <div class="weather-card__temp">${Math.round(c.temperatureF)}°F</div>
             <div>
@@ -1101,14 +1083,19 @@
 
     /**
      * "Observations This Week" — a chronological glance at what's
-     * actually been logged lately (scoped to allowed flights), plus a
-     * quick positive/concern count. The Observations page's own Trends
-     * tab already breaks this down per-student/per-flight — nowhere else
-     * shows a plain recent-activity feed across the whole scope, which
-     * is what makes this worth having here rather than a duplicate.
+     * actually been logged lately (scoped to allowed flights). The
+     * Observations page's own Trends tab already breaks this down per-
+     * student/per-flight — nowhere else shows a plain recent-activity
+     * feed across the whole scope, which is what makes this worth
+     * having here rather than a duplicate.
+     *
+     * Positive-only — Concern has been removed from this card pending a
+     * future pass (see pages/observations.html's matching comment on
+     * OBSERVATION_CATEGORIES). Filters observationRows, not the sheet
+     * itself, so nothing is lost — just not shown here.
      */
     function renderObservationsPulseCard(observationRows) {
-      const scoped = observationRows.filter(o => isFlightAllowed(o.Flight));
+      const scoped = observationRows.filter(o => isFlightAllowed(o.Flight) && String(o.Sentiment).toLowerCase() === "positive");
       if (!scoped.length) {
         return `
           <div class="card">
@@ -1119,8 +1106,6 @@
 
       const weekAgo = Date.now() - 7 * 86400000;
       const thisWeek = scoped.filter(o => new Date(o.Timestamp).getTime() >= weekAgo);
-      const positiveCount = thisWeek.filter(o => String(o.Sentiment).toLowerCase() === "positive").length;
-      const concernCount = thisWeek.length - positiveCount;
 
       const recent = [...scoped].sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)).slice(0, 4);
 
@@ -1128,16 +1113,14 @@
         <div class="card">
           <h2 class="card-title">Observations This Week</h2>
           <div style="display:flex; gap: var(--space-2); flex-wrap:wrap; margin-bottom: var(--space-4);">
-            <span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">${thisWeek.length} logged</span>
-            <span class="badge" style="background: var(--green-100); color: var(--green-600);">${positiveCount} positive</span>
-            <span class="badge" style="background: var(--amber-100); color: var(--amber-600);">${concernCount} concern</span>
+            <span class="badge" style="background: var(--green-100); color: var(--green-600);">${thisWeek.length} positive</span>
           </div>
           ${recent.map(o => `
             <div class="activity-row">
               <div class="activity-row__label">${esc(Shell.formatTime(o.Timestamp))}</div>
               <div>
                 <div class="activity-row__title">${esc(o.StudentName) || "—"}${o.Tag ? ` — ${esc(o.Tag)}` : ""}</div>
-                <div class="activity-row__meta">${esc(o.Flight) || "—"} · ${String(o.Sentiment).toLowerCase() === "positive" ? "Positive" : "Concern"}</div>
+                <div class="activity-row__meta">${esc(o.Flight) || "—"}</div>
               </div>
             </div>
           `).join("")}
@@ -1157,7 +1140,6 @@
     let lastAssessmentRows = null;
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
-    let lastBlackFlagStatus = null;
     let lastStandingsWeights = { ...DEFAULT_STANDINGS_WEIGHTS };
     // These come from independent sources (Api's sheet cache x8, a
     // direct National Weather Service API fetch) that used to each trigger their OWN
@@ -1176,11 +1158,10 @@
     let assessmentLoaded = false;
     let periodsLoaded = false;
     let observationsLoaded = false;
-    let blackFlagLoaded = false;
     let standingsWeightsLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !assessmentLoaded || !periodsLoaded || !observationsLoaded || !blackFlagLoaded || !standingsWeightsLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !assessmentLoaded || !periodsLoaded || !observationsLoaded || !standingsWeightsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -1188,7 +1169,7 @@
         <div class="overview-stack">
           ${renderWelcomeCard(lastWeather)}
           <div class="overview-grid">
-            ${renderWeatherCard(lastWeather, lastBlackFlagStatus)}
+            ${renderWeatherCard(lastWeather)}
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
@@ -1375,25 +1356,14 @@
         if (!observationsHadCache) renderAll();
       });
 
-      // Black flag status, now rendered inline in the weather card (see
-      // renderWeatherCard) instead of via Shell's old separate banner —
-      // reading it directly here means it's gated behind the SAME
-      // "everything's ready" check as the rest of this page.
-      const blackFlagHandle = Api.getSheetCached("BlackFlagStatus", (fresh) => {
-        lastBlackFlagStatus = (fresh.rows || [])[0] || null;
-        renderAll();
-      });
-      const blackFlagHadCache = !!blackFlagHandle.data;
-      if (blackFlagHandle.data) { lastBlackFlagStatus = (blackFlagHandle.data.rows || [])[0] || null; blackFlagLoaded = true; }
-      blackFlagHandle.ready.catch(() => { /* surfaced by the header pill on other pages if it matters */ }).finally(() => {
-        blackFlagLoaded = true;
-        // See the matching comment on Roster's ready.finally() above.
-        if (!blackFlagHadCache) renderAll();
-      });
+      // A BlackFlagStatus read used to live here too, feeding the inline
+      // weather-card banner (see renderWeatherCard's comment) — removed
+      // from the frontend pending a future pass. The sheet and the
+      // Worker's support for it are untouched.
 
-      // Flight Standings weights — a singleton row, same shape/pattern as
-      // BlackFlagStatus above. Missing/blank cells (a brand-new tab, or
-      // one an admin hasn't ever saved to) fall back to
+      // Flight Standings weights — a singleton row, same shape/pattern
+      // Black Flag's own read used to be. Missing/blank cells (a
+      // brand-new tab, or one an admin hasn't ever saved to) fall back to
       // DEFAULT_STANDINGS_WEIGHTS via weightsFromRow.
       const weightsHandle = Api.getSheetCached("FlightStandingsWeights", (fresh) => {
         lastStandingsWeights = weightsFromRow((fresh.rows || [])[0]);

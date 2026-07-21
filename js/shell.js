@@ -1,7 +1,7 @@
 /* ============================================================
    NJWG ENCAMPMENT — APP SHELL RENDERER
-   Builds the header, nav rail, black flag banner, and announcements
-   bell. Every page includes a skeleton like:
+   Builds the header, nav rail, and announcements bell. Every page
+   includes a skeleton like:
 
      <div class="app-shell">
        <nav class="nav-rail" id="nav-rail"></nav>
@@ -88,11 +88,14 @@ const Shell = (() => {
   const NAV_COLLAPSED_KEY = "njwg_nav_collapsed";
   // Tracks what THIS position already knows about, independent of the
   // "last seen" bell/notifications timestamp above — used only to detect
-  // a genuinely NEW announcement/black-flag/note-to-me since the last
-  // poll (on any page), so the blocking alert popup fires once per new
-  // arrival instead of replaying the whole backlog on every page load.
+  // a genuinely NEW announcement/note-to-me since the last poll (on any
+  // page), so the blocking alert popup fires once per new arrival
+  // instead of replaying the whole backlog on every page load. (A third
+  // key here used to track Black Flag's own "signature" the same way,
+  // backing a checkBlackFlagChange_ function right after
+  // checkNewAnnouncements_ below — both removed from the frontend
+  // pending a future pass.)
   const LAST_KNOWN_ANNOUNCEMENT_TS_KEY_PREFIX = "njwg_last_known_announcement_ts_";
-  const LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY_PREFIX = "njwg_last_known_blackflag_signature_";
   const LAST_KNOWN_NOTE_TS_KEY_PREFIX = "njwg_last_known_note_ts_";
 
   function positionScopedKey_(prefix) {
@@ -156,9 +159,9 @@ const Shell = (() => {
     return `${days}d ago`;
   }
 
-  // Set once by init() — lets the black flag banner/pill logic (and
-  // anything else that cares) know which page is currently showing
-  // without threading the value through every function signature.
+  // Set once by init() — lets nav rendering (and anything else that
+  // cares) know which page is currently showing without threading the
+  // value through every function signature.
   let activePage_ = null;
 
   /** Returns the list of NAV_ITEMS ids this session is allowed to see. */
@@ -182,13 +185,12 @@ const Shell = (() => {
    * back to the full PREFETCH_SHEETS if PAGE_SHEETS isn't configured, so
    * nothing regresses.
    *
-   * Deliberately does NOT seed GLOBAL_SHEETS (Announcements/
-   * BlackFlagStatus/Notes) — those are already kept warm independently by
-   * loadGlobalAlerts_'s own poll (see Shell.init), on every page
-   * regardless of access. Seeding them here too used to mean the same
-   * three sheets were fetched twice on overlapping schedules: once via
-   * this function's batchRead warm, once via loadGlobalAlerts_'s
-   * individual reads.
+   * Deliberately does NOT seed GLOBAL_SHEETS (Announcements/Notes) —
+   * those are already kept warm independently by loadGlobalAlerts_'s own
+   * poll (see Shell.init), on every page regardless of access. Seeding
+   * them here too used to mean the same sheets were fetched twice on
+   * overlapping schedules: once via this function's batchRead warm, once
+   * via loadGlobalAlerts_'s individual reads.
    */
   function accessiblePrefetchSheets_() {
     const cfg = window.APP_CONFIG || {};
@@ -399,7 +401,6 @@ const Shell = (() => {
       <h1 class="app-header__title">${title}</h1>
       <div class="app-header__user">
         ${session ? `
-          <span id="black-flag-pill" class="black-flag-pill" style="display:none;">⚑ Black Flag</span>
           <span id="sync-indicator" class="sync-indicator sync-indicator--synced" data-tooltip="Data updated: just now">
             <span class="sync-indicator__dot"></span>
             <span id="sync-indicator__label">Synced</span>
@@ -440,10 +441,10 @@ const Shell = (() => {
             <div class="profile-menu" id="profile-menu" hidden>
               <!-- Empty (and hidden via CSS :empty) except in mobile
                    portrait, where relocateHeaderPillsForViewport_ below
-                   moves the black flag pill/sync indicator/search/theme/
-                   notifications out of .app-header__user and in here, so
-                   the always-visible header row stays just the nav
-                   toggle, the page title, and this profile tab. -->
+                   moves the sync indicator/search/theme/notifications out
+                   of .app-header__user and in here, so the always-visible
+                   header row stays just the nav toggle, the page title,
+                   and this profile tab. -->
               <div class="profile-menu__quick-row" id="profile-menu-quick-row"></div>
               <button class="profile-menu__item" id="hard-refresh-btn" data-tooltip="Refresh all data now">
                 <span class="spinner spinner--sm btn__spinner" id="hard-refresh-spinner" style="display:none;"></span>
@@ -480,8 +481,8 @@ const Shell = (() => {
     if (bellBtn) {
       // Always opens the popover now, rather than navigating to the
       // Announcements page when one exists — the popover is a merged
-      // feed (Announcements + Black Flag + Notes sent to me), which the
-      // standalone Announcements page doesn't show.
+      // feed (Announcements + Notes sent to me), which the standalone
+      // Announcements page doesn't show.
       bellBtn.addEventListener("click", () => {
         markAnnouncementsSeen_();
         toggleAnnouncementsPopover_();
@@ -556,8 +557,7 @@ const Shell = (() => {
   // ---- Profile menu (top-right — replaces the old nav-rail "signed in
   // as" footer card). Holds Refresh/Export/Install/Enable-alerts/Log out
   // behind the position-name button so the always-visible header row
-  // stays just the black flag pill, sync indicator, search, and
-  // notifications bell. ----
+  // stays just the sync indicator, search, and notifications bell. ----
 
   let profileMenuOutsideHandler_ = null;
   let profileMenuKeyHandler_ = null;
@@ -610,18 +610,18 @@ const Shell = (() => {
   // query in css/app.css, which also catches a landscape phone by its
   // short height rather than orientation) — the header keeps only the
   // nav toggle, the page title, and the profile tab on one row; the
-  // black flag pill, sync indicator, search, theme, and notifications
-  // live in the profile dropdown instead of their own always-visible
-  // row. Everywhere else (desktop, tablet) they stay right where
-  // they've always been, in .app-header__user next to the profile tab.
-  // Rather than rendering two copies (duplicate ids/listeners), the SAME
+  // sync indicator, search, theme, and notifications live in the
+  // profile dropdown instead of their own always-visible row.
+  // Everywhere else (desktop, tablet) they stay right where they've
+  // always been, in .app-header__user next to the profile tab. Rather
+  // than rendering two copies (duplicate ids/listeners), the SAME
   // elements are moved between the two containers with plain DOM
   // appendChild — cheap, and every element keeps its own event listeners
   // and popover positioning logic (the notifications popover and theme
   // menu both work out wherever their trigger currently sits on screen)
   // with no extra code.
   const MOBILE_PORTRAIT_QUERY = "(max-width: 720px), (max-width: 1024px) and (orientation: portrait), (max-width: 1024px) and (max-height: 500px)";
-  const HEADER_QUICK_ROW_IDS = ["black-flag-pill", "sync-indicator", "global-search-btn", "theme-menu-wrap", "announcements-bell-btn"];
+  const HEADER_QUICK_ROW_IDS = ["sync-indicator", "global-search-btn", "theme-menu-wrap", "announcements-bell-btn"];
   let mobilePortraitMql_ = null;
 
   function relocateHeaderPillsForViewport_() {
@@ -634,8 +634,8 @@ const Shell = (() => {
     const target = isMobilePortrait ? quickRow : userCluster;
     // Re-insert each element right before the profile tab when it's
     // headed back to .app-header__user, preserving the original
-    // black-flag/sync/search/theme/bell -> profile-tab order — appendChild
-    // alone would append after profile-menu-wrap instead.
+    // sync/search/theme/bell -> profile-tab order — appendChild alone
+    // would append after profile-menu-wrap instead.
     HEADER_QUICK_ROW_IDS.forEach((id) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1559,11 +1559,17 @@ const Shell = (() => {
 
   // ---- Web Push (opt-in per device) -------------------------------------
   //
-  // Real Web Push so a staff device gets a New Announcement / Black Flag
-  // alert even when the app is closed or backgrounded (the in-app alert
-  // modal only fires while a page is open). Entirely optional and
-  // gracefully absent when the backend has no VAPID keys configured —
-  // pushConfig reports enabled:false and the enable button stays hidden.
+  // Real Web Push so a staff device gets a New Announcement alert even
+  // when the app is closed or backgrounded (the in-app alert modal only
+  // fires while a page is open). Entirely optional and gracefully
+  // absent when the backend has no VAPID keys configured — pushConfig
+  // reports enabled:false and the enable button stays hidden.
+  //
+  // The Worker (worker/src/index.js's maybeDispatchPush) can still fan
+  // out a Black Flag push too — that side is untouched — it's just that
+  // nothing in the frontend triggers a BlackFlagStatus write anymore
+  // pending a future pass (see the comment on the Announcements-bell
+  // section above).
 
   function urlBase64ToUint8Array_(base64String) {
     const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
@@ -1969,25 +1975,15 @@ const Shell = (() => {
     return { current, next };
   }
 
-  // ---- Black flag banner + announcements bell (global, every page) ----
-
-  /**
-   * Every page except Overview shows a compact pill in the header (see
-   * #black-flag-pill in renderHeader). Overview used to get its own
-   * full-width banner instead, rendered here independently of the
-   * page's own content — but that ran on a totally separate pipeline
-   * from Overview's own Roster/Schedule/weather loads, so it could pop
-   * in before or after the rest of the page finished assembling.
-   * Overview now renders the black flag status itself, inline in its
-   * weather card, gated behind the SAME "everything's ready" check as
-   * the rest of that page (see pages/overview.html) — so it no longer
-   * needs a banner (or pill) from here at all.
-   */
-  function renderBlackFlagBanner_(status) {
-    const active = !!(status && (status.Active === true || status.Active === "TRUE" || status.Active === "true"));
-    const pill = document.getElementById("black-flag-pill");
-    if (pill) pill.style.display = (active && activePage_ !== "overview") ? "inline-flex" : "none";
-  }
+  // ---- Announcements bell (global, every page) ----
+  //
+  // Black Flag used to have both a compact header pill (rendered here)
+  // and its own Overview weather-card banner — both removed from the
+  // frontend pending a future pass (see the comment on
+  // OBSERVATION_CATEGORIES in pages/observations.html for the sibling
+  // removal this shipped alongside). The BlackFlagStatus sheet and the
+  // Worker's read/write/push support for it (worker/src/index.js,
+  // worker/src/auth.js) are untouched.
 
   function getAnnouncementsLastSeen_() {
     return Number(localStorage.getItem(positionScopedKey_(ANNOUNCEMENTS_SEEN_KEY_PREFIX)) || 0);
@@ -2001,16 +1997,20 @@ const Shell = (() => {
 
   // ---- Notifications feed (bell popover) ----
   //
-  // Merges three otherwise-separate sources — Announcements, the
-  // current Black Flag status, and Notes addressed to me — into one
-  // reverse-chronological feed and one unseen-count badge, so "check
-  // what's new" is one place instead of three. Kept up to date by
-  // loadGlobalAlerts_'s three subscriptions below; the popover (see
-  // toggleAnnouncementsPopover_) reads from these same cached arrays
-  // instead of re-fetching.
+  // Merges two otherwise-separate sources — Announcements and Notes
+  // addressed to me — into one reverse-chronological feed and one
+  // unseen-count badge, so "check what's new" is one place instead of
+  // two. Kept up to date by loadGlobalAlerts_'s subscriptions below; the
+  // popover (see toggleAnnouncementsPopover_) reads from these same
+  // cached arrays instead of re-fetching.
+  //
+  // Black Flag used to be a third source here (a single-row "current
+  // status" entry, since BlackFlagStatus has no history of past toggles
+  // to feed a real log the way Announcements/Notes do) — removed from
+  // the frontend pending a future pass; see the comment on
+  // getAnnouncementsLastSeen_'s section above.
 
   let lastAnnouncementRows_ = [];
-  let lastBlackFlagStatus_ = null;
   let lastNotesToMeRows_ = [];
 
   function notesToMe_(notes) {
@@ -2033,25 +2033,9 @@ const Shell = (() => {
       title: `Note from ${n.AuthorPosition || "Staff"}`,
       body: n.Subject || messagePreviewText_(n.Body || "")
     }));
-    if (lastBlackFlagStatus_) {
-      const active = isBlackFlagActiveClient_(lastBlackFlagStatus_);
-      // Black Flag has no history of past toggles, only the CURRENT
-      // status — so this can only ever contribute its one latest
-      // change, not a full log of every activation/lift like the other
-      // two sources have.
-      entries.push({
-        type: "blackflag", icon: "⚑", timestamp: lastBlackFlagStatus_.UpdatedAt,
-        title: active ? "Black Flag Activated" : "Black Flag Lifted",
-        body: active ? "Outdoor activity is restricted." : `Restrictions lifted${lastBlackFlagStatus_.UpdatedBy ? ` by ${lastBlackFlagStatus_.UpdatedBy}` : ""}.`
-      });
-    }
     return entries
       .filter(e => e.timestamp && !isNaN(new Date(e.timestamp).getTime()))
       .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-  }
-
-  function isBlackFlagActiveClient_(status) {
-    return !!(status.Active === true || status.Active === "TRUE" || status.Active === "true" || status.Active === "1" || status.Active === 1);
   }
 
   function updateAnnouncementsBadge_() {
@@ -2163,9 +2147,8 @@ const Shell = (() => {
 
   /**
    * Opens (or, if already open, closes) the Notifications popover — a
-   * merged, reverse-chronological feed of Announcements, the current
-   * Black Flag status, and Notes sent to me (see
-   * mergedNotificationEntries_). Reads from the SAME cached arrays
+   * merged, reverse-chronological feed of Announcements and Notes sent
+   * to me (see mergedNotificationEntries_). Reads from the SAME cached arrays
    * loadGlobalAlerts_ already keeps warm (Shell.init calls it on every
    * page), rather than re-fetching, so this renders instantly. Closes
    * on its own × button, an outside click, or Escape.
@@ -2192,9 +2175,8 @@ const Shell = (() => {
 
     // Anchor to the bell button's actual on-screen position rather than
     // a fixed top offset — the header's height varies (wraps on narrow
-    // widths, grows when the black-flag pill is showing), and a fixed
-    // offset was overlapping the header buttons instead of sitting
-    // below them.
+    // widths), and a fixed offset was overlapping the header buttons
+    // instead of sitting below them.
     const bellBtnForPosition = document.getElementById("announcements-bell-btn");
     if (bellBtnForPosition) {
       const rect = bellBtnForPosition.getBoundingClientRect();
@@ -2239,14 +2221,6 @@ const Shell = (() => {
       refreshOpenNotificationsPopover_();
       checkNewAnnouncements_(lastAnnouncementRows_);
     });
-    const blackFlagCache = Api.getSheetCached("BlackFlagStatus", (data) => {
-      const status = (data.rows || [])[0] || null;
-      lastBlackFlagStatus_ = status;
-      renderBlackFlagBanner_(status);
-      updateAnnouncementsBadge_();
-      refreshOpenNotificationsPopover_();
-      checkBlackFlagChange_(status);
-    });
     const notesCache = Api.getSheetCached("Notes", (data) => {
       const rows = data.rows || [];
       updateNotesBadge_(rows);
@@ -2260,12 +2234,6 @@ const Shell = (() => {
       lastAnnouncementRows_ = announcementsCache.data.rows || [];
       checkNewAnnouncements_(lastAnnouncementRows_);
     }
-    if (blackFlagCache.data) {
-      const status = (blackFlagCache.data.rows || [])[0] || null;
-      lastBlackFlagStatus_ = status;
-      renderBlackFlagBanner_(status);
-      checkBlackFlagChange_(status);
-    }
     if (notesCache.data) {
       const rows = notesCache.data.rows || [];
       updateNotesBadge_(rows);
@@ -2277,7 +2245,7 @@ const Shell = (() => {
     // Always let the background fetches land too, even with no cache —
     // this covers the very first load, where getSheetCached() returned
     // null data but still kicked off the real request via `ready`.
-    return Promise.all([announcementsCache.ready, blackFlagCache.ready, notesCache.ready]).catch(() => {});
+    return Promise.all([announcementsCache.ready, notesCache.ready]).catch(() => {});
   }
 
   // Matches the two generic connectivity error messages js/api.js throws
@@ -3061,16 +3029,15 @@ const Shell = (() => {
     overlay.querySelector(".modal-card").scrollTop = 0;
   }
 
-  // ---- Blocking "new alert" popup (announcements / black flag) ---------
+  // ---- Blocking "new alert" popup (announcements) -----------------------
 
   let alertModalQueue_ = [];
   let alertModalShowing_ = false;
 
   /**
    * Full-screen, blurred, non-dismissible-except-by-button popup for a
-   * genuinely NEW announcement or black flag change (see
-   * checkNewAnnouncements_/checkBlackFlagChange_ below) — deliberately
-   * has no outside-click or Escape close, unlike Shell.confirm(), since
+   * genuinely NEW announcement (see checkNewAnnouncements_ below) —
+   * deliberately has no outside-click or Escape close, unlike Shell.confirm(), since
    * this needs a deliberate acknowledgment. Multiple alerts queue and
    * show one at a time rather than stacking.
    */
@@ -3154,32 +3121,13 @@ const Shell = (() => {
     if (maxTs !== lastKnownTs || isFirstRun) localStorage.setItem(key, String(maxTs));
   }
 
-  /**
-   * Same idea as checkNewAnnouncements_ but for BlackFlagStatus, which
-   * is a single row rather than a growing list — a "signature" of
-   * Active+UpdatedAt is what changing means a new alert-worthy change
-   * happened (either direction: activated or lifted).
-   */
-  function checkBlackFlagChange_(status) {
-    if (!status) return;
-    const active = isBlackFlagActiveClient_(status);
-    const signature = `${active}|${status.UpdatedAt || ""}`;
-    const key = positionScopedKey_(LAST_KNOWN_BLACKFLAG_SIGNATURE_KEY_PREFIX);
-    const lastSignature = localStorage.getItem(key);
-    const isFirstRun = lastSignature === null;
-
-    if (!isFirstRun && lastSignature !== signature) {
-      enqueueAlertModal_({
-        icon: "⚑",
-        danger: active,
-        title: active ? "Black Flag Activated" : "Black Flag Lifted",
-        bodyHtml: active
-          ? "Outdoor activity is now restricted."
-          : `Outdoor activity restrictions have been lifted${status.UpdatedBy ? ` (by ${escapeHtml_(status.UpdatedBy)})` : ""}.`
-      });
-    }
-    localStorage.setItem(key, signature);
-  }
+  // A checkBlackFlagChange_ function used to live here — same idea as
+  // checkNewAnnouncements_ above, but for BlackFlagStatus (a single row
+  // rather than a growing list, so it compared an Active+UpdatedAt
+  // "signature" instead of a timestamp) — removed from the frontend
+  // pending a future pass. The BlackFlagStatus sheet and the Worker's
+  // support for it are untouched; see the comment on the Announcements-
+  // bell section above.
 
   /** Same idea again, for Notes addressed directly to this position. `rows` is already pre-filtered to just those (see notesToMe_). */
   function checkNewNotes_(rows) {

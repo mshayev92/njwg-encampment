@@ -47,53 +47,12 @@
   <link rel="stylesheet" href="../css/app.css">
 
   <style>
-    .black-flag-card {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: var(--space-4);
-      padding: var(--space-5);
-      background: var(--surface);
-      border: 1px solid var(--line);
-      border-radius: var(--radius-lg);
-      margin-bottom: var(--space-5);
-    }
-
-    .black-flag-card__label {
-      font-family: var(--font-display);
-      font-size: var(--fs-md);
-      color: var(--heading);
-    }
-
-    .black-flag-card__status {
-      font-size: var(--fs-xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      color: var(--ink-600);
-      margin-top: var(--space-1);
-    }
-
-    .flag-toggle-btn {
-      padding: var(--space-3) var(--space-5);
-      border-radius: var(--radius-md);
-      border: none;
-      font-weight: 700;
-      font-family: var(--font-display);
-      cursor: pointer;
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-    }
-
-    .flag-toggle-btn--activate {
-      background: #000;
-      color: #fff;
-    }
-
-    .flag-toggle-btn--deactivate {
-      background: var(--surface-sunken);
-      color: var(--ink-900);
-      border: 1px solid var(--line);
-    }
+    /* The Black Flag toggle card that used to live here
+       (.black-flag-card / .flag-toggle-btn*, backed by a
+       renderBlackFlagCard/toggleBlackFlag pair further down this file)
+       was removed from the frontend pending a future pass. The
+       BlackFlagStatus sheet and the Worker's read/write support for it
+       (worker/src/index.js, worker/src/auth.js) are untouched. */
 
     .richtext-editor {
       width: 100%;
@@ -201,33 +160,16 @@
     const session = Auth.getSession();
     const esc = Shell.escapeHtml;
 
-    // Posting/toggling black flag requires "announcements" in this
-    // position's own Pages — since this page itself is gated by
-    // "announcements" via Shell.requirePageAccess, reaching this page
-    // at all already implies write access. Kept as an explicit check
-    // here too since Code.gs is the real enforcement point regardless.
+    // Posting requires "announcements" in this position's own Pages —
+    // since this page itself is gated by "announcements" via
+    // Shell.requirePageAccess, reaching this page at all already implies
+    // write access. Kept as an explicit check here too since the Worker
+    // is the real enforcement point regardless. (This used to also gate
+    // toggling Black Flag — see the CSS comment above for that removal.)
     const canPost = (session.Pages || []).map(p => String(p).toLowerCase()).includes("announcements");
 
-    let blackFlagStatus = null;
     let announcements = [];
     let editingAnnouncementId = null; // Id of the announcement being edited, or null when posting a new one
-
-    function renderBlackFlagCard() {
-      const active = blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true");
-      return `
-        <div class="black-flag-card">
-          <div>
-            <div class="black-flag-card__label">⚑ Black Flag</div>
-            <div class="black-flag-card__status">${active ? "Currently ACTIVE" : "Currently inactive"}${blackFlagStatus && blackFlagStatus.UpdatedBy ? ` · last set by ${esc(blackFlagStatus.UpdatedBy)}` : ""}</div>
-          </div>
-          ${canPost ? `
-            <button class="flag-toggle-btn ${active ? "flag-toggle-btn--deactivate" : "flag-toggle-btn--activate"}" id="toggle-flag-btn">
-              ${active ? "Deactivate" : "Activate"}
-            </button>
-          ` : ""}
-        </div>
-      `;
-    }
 
     function renderPostForm() {
       if (!canPost) return "";
@@ -271,14 +213,10 @@
 
     function render() {
       contentEl.innerHTML = `
-        ${renderBlackFlagCard()}
         ${!canPost ? `<div class="read-only-notice">Your position can view announcements but not post them.</div>` : ""}
         ${renderPostForm()}
         ${renderFeed()}
       `;
-
-      const toggleBtn = document.getElementById("toggle-flag-btn");
-      if (toggleBtn) toggleBtn.addEventListener("click", toggleBlackFlag);
 
       const postBtn = document.getElementById("post-btn");
       if (postBtn) postBtn.addEventListener("click", postAnnouncement);
@@ -310,35 +248,12 @@
       render();
     }
 
-    /**
-     * Updates local state and re-renders immediately rather than
-     * re-fetching from the server — Api.writeRow() is optimistic (it
-     * resolves before the real network write actually lands), so a
-     * re-fetch right after it can race the write and read back the OLD
-     * data, making the sync pill flip to "Synced" while nothing visibly
-     * changed. Matches the pattern roster.html/schedule.html already
-     * use for the same reason.
-     */
-    function toggleBlackFlag() {
-      const active = blackFlagStatus && (blackFlagStatus.Active === true || blackFlagStatus.Active === "TRUE" || blackFlagStatus.Active === "true");
-
-      const newStatus = {
-        RecordKey: "singleton",
-        Active: !active,
-        UpdatedBy: session.Position,
-        UpdatedAt: new Date().toISOString()
-      };
-
-      // Optimistic: flip local state and re-render instantly; the real
-      // write fires in the background and the header's sync indicator
-      // reflects whether it lands. Api.writeRow resolves before the network
-      // write returns, so there's no background failure to await/catch.
-      Api.writeRow("BlackFlagStatus", newStatus, { matchColumn: "RecordKey" });
-      blackFlagStatus = newStatus;
-      Api.setCachedRows("BlackFlagStatus", [newStatus]);
-      render();
-      Shell.refreshGlobalAlerts();
-    }
+    // A toggleBlackFlag function used to live here, writing an optimistic
+    // Active/UpdatedBy/UpdatedAt row to BlackFlagStatus (matched on
+    // RecordKey) the same way roster.html/schedule.html write other
+    // singleton-ish rows — removed from the frontend pending a future
+    // pass. The sheet and the Worker's write support for it
+    // (worker/src/index.js, worker/src/auth.js) are untouched.
 
     function postAnnouncement() {
       const editor = document.getElementById("message-input");
@@ -410,10 +325,9 @@
     }
 
     let announcementsLoaded = false;
-    let blackFlagLoaded = false;
 
     function renderIfReady() {
-      if (!announcementsLoaded || !blackFlagLoaded) {
+      if (!announcementsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
         return;
       }
@@ -423,10 +337,9 @@
     /**
      * Renders instantly from the persisted cache (see js/api.js) if
      * present, then always awaits the real network round-trip before
-     * resolving — callers that just performed a write (toggleBlackFlag,
-     * postAnnouncement) rely on `await load()` reflecting the true
-     * server state, not just whatever was cached from before their
-     * write landed.
+     * resolving — a caller that just performed a write (postAnnouncement)
+     * relies on `await load()` reflecting the true server state, not
+     * just whatever was cached from before its write landed.
      */
     async function load() {
       if (!navigator.onLine) {
@@ -442,20 +355,14 @@
         announcementsLoaded = true;
         renderIfReady();
       });
-      const f = Api.getSheetCached("BlackFlagStatus", (fresh) => {
-        blackFlagStatus = (fresh.rows || [])[0] || null;
-        blackFlagLoaded = true;
-        renderIfReady();
-      });
 
       if (a.data) { announcements = a.data.rows || []; announcementsLoaded = true; }
-      if (f.data) { blackFlagStatus = (f.data.rows || [])[0] || null; blackFlagLoaded = true; }
       renderIfReady();
 
       try {
-        await Promise.all([a.ready, f.ready]);
+        await a.ready;
       } catch (err) {
-        if (!announcementsLoaded || !blackFlagLoaded) {
+        if (!announcementsLoaded) {
           contentEl.innerHTML = `
             <div class="state-message">
               <div class="state-message__icon">⚠️</div>

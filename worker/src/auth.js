@@ -172,6 +172,15 @@ export const ANNOUNCEMENT_COLUMNS = ["Id", "Timestamp", "Position", "Message"];
 // maybeMarkNoteSeen_ in pages/notes.html) — lets the AUTHOR see whether a
 // directed note has actually been opened, not just delivered.
 export const NOTES_COLUMNS = ["Id", "Timestamp", "AuthorPosition", "Subject", "Flight", "Body", "ToPosition", "SeenAt"];
+// The Black Flag UI (Overview's weather-card banner, the header pill,
+// Announcements' activate/deactivate toggle, the notification-feed
+// entry) was removed from the frontend pending a future pass — see the
+// comment on the Announcements-bell section in js/shell.js. This sheet,
+// its read/write permissions below, ensureAutoCreatedTab's BlackFlagStatus
+// branch and the push-notification dispatch for it in index.js are all
+// untouched: an existing Active row is preserved, and a write made any
+// other way (directly in the Sheet, a future admin tool) still works and
+// still fans out a push exactly as before.
 export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedAt"];
 // Singleton row (RecordKey "singleton", same convention as
 // BlackFlagStatus above) holding the weights pages/overview.html's
@@ -198,6 +207,13 @@ export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room",
 // "general" entry. Sentiment is "positive" | "concern" — deliberately
 // binary, not a 1-5 scale, so two different raters logging the same
 // moment are far less likely to disagree.
+//
+// The frontend (pages/observations.html, pages/overview.html) currently
+// only logs/shows "positive" — Concern's tag presets, sentiment toggle,
+// and counts/badges were removed from the UI pending a future pass. This
+// column, its "concern" value, and every read/write path here are
+// untouched: existing Concern rows are preserved (just not surfaced),
+// and nothing stops a future frontend pass from writing "concern" again.
 export const OBSERVATION_COLUMNS = [
   "Id", "StudentCapId", "StudentName", "Flight",
   "LoggerPosition", "Timestamp",

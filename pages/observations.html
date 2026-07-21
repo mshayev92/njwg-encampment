@@ -170,8 +170,6 @@
     .obs-chip:active { transform: scale(0.95); }
     .obs-chip--positive { border-color: var(--green-600); color: var(--green-600); }
     .obs-chip--positive:hover { background: var(--green-100); }
-    .obs-chip--concern { border-color: var(--amber-600); color: var(--amber-600); }
-    .obs-chip--concern:hover { background: var(--amber-100); }
     .obs-chip[disabled] { opacity: 0.5; cursor: default; transform: none; }
 
     /* Brief confirmation pop on whichever chip was just tapped. */
@@ -199,19 +197,6 @@
       background: var(--surface);
       resize: vertical;
     }
-    .obs-sentiment-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: var(--radius-md); overflow: hidden; flex-shrink: 0; }
-    .obs-sentiment-toggle button {
-      padding: var(--space-2) var(--space-3);
-      font-size: var(--fs-xs);
-      font-weight: 600;
-      border: none;
-      background: var(--surface);
-      color: var(--ink-600);
-      cursor: pointer;
-    }
-    .obs-sentiment-toggle button.is-selected.sentiment-positive { background: var(--green-100); color: var(--green-600); }
-    .obs-sentiment-toggle button.is-selected.sentiment-concern { background: var(--amber-100); color: var(--amber-600); }
-
     /* ---- Recent observations list ---- */
     .obs-history-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-3); }
     .obs-history-row {
@@ -228,16 +213,6 @@
     .obs-history-row__tag { font-size: var(--fs-sm); color: var(--ink-900); font-weight: 600; }
     .obs-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); }
     .obs-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
-    .obs-history-row__sentiment {
-      flex-shrink: 0;
-      font-size: var(--fs-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      padding: var(--space-1) var(--space-2);
-      border-radius: 999px;
-    }
-    .obs-history-row__sentiment--positive { background: var(--green-100); color: var(--green-600); }
-    .obs-history-row__sentiment--concern { background: var(--amber-100); color: var(--amber-600); }
     .obs-history-row__delete {
       flex-shrink: 0;
       background: none;
@@ -356,35 +331,35 @@
     const loggerPosition = (session && (session.Position || session.position)) || "Staff";
 
     /**
-     * The preset tag vocabulary. Deliberately small and binary
-     * (positive/concern, not a 1-5 scale) so a quick tap in the middle
-     * of running an activity is enough — see the "one tap" logging flow
-     * this page is built around, discussed with the user before
-     * building this: staff can't be stuck in a tablet while leading, so
-     * capturing an observation has to cost under 2 seconds, and two
-     * different raters logging the same moment need to land on
-     * basically the same tag rather than two different points on a
-     * finer scale.
+     * The preset tag vocabulary. Deliberately small (not a 1-5 scale) so
+     * a quick tap in the middle of running an activity is enough — see
+     * the "one tap" logging flow this page is built around, discussed
+     * with the user before building this: staff can't be stuck in a
+     * tablet while leading, so capturing an observation has to cost
+     * under 2 seconds, and two different raters logging the same moment
+     * need to land on basically the same tag rather than two different
+     * points on a finer scale.
+     *
+     * Positive-only for now — the Concern side of this (tag presets, the
+     * sentiment toggle, Concern counts/badges) has been removed from the
+     * UI pending a future pass; each category object used to also carry
+     * a `concern` array here. The Sentiment column and "concern" value
+     * are untouched in the Observations sheet and the Worker (see
+     * worker/src/index.js) — only this page's presentation of it changed.
      */
     const OBSERVATION_CATEGORIES = [
       { key: "leadership", label: "Leadership",
-        positive: ["Stepped up to lead", "Gave clear direction", "Mentored a peer"],
-        concern: ["Avoided leading when asked"] },
+        positive: ["Stepped up to lead", "Gave clear direction", "Mentored a peer"] },
       { key: "followership", label: "Followership",
-        positive: ["Followed instructions immediately", "Respectful to staff"],
-        concern: ["Needed repeated reminders", "Pushed back on instructions"] },
+        positive: ["Followed instructions immediately", "Respectful to staff"] },
       { key: "teamwork", label: "Teamwork",
-        positive: ["Helped a struggling peer", "Encouraged the flight"],
-        concern: ["Friction with peers", "Isolated from the group"] },
+        positive: ["Helped a struggling peer", "Encouraged the flight"] },
       { key: "bearing", label: "Bearing & Attitude",
-        positive: ["Bearing under stress", "Positive despite adversity"],
-        concern: ["Visible frustration", "Difficulty regulating emotion"] },
+        positive: ["Bearing under stress", "Positive despite adversity"] },
       { key: "initiative", label: "Initiative",
-        positive: ["Took initiative unprompted", "Volunteered for a task"],
-        concern: ["Needed prompting to start"] },
+        positive: ["Took initiative unprompted", "Volunteered for a task"] },
       { key: "effort", label: "Effort",
-        positive: ["Gave full effort", "Pushed through a tough moment"],
-        concern: ["Minimal effort/participation"] }
+        positive: ["Gave full effort", "Pushed through a tough moment"] }
     ];
     const CATEGORY_LABELS = Object.fromEntries(OBSERVATION_CATEGORIES.map(c => [c.key, c.label]));
 
@@ -433,17 +408,27 @@
     let currentTab = "log"; // "log" | "trends"
     let currentView = "flights"; // "flights" | "students" | "detail" — only meaningful while currentTab === "log"
 
+    function isPositive(o) { return String(o.Sentiment).toLowerCase() === "positive"; }
+
+    /**
+     * Every display on this page (student history, counts, Trends) reads
+     * through here, so filtering to Positive-only in this ONE place is
+     * what keeps Concern entries out of the UI everywhere at once. This
+     * is a presentation filter only — observationRows itself (and the
+     * Observations sheet behind it) still holds every Concern row that
+     * exists; nothing here writes back a trimmed set, so no data is
+     * dropped, just not rendered. See the OBSERVATION_CATEGORIES comment
+     * above for the rest of this pass' scope.
+     */
     function observationsByStudent() {
       const map = {};
-      observationRows.forEach(o => {
+      observationRows.filter(isPositive).forEach(o => {
         const key = String(o.StudentCapId);
         (map[key] = map[key] || []).push(o);
       });
       Object.values(map).forEach(list => list.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)));
       return map;
     }
-
-    function isPositive(o) { return String(o.Sentiment).toLowerCase() === "positive"; }
 
     // ---- Log tab: flight grid -> student list -> student detail ----------
 
@@ -606,14 +591,14 @@
           <div class="obs-chip-row">
             ${category.positive.map(tag => `<button type="button" class="obs-chip obs-chip--positive" data-sentiment="positive" data-tag="${esc(tag)}">✓ ${esc(tag)}</button>`).join("")}
           </div>
-          <div class="obs-chip-row">
-            ${category.concern.map(tag => `<button type="button" class="obs-chip obs-chip--concern" data-sentiment="concern" data-tag="${esc(tag)}">⚠ ${esc(tag)}</button>`).join("")}
-          </div>
         </div>`;
     }
 
+    // No sentiment pill here anymore — every row this renders is already
+    // Positive (observationsByStudent filters to that), so a per-row
+    // badge repeating that fact on every single card was redundant once
+    // Concern (the thing it used to distinguish from) left the UI.
     function historyRowHtml(o) {
-      const positive = isPositive(o);
       return `
         <div class="obs-history-row" data-id="${esc(o.Id)}">
           <div class="obs-history-row__body">
@@ -621,7 +606,6 @@
             ${o.Note ? `<div class="obs-history-row__note">${esc(o.Note)}</div>` : ""}
             <div class="obs-history-row__meta">${esc(CATEGORY_LABELS[o.Category] || "General")} · ${esc(Shell.formatDateTime(o.Timestamp))} · ${esc(o.LoggerPosition) || "—"}</div>
           </div>
-          <span class="obs-history-row__sentiment obs-history-row__sentiment--${positive ? "positive" : "concern"}">${positive ? "Positive" : "Concern"}</span>
           <button type="button" class="obs-history-row__delete" data-delete-id="${esc(o.Id)}" aria-label="Remove observation">✕</button>
         </div>`;
     }
@@ -629,8 +613,6 @@
     function renderStudentDetail() {
       currentView = "detail";
       const history = (observationsByStudent()[String(selectedStudent.CapId)] || []);
-      const positiveCount = history.filter(isPositive).length;
-      const concernCount = history.length - positiveCount;
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -641,8 +623,6 @@
         <div class="obs-summary">
           <div class="obs-summary__item"><span>Flight</span>${esc(selectedFlight)}</div>
           <div class="obs-summary__item"><span>Total Logged</span>${history.length}</div>
-          <div class="obs-summary__item"><span>Positive</span>${positiveCount}</div>
-          <div class="obs-summary__item"><span>Concern</span>${concernCount}</div>
         </div>
 
         ${OBSERVATION_CATEGORIES.map(chipsHtml).join("")}
@@ -650,10 +630,6 @@
         <div class="obs-category">
           <div class="obs-category__label">Custom note</div>
           <div class="obs-note-form">
-            <div class="obs-sentiment-toggle" id="custom-sentiment-toggle">
-              <button type="button" class="is-selected sentiment-positive" data-sentiment="positive">Positive</button>
-              <button type="button" class="sentiment-concern" data-sentiment="concern">Concern</button>
-            </div>
             <textarea id="custom-note-input" aria-label="Custom observation note" placeholder="Anything that doesn't fit a preset tag…"></textarea>
             <button class="btn btn--primary" id="save-custom-note-btn">Log</button>
           </div>
@@ -688,16 +664,12 @@
     /** Re-renders just the history list + summary counts in place, without tearing down/re-animating the whole detail view — called after every log/delete so chips stay put under the tapping finger. */
     function refreshStudentDetailInPlace() {
       const history = (observationsByStudent()[String(selectedStudent.CapId)] || []);
-      const positiveCount = history.filter(isPositive).length;
-      const concernCount = history.length - positiveCount;
 
       const summary = contentEl.querySelector(".obs-summary");
       if (summary) {
         summary.innerHTML = `
           <div class="obs-summary__item"><span>Flight</span>${esc(selectedFlight)}</div>
           <div class="obs-summary__item"><span>Total Logged</span>${history.length}</div>
-          <div class="obs-summary__item"><span>Positive</span>${positiveCount}</div>
-          <div class="obs-summary__item"><span>Concern</span>${concernCount}</div>
         `;
       }
 
@@ -750,24 +722,15 @@
     }
 
     function wireCustomNoteForm() {
-      const toggle = document.getElementById("custom-sentiment-toggle");
-      let customSentiment = "positive";
-      if (toggle) {
-        toggle.querySelectorAll("button").forEach(btn => {
-          btn.addEventListener("click", () => {
-            customSentiment = btn.dataset.sentiment;
-            toggle.querySelectorAll("button").forEach(b => b.classList.toggle("is-selected", b === btn));
-          });
-        });
-      }
-
+      // No sentiment toggle anymore — see the OBSERVATION_CATEGORIES
+      // comment above; every custom note logged here is Positive.
       const saveBtn = document.getElementById("save-custom-note-btn");
       const input = document.getElementById("custom-note-input");
       if (saveBtn && input) {
         saveBtn.addEventListener("click", () => {
           const note = input.value.trim();
           if (!note) { Shell.showToast("Enter a note first.", { type: "error" }); return; }
-          logObservation({ category: "general", tag: "", sentiment: customSentiment, note });
+          logObservation({ category: "general", tag: "", sentiment: "positive", note });
           input.value = "";
         });
       }
@@ -834,7 +797,11 @@
         <div class="obs-volume-grid">
           ${flightNames.map(flight => {
             const capIds = new Set(grouped[flight].map(m => String(m.CapId)));
-            const flightObs = observationRows.filter(o => capIds.has(String(o.StudentCapId)));
+            // Positive-only, matching every other count on this tab (see
+            // observationsByStudent's comment) — filters observationRows
+            // directly rather than going through that map since this is
+            // grouped by flight, not by student.
+            const flightObs = observationRows.filter(isPositive).filter(o => capIds.has(String(o.StudentCapId)));
             const loggers = new Set(flightObs.map(o => o.LoggerPosition).filter(Boolean));
             return `
               <div class="obs-volume-card">
@@ -850,8 +817,6 @@
         <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin-bottom: var(--space-3);">${esc(flight)}</h3>
         ${grouped[flight].map(m => {
           const history = byStudent[String(m.CapId)] || [];
-          const positiveCount = history.filter(isPositive).length;
-          const concernCount = history.length - positiveCount;
           const byCategory = {};
           history.forEach(o => { byCategory[o.Category] = (byCategory[o.Category] || 0) + 1; });
           const categoryChips = Object.keys(byCategory)
@@ -866,9 +831,7 @@
                   <div class="obs-student-card__meta">${esc(m.CapId) || "—"}</div>
                 </div>
                 <div class="obs-student-card__counts">
-                  ${history.length < LOW_DATA_THRESHOLD ? `<span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">Low data (${history.length})</span>` : `<span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">${history.length} logged</span>`}
-                  <span class="badge" style="background: var(--green-100); color: var(--green-600);">${positiveCount} positive</span>
-                  <span class="badge" style="background: var(--amber-100); color: var(--amber-600);">${concernCount} concern</span>
+                  ${history.length < LOW_DATA_THRESHOLD ? `<span class="badge" style="background: var(--surface-sunken); color: var(--ink-600);">Low data (${history.length})</span>` : `<span class="badge" style="background: var(--green-100); color: var(--green-600);">${history.length} positive</span>`}
                 </div>
               </div>
               ${categoryChips ? `<div class="obs-student-card__counts" style="margin-top: var(--space-2);">${categoryChips}</div>` : ""}

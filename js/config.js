@@ -120,7 +120,14 @@ window.APP_CONFIG = {
   // you haven't visited yet still renders instantly from cache instead
   // of waiting on the network. Add a sheet here whenever a new page
   // starts reading from one.
-  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Announcements", "BlackFlagStatus", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"],
+  //
+  // BlackFlagStatus is deliberately absent — the Black Flag UI (Overview's
+  // weather-card banner, the header pill, Announcements' toggle card, the
+  // notification-feed entry) was removed from the frontend pending a
+  // future pass; nothing here reads that sheet anymore. The Worker/sheet
+  // side (worker/src/index.js, worker/src/auth.js) is untouched and still
+  // fully functional — see the comments there.
+  PREFETCH_SHEETS: ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Announcements", "Notes", "Observations", "HonorCadetRecommendations", "HonorFlightRecommendations", "FlightStandingsWeights"],
 
   // Which sheets each page actually reads. Used to warm ONLY the sheets a
   // signed-in position could actually reach (see accessiblePrefetchSheets_
@@ -130,24 +137,25 @@ window.APP_CONFIG = {
   // Keys are NAV_ITEMS ids; a page absent here contributes no sheets.
   // When a new page starts reading a sheet, add it here too.
   PAGE_SHEETS: {
-    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Observations", "BlackFlagStatus", "FlightStandingsWeights"],
+    overview:        ["Roster", "Schedule", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments", "Observations", "FlightStandingsWeights"],
     schedule:        ["Schedule"],
     roster:          ["Roster"],
     inspections:     ["Roster", "UniformInspections", "RoomInspections", "PTInspections", "InspectionPeriods", "PhysicalAssessments"],
     observations:    ["Roster", "Observations"],
     recommendations: ["Roster", "HonorCadetRecommendations", "HonorFlightRecommendations", "UniformInspections", "RoomInspections", "PhysicalAssessments", "Observations"],
     notes:           ["Roster", "Notes"],
-    announcements:   ["Announcements", "BlackFlagStatus"],
+    announcements:   ["Announcements"],
     admin:           ["Roster"]
   },
 
-  // NOTE: Announcements / BlackFlagStatus / Notes — the header's
-  // notification bell feed, shown on EVERY page regardless of which
-  // pages a position is granted — are kept warm by loadGlobalAlerts_ in
-  // js/shell.js on its own independent poll, not by PAGE_SHEETS/warmCache
-  // below. There's deliberately no GLOBAL_SHEETS entry here for
+  // NOTE: Announcements / Notes — the header's notification bell feed,
+  // shown on EVERY page regardless of which pages a position is granted —
+  // are kept warm by loadGlobalAlerts_ in js/shell.js on its own
+  // independent poll, not by PAGE_SHEETS/warmCache below. There's
+  // deliberately no GLOBAL_SHEETS entry here for
   // Shell.accessiblePrefetchSheets_ to also warm them through warmCache;
-  // doing both used to fetch the same three sheets twice.
+  // doing both used to fetch the same sheets twice. (BlackFlagStatus used
+  // to be a third source here too — see the PREFETCH_SHEETS comment above.)
 
   // Squadrons have no cadets of their own — they're a grouping of
   // flights. There's no sheet/column anywhere that records this
