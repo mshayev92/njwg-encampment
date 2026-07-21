@@ -979,12 +979,26 @@
       // (see Shell.isAtsFlight/pages/admin.html's Staff Access form) is
       // excluded entirely too — it isn't in the running for this
       // standings ranking, for anyone viewing it.
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
+      //
+      // CapId OR Name (not CapId alone) — matches renderInspectionProgressCard's
+      // own cadet filter above. A cadet entered by name only, before a
+      // CAPID has been assigned (routine mid-encampment), used to fail
+      // this filter entirely — which didn't just drop THAT cadet, it
+      // dropped their whole FLIGHT from the ranking the moment every one
+      // of its cadets happened to still be CAPID-less, while that same
+      // flight kept showing up fine in Today's Inspections just above.
+      const cadets = rosterRows.filter(r => (String(r.CapId || "").trim() || String(r.Name || "").trim()) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       if (!cadets.length) return [];
 
       const byCap = {};
-      cadets.forEach(c => {
-        byCap[String(c.CapId)] = { flight: c.Flight || "Unassigned", uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0 };
+      cadets.forEach((c, i) => {
+        // A CapId-less cadet still needs a unique key here — falling back
+        // to the blank string would collide every such cadet in the
+        // whole roster into ONE shared entry instead of counting each
+        // separately. This map is rebuilt fresh on every call, so an
+        // index-based fallback key is safe and never persisted.
+        const key = String(c.CapId || "").trim() || `noCapId:${i}`;
+        byCap[key] = { flight: c.Flight || "Unassigned", uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num_(r.TotalPoints) / STANDINGS_UNIFORM_ITEM_COUNT); });
