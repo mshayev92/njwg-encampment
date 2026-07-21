@@ -400,7 +400,7 @@
 
     function renderStaffForm() {
       if (editing === null && !bulkGroup) {
-        return `<button class="btn btn--primary" id="add-position-btn">+ Add position</button>`;
+        return `<button class="btn btn--primary" id="add-position-btn">+ Add Position</button>`;
       }
       if (bulkGroup) return renderBulkFlightsForm(bulkGroup);
       const isNew = editing === "";
@@ -419,7 +419,7 @@
 
       return `
         <div class="card admin-form">
-          <h2 class="card-title">${isNew ? "Add position" : `Edit “${esc(editing)}”`}</h2>
+          <h2 class="card-title">${isNew ? "Add Position" : `Edit “${esc(editing)}”`}</h2>
 
           <label class="field-label" for="pos-name">Position name</label>
           <input type="text" id="pos-name" value="${esc(editing)}" ${isNew ? "" : "disabled"} placeholder="e.g. Bravo Flight, CCT, Administrator">
@@ -500,7 +500,7 @@
           ` : ""}
 
           <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
-            <button class="btn btn--primary" id="save-position-btn">${isNew ? "Create position" : "Save changes"}</button>
+            <button class="btn btn--primary" id="save-position-btn">${isNew ? "Create Position" : "Save Changes"}</button>
             <button class="btn btn--ghost" id="cancel-position-btn">Cancel</button>
           </div>
         </div>
@@ -770,7 +770,7 @@
         Shell.showToast("Saved.", { type: "success" });
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
-        btn.disabled = false; btn.textContent = "Save changes";
+        btn.disabled = false; btn.textContent = "Save Changes";
       }
     }
 
@@ -813,7 +813,7 @@
       const confirmed = await Shell.confirm({
         title: `Delete “${position}”?`,
         message: "Anyone signed in as this position stays signed in until their session expires, but no one will be able to sign in as it again.",
-        confirmLabel: "Delete position"
+        confirmLabel: "Delete Position"
       });
       if (!confirmed) return;
       try {
@@ -841,7 +841,7 @@
         <div class="log-toolbar">
           <div class="tabs" role="group" aria-label="Filter">
             <button class="tabs__tab ${failuresOnly ? "" : "is-active"}" data-filter="all">All</button>
-            <button class="tabs__tab ${failuresOnly ? "is-active" : ""}" data-filter="failures">Failures only</button>
+            <button class="tabs__tab ${failuresOnly ? "is-active" : ""}" data-filter="failures">Failures Only</button>
           </div>
           <div class="log-summary">
             Showing ${shown.length} of ${logTotal} recorded · <strong>${failures}</strong> failed attempt${failures === 1 ? "" : "s"} in this window
@@ -914,7 +914,7 @@
           <div class="hint" style="margin-top:0;">
             Edits made THROUGH this app — any Save or Delete on any page — always show up for everyone within moments; this button has no effect on those. It only matters after someone edits the Google Sheet directly, bypassing the app entirely: click it and the change shows up for everyone right away, instead of waiting for the Worker to notice on its own.
           </div>
-          <button class="btn btn--primary" id="sync-sheets-btn" style="margin-top: var(--space-3);">Sync now</button>
+          <button class="btn btn--primary" id="sync-sheets-btn" style="margin-top: var(--space-3);">Sync Now</button>
 
           <label class="field-label" for="cfg-rate-limit" style="margin-top: var(--space-5);">Requests allowed per device per minute</label>
           <input type="number" id="cfg-rate-limit" min="10" max="300" step="5" value="${cfg.rateLimitPerMinute}">
@@ -943,8 +943,8 @@
           </div>
 
           <div style="display:flex; gap: var(--space-3); margin-top: var(--space-5);">
-            <button class="btn btn--primary" id="save-settings-btn">Save changes</button>
-            <button class="btn btn--ghost" id="reset-settings-btn">Reset fields to defaults</button>
+            <button class="btn btn--primary" id="save-settings-btn">Save Changes</button>
+            <button class="btn btn--ghost" id="reset-settings-btn">Reset to Defaults</button>
           </div>
         </div>
 
@@ -965,11 +965,11 @@
       document.getElementById("save-settings-btn").addEventListener("click", saveWorkerSettings);
       document.getElementById("reset-settings-btn").addEventListener("click", () => {
         // Only resets what's shown in the form — nothing is actually
-        // saved (and nothing changes for any device) until Save changes
+        // saved (and nothing changes for any device) until Save Changes
         // is clicked, same as editing any field by hand.
         workerConfig = { ...DEFAULT_WORKER_CONFIG, flightColors: cfg.flightColors };
         renderSettingsTab();
-        Shell.showToast("Fields reset to defaults — click Save changes to apply.", { type: "" });
+        Shell.showToast("Fields reset to defaults — click Save Changes to apply.", { type: "" });
       });
       document.getElementById("sync-flight-colors-btn").addEventListener("click", syncFlightColors);
       document.getElementById("sync-sheets-btn").addEventListener("click", syncSheets);
@@ -991,7 +991,7 @@
         Shell.showToast(err.message, { type: "error" });
       } finally {
         btn.disabled = false;
-        btn.textContent = "Sync now";
+        btn.textContent = "Sync Now";
       }
     }
 
@@ -1035,7 +1035,7 @@
         Shell.showToast("Worker settings saved.", { type: "success" });
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
-        btn.disabled = false; btn.textContent = "Save changes";
+        btn.disabled = false; btn.textContent = "Save Changes";
       }
     }
 
