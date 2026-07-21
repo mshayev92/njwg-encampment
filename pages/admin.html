@@ -971,6 +971,7 @@
     let workerConfig = null; // null until first loaded
     const DEFAULT_WORKER_CONFIG = {
       rateLimitPerMinute: 60,
+      adminRateLimitPerMinute: 300,
       maintenanceMode: false,
       deviceTokenLifetimeHoursPersonal: 24 * 14,
       deviceTokenLifetimeHoursShared: 8,
@@ -1000,6 +1001,12 @@
           <input type="number" id="cfg-rate-limit" min="10" max="300" step="5" value="${cfg.rateLimitPerMinute}">
           <div class="hint">
             Caps how many requests one signed-in device can make per minute, protecting the Worker and the Google Sheet from being overwhelmed by a single device. Lower it only if you suspect abuse or a malfunctioning device; raise it if legitimate staff see "Too many requests" during normal heavy use, e.g. right after a big announcement when everyone opens the app at once. Default: 60.
+          </div>
+
+          <label class="field-label" for="cfg-admin-rate-limit" style="margin-top: var(--space-5);">Requests allowed per Administrator device per minute</label>
+          <input type="number" id="cfg-admin-rate-limit" min="60" max="1000" step="10" value="${cfg.adminRateLimitPerMinute}">
+          <div class="hint">
+            The same cap, but for a signed-in Administrator device specifically — deliberately much higher than the ordinary limit above, not unlimited, so an admin doing something request-heavy (a bulk Staff Access edit, a CSV roster import, several quick actions in a row on Awards) never hits "Too many requests" during normal use, while a runaway or malfunctioning admin device still can't hammer the Worker/Sheet without any bound at all. Default: 300.
           </div>
 
           <label class="clear-pw" style="margin-top: var(--space-5);">
@@ -1097,6 +1104,7 @@
     async function saveWorkerSettings() {
       const patch = {
         rateLimitPerMinute: Number(document.getElementById("cfg-rate-limit").value),
+        adminRateLimitPerMinute: Number(document.getElementById("cfg-admin-rate-limit").value),
         maintenanceMode: document.getElementById("cfg-maintenance-mode").checked,
         deviceTokenLifetimeHoursPersonal: Number(document.getElementById("cfg-device-personal").value) * 24,
         deviceTokenLifetimeHoursShared: Number(document.getElementById("cfg-device-shared").value)
