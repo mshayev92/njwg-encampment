@@ -557,8 +557,19 @@
 
       if (prefillSubject) {
         const subjectInput = document.getElementById("subject-input");
-        if (subjectInput) subjectInput.value = prefillSubject;
-        prefillSubject = "";
+        if (subjectInput) {
+          subjectInput.value = prefillSubject;
+          // render() fires again later this load (once Auth.listPositions()
+          // resolves and repopulates the "send to" selector, and again on
+          // any background Roster/Notes revalidation) — each of those
+          // rebuilds the form from a blank template, so clearing
+          // prefillSubject right after the FIRST use would leave the field
+          // wiped by the SECOND render before the user ever touched it.
+          // Keep re-applying it on every render until the user actually
+          // edits the field themselves, at which point stop overwriting
+          // their input.
+          subjectInput.addEventListener("input", () => { prefillSubject = ""; }, { once: true });
+        }
       }
 
       contentEl.querySelectorAll("[data-edit-id]").forEach(btn => {
