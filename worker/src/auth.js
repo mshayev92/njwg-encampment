@@ -193,6 +193,13 @@ export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedA
 // handleWrite's FlightStandingsWeights special case in index.js).
 // Values are the same 0-100-ish shares computeFlightStandings() in
 // overview.html already used as hardcoded defaults.
+//
+// ConcernObservations is no longer read or written by the frontend —
+// computeFlightStandings dropped the Concern-penalty term from its score
+// formula at the user's request, alongside Concern Observations
+// logging/display itself (see the OBSERVATION_COLUMNS comment above).
+// The column stays here unchanged; a future pass restoring either
+// feature can read/write it exactly as before.
 export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "Assessment", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the

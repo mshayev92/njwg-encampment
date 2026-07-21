@@ -903,11 +903,11 @@
     // summed AS-IS, on their own absolute scale, not relative to other
     // flights, so a flight scoring 92% reads as 92%, not merely "better
     // than the others this week."
-    // Positive/concern Observations have no natural upper bound (it's
-    // whatever staff happened to log), so those two are normalized against
-    // the highest per-cadet rate among the flights actually being compared
-    // — the same normalize-against-cohort-max approach Recommendations
-    // uses for its own unbounded metrics.
+    // Positive Observations have no natural upper bound (it's whatever
+    // staff happened to log), so it's normalized against the highest
+    // per-cadet rate among the flights actually being compared — the
+    // same normalize-against-cohort-max approach Recommendations uses
+    // for its own unbounded metrics.
     //
     // The actual numbers are admin-adjustable (see the "Edit weights"
     // button on the card below), stored in the FlightStandingsWeights
@@ -916,9 +916,17 @@
     // are a personal judgment call for picking an Honor Cadet/Flight, not
     // a shared setting. These defaults are only what's shown before the
     // sheet has loaded (or if it comes back empty).
-    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, assessment: 30, posObs: 30, concernObs: 20 };
+    //
+    // A concernObs weight (a penalty subtracted for Concern Observations)
+    // used to live here too — removed at the user's request, alongside
+    // Concern Observations logging/display itself (see
+    // pages/observations.html's OBSERVATION_CATEGORIES comment). The
+    // FlightStandingsWeights sheet's ConcernObservations column and
+    // worker/src's support for it are untouched; this just no longer
+    // reads or writes it.
+    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, assessment: 30, posObs: 30 };
 
-    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, assessment, posObs, concernObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
+    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, assessment, posObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
     function weightsFromRow(row) {
       if (!row) return { ...DEFAULT_STANDINGS_WEIGHTS };
       const pick = (col, fallback) => {
@@ -936,8 +944,7 @@
         uniform: pick("Uniform", DEFAULT_STANDINGS_WEIGHTS.uniform),
         room: pick("Room", DEFAULT_STANDINGS_WEIGHTS.room),
         assessment: pick("Assessment", DEFAULT_STANDINGS_WEIGHTS.assessment),
-        posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs),
-        concernObs: pick("ConcernObservations", DEFAULT_STANDINGS_WEIGHTS.concernObs)
+        posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs)
       };
     }
 
@@ -980,18 +987,18 @@
         // separately. This map is rebuilt fresh on every call, so an
         // index-based fallback key is safe and never persisted.
         const key = String(c.CapId || "").trim() || `noCapId:${i}`;
-        byCap[key] = { flight: c.Flight || "Unassigned", uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0 };
+        byCap[key] = { flight: c.Flight || "Unassigned", uniform: [], room: [], assessment: [], posObs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num_(r.TotalPoints) / STANDINGS_UNIFORM_ITEM_COUNT); });
       roomRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.room.push(num_(r.TotalPoints) / STANDINGS_ROOM_ITEM_COUNT); });
       assessmentRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.assessment.push(num_(r.Score) / STANDINGS_ASSESSMENT_MAX_SCORE); });
+      // Positive only — Concern Observations no longer factors into this
+      // score at all (see DEFAULT_STANDINGS_WEIGHTS' comment above).
       observationRows.forEach(r => {
         const e = byCap[String(r.StudentCapId)];
         if (!e) return;
-        const s = String(r.Sentiment).toLowerCase();
-        if (s === "positive") e.posObs++;
-        else if (s === "concern") e.concernObs++;
+        if (String(r.Sentiment).toLowerCase() === "positive") e.posObs++;
       });
 
       const byFlight = {};
@@ -1005,24 +1012,20 @@
           uniformAvg: mean_(members.flatMap(m => m.uniform)),
           roomAvg: mean_(members.flatMap(m => m.room)),
           assessmentAvg: mean_(members.flatMap(m => m.assessment)),
-          posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length,
-          concernPerCadet: members.reduce((s, m) => s + m.concernObs, 0) / members.length
+          posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length
         };
       });
       if (!flights.length) return [];
 
       const maxPos = Math.max(0, ...flights.map(f => f.posPerCadet));
-      const maxConcern = Math.max(0, ...flights.map(f => f.concernPerCadet));
 
       return flights.map(f => {
         const posNorm = maxPos > 0 ? f.posPerCadet / maxPos : 0;
-        const concernNorm = maxConcern > 0 ? f.concernPerCadet / maxConcern : 0;
         const score = Math.max(0, Math.round(
           weights.uniform * (f.uniformAvg || 0) +
           weights.room * (f.roomAvg || 0) +
           weights.assessment * (f.assessmentAvg || 0) +
-          weights.posObs * posNorm -
-          weights.concernObs * concernNorm
+          weights.posObs * posNorm
         ));
         return { ...f, score };
       }).sort((a, b) => b.score - a.score);
@@ -1037,14 +1040,13 @@
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale; Concern Observations is a PENALTY (subtracted), not a share of the total. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale. Changes apply for every position, immediately.
           </p>
           <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-assessment">EOW Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
-            <div class="field" style="margin-bottom:0;"><label for="w-concern">Concern Observations (penalty)</label><input type="number" id="w-concern" min="0" max="100" value="${esc(weights.concernObs)}"></div>
           </div>
           <div style="display:flex; gap: var(--space-3); margin-top: var(--space-4);">
             <button class="btn btn--primary" id="save-standings-weights-btn">Save</button>
@@ -1189,13 +1191,19 @@
       const saveBtn = document.getElementById("save-standings-weights-btn");
       if (saveBtn) {
         saveBtn.addEventListener("click", async () => {
+          // ConcernObservations is deliberately NOT included here anymore
+          // (see DEFAULT_STANDINGS_WEIGHTS' comment) — omitting it writes
+          // that cell blank on save rather than leaving whatever an admin
+          // last configured silently still in effect server-side; blank
+          // reads back as "use the default" (see weightsFromRow's pick
+          // helper), and the default is unused now that nothing sums it
+          // into the score anyway.
           const patch = {
             RecordKey: "singleton",
             Uniform: Number(document.getElementById("w-uniform").value) || 0,
             Room: Number(document.getElementById("w-room").value) || 0,
             Assessment: Number(document.getElementById("w-assessment").value) || 0,
-            PositiveObservations: Number(document.getElementById("w-pos").value) || 0,
-            ConcernObservations: Number(document.getElementById("w-concern").value) || 0
+            PositiveObservations: Number(document.getElementById("w-pos").value) || 0
           };
           saveBtn.disabled = true;
           saveBtn.textContent = "Saving…";
