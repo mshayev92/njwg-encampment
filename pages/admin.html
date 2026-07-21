@@ -212,6 +212,13 @@
     }
 
     .page-check__main input { width: 18px; height: 18px; flex-shrink: 0; }
+
+    /* Inspections/Awards, once every checked flight is Advanced Training
+       School — see ATS_EXCLUDED_PAGE_IDS/updateAtsPageGating below. */
+    .page-check--ats-disabled {
+      opacity: 0.5;
+    }
+    .page-check--ats-disabled .page-check__main { cursor: not-allowed; }
     .page-check__label { overflow-wrap: break-word; min-width: 0; }
 
     /* Small pencil toggle for a page's edit-gate (e.g. edit-roster),
@@ -326,6 +333,18 @@
       ...window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label })),
       ...EDIT_GATES
     ];
+
+    // Inspections and Awards both exclude Advanced Training School
+    // (India/Juliet — see Shell.isAtsFlight) from everything they show
+    // (see groupByFlight's own ATS filter in pages/inspections.html and
+    // pages/recommendations.html) — granting either page to a position
+    // scoped to ATS flights only would just hand it a permanently empty
+    // page, so the option to do that is removed here rather than left as
+    // a working-but-pointless dead end. A position scoped to "All
+    // flights" (or any mix including a non-ATS flight) is unaffected;
+    // this only fires when EVERY flight checked is an ATS one.
+    const ATS_EXCLUDED_PAGE_IDS = ["inspections", "recommendations"];
+
     let activeTab = "staff";
     let staff = [];              // [{ Position, Pages[], Flights[], hasPassword }]
     let loginEntries = [];       // [{ Timestamp, Type, Identifier, Success }]
@@ -426,14 +445,14 @@
           ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
 
           <label class="field-label">Pages this position can access</label>
-          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page.</div>
+          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page. Inspections and Awards are unavailable once every checked flight below is Advanced Training School — both exclude ATS entirely, so granting them would just be a permanently empty page.</div>
           <div class="page-checks">
             ${basePages.map(p => {
               const editGate = editGateByBase.get(p.id);
               const viewChecked = currentPages.includes(p.id.toLowerCase());
               const editChecked = !!editGate && currentPages.includes(editGate.id.toLowerCase());
               return `
-                <div class="page-check">
+                <div class="page-check" data-page-id="${esc(p.id)}">
                   <label class="page-check__main">
                     <input type="checkbox" value="${esc(p.id)}" ${viewChecked ? "checked" : ""}>
                     <span class="page-check__label">${esc(p.label)}</span>
@@ -525,7 +544,14 @@
       const positions = groupPositions(key);
       const groupTitle = key === "ats" ? "Advanced Training School" : "Flights";
       const editGateByBase = new Map(EDIT_GATES.map(g => [g.id.replace(/^edit-/, ""), g]));
-      const basePages = window.APP_CONFIG.NAV_ITEMS.map(n => ({ id: n.id, label: n.label }));
+      // Every position this bulk form applies to is ATS-scoped when
+      // key === "ats" (see atsPositions()) — Inspections/Awards would be
+      // a permanently empty page for all of them either way, so they're
+      // left off the list entirely here rather than offered and then
+      // silently stripped on save.
+      const basePages = window.APP_CONFIG.NAV_ITEMS
+        .filter(n => key !== "ats" || !ATS_EXCLUDED_PAGE_IDS.includes(n.id))
+        .map(n => ({ id: n.id, label: n.label }));
 
       return `
         <div class="card admin-form">
@@ -736,11 +762,55 @@
       if (allFlightsCheckbox && flightsGrid) {
         allFlightsCheckbox.addEventListener("change", () => {
           flightsGrid.style.display = allFlightsCheckbox.checked ? "none" : "";
+          updateAtsPageGating();
         });
       }
+      if (flightsGrid) {
+        flightsGrid.querySelectorAll(".pos-flight-check").forEach(cb => cb.addEventListener("change", updateAtsPageGating));
+      }
+      updateAtsPageGating(); // reflect this position's Flights as already checked, on first render
 
       Shell.wireTooltips(contentEl);
       Shell.animateIn(contentEl);
+    }
+
+    /**
+     * Disables (and force-unchecks) the Inspections/Awards Pages
+     * checkboxes whenever every currently-CHECKED flight is Advanced
+     * Training School — see ATS_EXCLUDED_PAGE_IDS above. Re-run on every
+     * Flights checkbox change (wired in renderStaffTab) so it tracks
+     * live edits, not just the position's saved state. "All flights"
+     * checked, or no flight checked at all (also "all," per the backend
+     * — see flightsSummary), is never ATS-only and always re-enables
+     * both pages.
+     */
+    function updateAtsPageGating() {
+      const allFlightsCheckbox = document.getElementById("pos-flights-all");
+      const checkedFlights = allFlightsCheckbox && allFlightsCheckbox.checked
+        ? []
+        : Array.from(contentEl.querySelectorAll(".pos-flight-check:checked")).map(i => i.value);
+      const isAtsOnly = checkedFlights.length > 0 && checkedFlights.every(f => Shell.isAtsFlight(f));
+
+      ATS_EXCLUDED_PAGE_IDS.forEach(pageId => {
+        const box = contentEl.querySelector(`.page-check[data-page-id="${pageId}"]`);
+        if (!box) return;
+        box.classList.toggle("page-check--ats-disabled", isAtsOnly);
+        const input = box.querySelector(".page-check__main input");
+        if (input) {
+          input.disabled = isAtsOnly;
+          if (isAtsOnly) input.checked = false;
+        }
+        // Inspections' edit-inspections pencil is meaningless without
+        // the base page itself — disable/uncheck it the same way.
+        const editBtn = box.querySelector(".page-check__edit");
+        const editInput = box.querySelector(".page-check__edit-input");
+        if (isAtsOnly && editBtn && editInput) {
+          editInput.checked = false;
+          editBtn.classList.remove("is-active");
+          editBtn.setAttribute("aria-pressed", "false");
+        }
+        if (editBtn) editBtn.disabled = isAtsOnly;
+      });
     }
 
     async function savePosition() {
@@ -748,13 +818,23 @@
       const position = nameInput.value.trim();
       if (!position) { Shell.showToast("Enter a position name.", { type: "error" }); return; }
 
-      const pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
+      let pages = Array.from(contentEl.querySelectorAll(".page-check input:checked")).map(i => i.value);
       const flightsAllChecked = document.getElementById("pos-flights-all").checked;
       const flights = flightsAllChecked
         ? []
         : Array.from(contentEl.querySelectorAll(".pos-flight-check:checked")).map(i => i.value);
       const passwordVal = document.getElementById("pos-password").value;
       const clearPw = document.getElementById("clear-pw");
+
+      // Belt-and-suspenders alongside updateAtsPageGating's live UI
+      // disabling above — strip Inspections/Awards (and Inspections'
+      // edit-inspections gate) here too if every flight ends up ATS-only,
+      // so this can't slip through even if the reactive gating somehow
+      // didn't run (e.g. the checkbox state changed without a "change"
+      // event, or a future edit to this form misses re-wiring it).
+      if (flights.length && flights.every(f => Shell.isAtsFlight(f))) {
+        pages = pages.filter(p => !ATS_EXCLUDED_PAGE_IDS.includes(p.toLowerCase()) && p.toLowerCase() !== "edit-inspections");
+      }
 
       const row = { position, pages, flights };
       if (clearPw && clearPw.checked) row.clearPassword = true;

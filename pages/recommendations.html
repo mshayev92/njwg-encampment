@@ -339,6 +339,14 @@
         // flight staff, not cadets — never eligible for an Honor Cadet
         // nomination (see Shell.isStaffRosterRow).
         .filter(r => !Shell.isStaffRosterRow(r))
+        // Advanced Training School (India/Juliet — see Shell.isAtsFlight)
+        // runs its own separate program and isn't in the running for
+        // Honor Cadet/Honor Flight — excluded here so it never appears
+        // as a flight option in the nomination forms or student picker
+        // this function backs (canonicalFlightNames/studentsForFlight),
+        // matching cadetRawMetrics' own ATS exclusion for the standings
+        // side below.
+        .filter(r => !Shell.isAtsFlight(r.Flight))
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);

@@ -911,6 +911,13 @@
         // scored, so they must never appear as an inspectable "student"
         // tile here (see Shell.isStaffRosterRow).
         .filter(r => !Shell.isStaffRosterRow(r))
+        // Advanced Training School (India/Juliet — see Shell.isAtsFlight)
+        // runs its own separate program and never participates in
+        // Uniform/Room/PT/EOW Assessment inspections — excluded here,
+        // this single chokepoint every view on this page (the flight
+        // grid, student lists, Periods, Trends) is built from, rather
+        // than repeating the exclusion at each one individually.
+        .filter(r => !Shell.isAtsFlight(r.Flight))
         .reduce((groups, row) => {
           const flight = row.Flight || "Unassigned";
           (groups[flight] = groups[flight] || []).push(row);
