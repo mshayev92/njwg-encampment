@@ -98,6 +98,26 @@
     .rec-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
     .rec-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); margin-top: var(--space-2); white-space: pre-wrap; }
 
+    /* An Administrator's pick of the actual Honor Cadet/Flight of the
+       day (IsWinner), among that day's recommendations — see
+       markWinner_/submissionReviewRowHtml. Distinct from the
+       recommendations themselves, so it's a gold accent, not a color
+       already used for anything else on this page. */
+    .rec-history-row--winner { border-color: var(--gold-500); box-shadow: 0 0 0 1px var(--gold-500); }
+    .rec-history-row__winner-badge {
+      font-family: var(--font-display);
+      font-size: var(--fs-2xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: var(--tracking-wide);
+      color: var(--gold-600);
+      background: var(--gold-100);
+      border-radius: var(--radius-sm);
+      padding: 2px var(--space-2);
+      display: inline-block;
+      margin-bottom: var(--space-2);
+    }
+
     /* ---- Weekly standings (aggregated top contenders) ---- */
     .rec-mode-tabs { margin-bottom: var(--space-5); }
 
@@ -126,15 +146,6 @@
     }
     .weights-grid .field label { grid-row: 1; align-self: end; }
     .weights-grid .field input { grid-row: 2; }
-    .weight-field__dir {
-      grid-row: 3;
-      font-size: var(--fs-2xs);
-      text-transform: uppercase;
-      letter-spacing: var(--tracking-wide);
-      color: var(--ink-600);
-      margin-top: var(--space-1);
-    }
-    .weight-field__dir--neg { color: var(--red-600); }
 
     /* Same overflow bug, same fix as pages/overview.html's matching
        comment on .weights-fields-grid — auto-fit's column count is
@@ -157,7 +168,6 @@
         flex-direction: column;
         gap: var(--space-2);
       }
-      .weight-field__dir { grid-row: unset; }
     }
 
     .standings-list { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-4); }
@@ -290,6 +300,16 @@
     const showHonorCadetForm = isFlightRole;
     const showHonorFlightForm = isSquadronRole;
 
+    // Same Pages-token gate as pages/admin.html's own isAdmin check —
+    // independent of the Flights-scoping above (an Administrator's own
+    // Flights are blank/"all", same as a CCT's, so this can't be derived
+    // from isUnscoped alone). Lets an admin manually add a Part I/II
+    // recommendation on behalf of a flight/squadron that hasn't
+    // submitted one yet today — the one path around each flight/
+    // squadron's own once-per-day limit (see renderAdminAddEntrySection
+    // below).
+    const isAdmin = (Array.isArray(session?.Pages) ? session.Pages : []).map(p => String(p).toLowerCase()).includes("admin");
+
     // Below its own form, a flight/squadron gets a day-tabbed review of ITS
     // OWN past submissions (see renderSubmissionsReview) rather than
     // everyone's — a flight only ever sees its own Honor Cadet history
@@ -304,6 +324,11 @@
     let rosterRows = [];
     let honorCadetRows = [];
     let honorFlightRows = [];
+    // Admin-only — every StaffAccess position (Pages/Flights), fetched
+    // solely to find the squadron-scoped ones (Flights.length > 1) for
+    // the manual Honor Flight entry's Squadron picker. Never fetched for
+    // a non-admin session (see load() below).
+    let staffAccessRows = [];
     // Extra data points the Weekly standings view aggregates. Unused by the
     // Daily view (the recommendation forms/review), so they're loaded but
     // never block the Daily render.
@@ -322,6 +347,10 @@
     // there's nothing yet so the blank form shows instead).
     let hcEditingId = null;
     let hfEditingId = null;
+
+    // State for the admin-only manual add-entry card (renderAdminAddEntrySection).
+    let adminAddKind = "hc"; // "hc" (Honor Cadet) | "hf" (Honor Flight) — which form the card shows
+    let adminAddSquadron = null; // currently selected Squadron in the hf form, so its own Flight options survive a re-render
 
     // Daily = the per-day recommendation forms/review (below); Weekly = the
     // aggregated standings that rank top contenders across every data point.
@@ -708,6 +737,252 @@
         </div>`;
     }
 
+    // ---- Administrator: manual add-entry (bypasses the normal flight/
+    // squadron submission flow, for a flight/squadron that hasn't
+    // submitted one itself yet today) -----------------------------------
+
+    /** Every real Roster flight (see groupByFlight) without a Honor Cadet recommendation for today yet. */
+    function adminOpenHonorCadetFlights() {
+      const today = Shell.todayIso();
+      const submitted = new Set(honorCadetRows.filter(r => r.Date === today).map(r => String(r.Flight).toLowerCase()));
+      return Object.keys(groupByFlight(rosterRows)).filter(f => !submitted.has(f.toLowerCase())).sort((a, b) => a.localeCompare(b));
+    }
+
+    /**
+     * Squadron-level StaffAccess positions (Flights.length > 1 — the same
+     * test isSquadronRole above uses for the signed-in session) without a
+     * Honor Flight recommendation for today yet. Matched against the
+     * Squadron column (not SubmittedByPosition, which the normal
+     * self-submission flow happens to equal it — see
+     * wireHonorFlightSection) since an admin's entry is attributed to
+     * the ADMIN's own position, not the squadron's, and Squadron is the
+     * one field that stays the actual squadron identity either way.
+     */
+    function adminOpenHonorFlightSquadrons() {
+      const today = Shell.todayIso();
+      const submitted = new Set(honorFlightRows.filter(r => r.Date === today).map(r => String(r.Squadron).toLowerCase()));
+      return staffAccessRows
+        .filter(p => Array.isArray(p.Flights) && p.Flights.length > 1)
+        .filter(p => !submitted.has(String(p.Position).toLowerCase()))
+        .sort((a, b) => String(a.Position).localeCompare(String(b.Position)));
+    }
+
+    function renderAdminHonorCadetForm(openFlights) {
+      if (!openFlights.length) {
+        return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">Every flight already has a Honor Cadet recommendation today.</p>`;
+      }
+      return `
+        <div class="rec-form-field">
+          <label for="admin-hc-flight-select">Flight</label>
+          <select id="admin-hc-flight-select">
+            ${openFlights.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hc-student-select">Student</label>
+          <select id="admin-hc-student-select"></select>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hc-drill">Drill, Barracks, &amp; Uniforms</label>
+          <textarea id="admin-hc-drill" placeholder="How has this cadet distinguished themselves here?"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hc-academics">Academics &amp; Knowledge</label>
+          <textarea id="admin-hc-academics"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hc-teamwork">Teamwork, Leadership, &amp; Conduct</label>
+          <textarea id="admin-hc-teamwork"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hc-notes">Additional Notes</label>
+          <textarea id="admin-hc-notes"></textarea>
+        </div>
+        <button class="btn btn--primary" id="admin-hc-submit-btn">Submit Recommendation</button>
+      `;
+    }
+
+    function renderAdminHonorFlightForm(openSquadrons) {
+      if (!openSquadrons.length) {
+        return `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">Every squadron already has a Honor Flight recommendation today.</p>`;
+      }
+      const squadron = openSquadrons.find(p => p.Position === adminAddSquadron) || openSquadrons[0];
+      const flightsForSquadron = canonicalFlightNames((squadron.Flights || []).filter(f => f && String(f).toLowerCase() !== "all"));
+      return `
+        <div class="rec-form-field">
+          <label for="admin-hf-squadron-select">Squadron</label>
+          <select id="admin-hf-squadron-select">
+            ${openSquadrons.map(p => `<option value="${esc(p.Position)}" ${p.Position === squadron.Position ? "selected" : ""}>${esc(p.Position)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hf-flight-select">Flight</label>
+          <select id="admin-hf-flight-select">
+            ${flightsForSquadron.length ? flightsForSquadron.map(f => `<option value="${esc(f)}">${esc(f)}</option>`).join("") : `<option value="">This squadron has no flights assigned</option>`}
+          </select>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hf-drill">Drill, Barracks, &amp; Uniforms</label>
+          <textarea id="admin-hf-drill" placeholder="How has this flight distinguished itself here?"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hf-academics">Academics &amp; Knowledge</label>
+          <textarea id="admin-hf-academics"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hf-teamwork">Teamwork, Leadership, &amp; Conduct</label>
+          <textarea id="admin-hf-teamwork"></textarea>
+        </div>
+        <div class="rec-form-field">
+          <label for="admin-hf-notes">Additional Notes</label>
+          <textarea id="admin-hf-notes"></textarea>
+        </div>
+        <button class="btn btn--primary" id="admin-hf-submit-btn">Submit Recommendation</button>
+      `;
+    }
+
+    function renderAdminAddEntrySection() {
+      if (!isAdmin) return "";
+
+      const openFlights = adminOpenHonorCadetFlights();
+      const openSquadrons = adminOpenHonorFlightSquadrons();
+
+      return `
+        <div class="card" style="margin-bottom: var(--space-6);">
+          <h3 class="section-label">Administrator: Add an Entry</h3>
+          <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
+            Manually submits a Part I (Honor Cadet) or Part II (Honor Flight) recommendation on behalf of a flight/squadron — only offered for one that hasn't already submitted its own today.
+          </p>
+
+          <div class="tabs" style="margin-bottom: var(--space-4);">
+            <button type="button" class="tabs__tab${adminAddKind === "hc" ? " is-active" : ""}" data-admin-add-kind="hc">Honor Cadet</button>
+            <button type="button" class="tabs__tab${adminAddKind === "hf" ? " is-active" : ""}" data-admin-add-kind="hf">Honor Flight</button>
+          </div>
+
+          ${adminAddKind === "hc" ? renderAdminHonorCadetForm(openFlights) : renderAdminHonorFlightForm(openSquadrons)}
+        </div>
+      `;
+    }
+
+    function wireAdminHonorCadetForm() {
+      const flightSelect = document.getElementById("admin-hc-flight-select");
+      const studentSelect = document.getElementById("admin-hc-student-select");
+      const submitBtn = document.getElementById("admin-hc-submit-btn");
+      if (!flightSelect || !studentSelect || !submitBtn) return;
+
+      function refreshStudents() {
+        const students = studentsForFlight(flightSelect.value);
+        studentSelect.innerHTML = students.length
+          ? students.map(s => `<option value="${esc(s.CapId)}">${esc(s.Name)} (${esc(s.CapId)})</option>`).join("")
+          : `<option value="">No cadets in this flight</option>`;
+        Shell.enhanceSelect(studentSelect);
+      }
+      refreshStudents();
+
+      Shell.enhanceSelect(flightSelect);
+      flightSelect.addEventListener("change", refreshStudents);
+
+      submitBtn.addEventListener("click", () => {
+        const flight = flightSelect.value;
+        const student = studentsForFlight(flight).find(s => String(s.CapId) === studentSelect.value);
+        if (!student) { Shell.showToast("Pick a student first.", { type: "error" }); return; }
+
+        // Re-check right before writing — the open-flights list rendered
+        // could be a moment stale (someone else submitted in the
+        // meantime), and nothing server-side re-verifies this today.
+        if (!adminOpenHonorCadetFlights().some(f => f.toLowerCase() === flight.toLowerCase())) {
+          Shell.showToast(`${flight} already has a Honor Cadet recommendation today.`, { type: "error" });
+          renderDaily();
+          return;
+        }
+
+        const row = {
+          Id: `hc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: Shell.todayIso(),
+          Timestamp: new Date().toISOString(),
+          SubmittedByPosition: submitterPosition,
+          Flight: flight,
+          StudentCapId: student.CapId,
+          StudentName: student.Name,
+          DrillBarracksUniforms: document.getElementById("admin-hc-drill").value.trim(),
+          AcademicsKnowledge: document.getElementById("admin-hc-academics").value.trim(),
+          TeamworkLeadershipConduct: document.getElementById("admin-hc-teamwork").value.trim(),
+          AdditionalNotes: document.getElementById("admin-hc-notes").value.trim()
+        };
+
+        Api.writeRow("HonorCadetRecommendations", row);
+        honorCadetRows.push(row);
+        Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
+
+        Shell.showToast(`Honor Cadet recommendation submitted for ${flight}.`, { type: "success" });
+        renderDaily();
+      });
+    }
+
+    function wireAdminHonorFlightForm() {
+      const squadronSelect = document.getElementById("admin-hf-squadron-select");
+      const flightSelect = document.getElementById("admin-hf-flight-select");
+      const submitBtn = document.getElementById("admin-hf-submit-btn");
+      if (!squadronSelect || !flightSelect || !submitBtn) return;
+
+      Shell.enhanceSelect(squadronSelect);
+      Shell.enhanceSelect(flightSelect);
+
+      squadronSelect.addEventListener("change", () => {
+        adminAddSquadron = squadronSelect.value;
+        renderDaily();
+      });
+
+      submitBtn.addEventListener("click", () => {
+        const squadron = squadronSelect.value;
+        const flight = flightSelect.value;
+        if (!squadron || !flight) { Shell.showToast("Pick a squadron and flight first.", { type: "error" }); return; }
+
+        if (!adminOpenHonorFlightSquadrons().some(p => String(p.Position).toLowerCase() === squadron.toLowerCase())) {
+          Shell.showToast(`${squadron} already has a Honor Flight recommendation today.`, { type: "error" });
+          renderDaily();
+          return;
+        }
+
+        const row = {
+          Id: `hf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          Date: Shell.todayIso(),
+          Timestamp: new Date().toISOString(),
+          SubmittedByPosition: submitterPosition,
+          Squadron: squadron,
+          Flight: flight,
+          DrillBarracksUniforms: document.getElementById("admin-hf-drill").value.trim(),
+          AcademicsKnowledge: document.getElementById("admin-hf-academics").value.trim(),
+          TeamworkLeadershipConduct: document.getElementById("admin-hf-teamwork").value.trim(),
+          AdditionalNotes: document.getElementById("admin-hf-notes").value.trim()
+        };
+
+        Api.writeRow("HonorFlightRecommendations", row);
+        honorFlightRows.push(row);
+        Api.setCachedRows("HonorFlightRecommendations", honorFlightRows);
+
+        adminAddSquadron = null;
+        Shell.showToast(`Honor Flight recommendation submitted for ${squadron}.`, { type: "success" });
+        renderDaily();
+      });
+    }
+
+    function wireAdminAddEntrySection() {
+      if (!isAdmin) return;
+
+      document.querySelectorAll("[data-admin-add-kind]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const kind = btn.dataset.adminAddKind;
+          if (kind === adminAddKind) return;
+          adminAddKind = kind;
+          renderDaily();
+        });
+      });
+
+      if (adminAddKind === "hc") wireAdminHonorCadetForm();
+      else wireAdminHonorFlightForm();
+    }
+
     // ---- Submission review ------------------------------------------------
     //
     // A read-only review — a Schedule-style sliding tab bar (see
@@ -748,13 +1023,18 @@
       return isNaN(d.getTime()) ? dateStr : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
     }
 
+    /** Whether this recommendation is the Administrator's pick for its day (see markWinner_). */
+    function isWinner(r) { return String(r.IsWinner || "").toLowerCase() === "true"; }
+
     function submissionReviewRowHtml(r, kind) {
       const title = kind === "hc"
         ? `${esc(r.StudentName) || "—"} · ${esc(r.Flight) || "—"}`
         : `${esc(r.Flight) || "—"}`;
+      const winner = isWinner(r);
       return `
-        <div class="rec-history-row">
+        <div class="rec-history-row${winner ? " rec-history-row--winner" : ""}">
           <div class="rec-history-row__body">
+            ${winner ? `<div class="rec-history-row__winner-badge">★ Honor ${kind === "hc" ? "Cadet" : "Flight"} of the Day</div>` : ""}
             <div class="rec-history-row__title">${title}</div>
             <div class="rec-history-row__meta">${esc(r.Date)} · Submitted by ${esc(r.SubmittedByPosition) || "—"}</div>
             ${r.DrillBarracksUniforms ? `<div class="rec-history-row__note"><strong>Drill/Barracks/Uniforms:</strong> ${esc(r.DrillBarracksUniforms)}</div>` : ""}
@@ -762,7 +1042,50 @@
             ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
+          ${isAdmin ? `<button type="button" class="btn btn--ghost" data-mark-winner-id="${esc(r.Id)}" data-mark-winner-kind="${kind}">${winner ? "Unmark" : "Mark as Winner"}</button>` : ""}
         </div>`;
+    }
+
+    /**
+     * An Administrator's pick of the actual Honor Cadet/Flight of the
+     * day — distinct from the recommendations flights/squadrons submit
+     * themselves, which are just nominations. Only one winner per kind
+     * per day: marking a new one un-marks whichever other same-day row
+     * (if any) was previously marked, rather than leaving multiple
+     * "winners" for the same day. Gated admin-only server-side too (see
+     * handleWrite's IsWinner branch in worker/src/index.js) — this
+     * client-side isAdmin check is a convenience, not the real gate.
+     */
+    function markWinner_(kind, row) {
+      const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+      const sheet = kind === "hc" ? "HonorCadetRecommendations" : "HonorFlightRecommendations";
+      const alreadyWinner = isWinner(row);
+
+      rows.forEach((r, i) => {
+        if (r.Date !== row.Date || String(r.Id) === String(row.Id) || !isWinner(r)) return;
+        rows[i] = { ...r, IsWinner: "" };
+        Api.writeRow(sheet, rows[i], { matchColumns: ["Id"] });
+      });
+
+      const idx = rows.findIndex(r => String(r.Id) === String(row.Id));
+      if (idx >= 0) rows[idx] = { ...row, IsWinner: alreadyWinner ? "" : "true" };
+      Api.writeRow(sheet, rows[idx], { matchColumns: ["Id"] });
+      Api.setCachedRows(sheet, rows);
+
+      Shell.showToast(alreadyWinner ? "Unmarked." : `Marked as Honor ${kind === "hc" ? "Cadet" : "Flight"} of the Day.`, { type: "success" });
+      renderSubmissionsReviewList();
+    }
+
+    function wireSubmissionsReviewList() {
+      if (!isAdmin) return;
+      document.querySelectorAll("[data-mark-winner-id]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const kind = btn.dataset.markWinnerKind;
+          const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+          const row = rows.find(r => String(r.Id) === String(btn.dataset.markWinnerId));
+          if (row) markWinner_(kind, row);
+        });
+      });
     }
 
     function sortedByDay(rows) {
@@ -882,6 +1205,7 @@
       listEl.innerHTML = rows.length
         ? rows.map(row => submissionReviewRowHtml(row, kind)).join("")
         : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No ${kind === "hc" ? "Honor Cadet" : "Honor Flight"} recommendations submitted${activeSubmissionsDay !== "all" ? " on this day" : ""} yet.</p>`;
+      wireSubmissionsReviewList();
     }
 
     // ---- Page assembly -----------------------------------------------------
@@ -935,7 +1259,11 @@
 
     function renderDaily() {
       if (isUnscoped) {
-        contentEl.innerHTML = renderSubmissionsReview();
+        contentEl.innerHTML = `
+          ${renderAdminAddEntrySection()}
+          ${renderSubmissionsReview()}
+        `;
+        wireAdminAddEntrySection();
         wireSubmissionsReview();
         renderSubmissionsReviewList();
         Shell.animateIn(contentEl);
@@ -1080,10 +1408,19 @@
       // (see Shell.isStaffRosterRow). An "Advanced Training School"
       // flight is excluded too — it isn't in the running for Honor
       // Cadet/Honor Flight, for anyone viewing standings.
-      const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
+      // CapId OR Name (not CapId alone) — a cadet entered by name only,
+      // before CAPID assignment (routine mid-encampment), otherwise fails
+      // this filter and, worse, every such CapId-less cadet collides on
+      // the same blank byCap key below, silently merging them into one
+      // shared entry and dropping the rest of their flight from Honor
+      // Flight standings the moment every cadet in it is still
+      // CapId-less. Same bug/fix as pages/overview.html's
+      // computeFlightStandings (see its matching comment).
+      const cadets = rosterRows.filter(r => (String(r.CapId || "").trim() || String(r.Name || "").trim()) && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       const byCap = {};
-      cadets.forEach(c => {
-        byCap[String(c.CapId)] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
+      cadets.forEach((c, i) => {
+        const key = String(c.CapId || "").trim() || `noCapId:${i}`;
+        byCap[key] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
@@ -1098,8 +1435,9 @@
       });
       honorCadetRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.hcRecs++; });
 
-      return cadets.map(c => {
-        const e = byCap[String(c.CapId)];
+      return cadets.map((c, i) => {
+        const key = String(c.CapId || "").trim() || `noCapId:${i}`;
+        const e = byCap[key];
         return {
           name: c.Name || c.CapId || "—",
           flight: c.Flight || "Unassigned",
@@ -1151,12 +1489,10 @@
     }
 
     function weightFieldHtml(m, mode) {
-      const dirText = m.dir < 0 ? "Lowers score" : "Raises score";
       return `
         <div class="field" style="margin-bottom:0;">
           <label for="w-${mode}-${m.id}">${esc(m.label)}</label>
           <input type="number" id="w-${mode}-${m.id}" min="0" max="100" step="1" value="${draftWeights[mode][m.id]}" data-weight="${m.id}" aria-label="${esc(m.label)} percent">
-          <span class="weight-field__dir ${m.dir < 0 ? "weight-field__dir--neg" : ""}">${dirText}</span>
         </div>`;
     }
 
@@ -1386,6 +1722,17 @@
         }
         refreshWeeklyIfActive();
       });
+
+      // Admin-only, and only needed to populate the manual add-entry
+      // card's Squadron picker — never fetched for an ordinary session,
+      // and doesn't block the rest of this page's load (same
+      // fire-and-forget pattern as notes.html's Auth.listPositions()).
+      if (isAdmin) {
+        Api.adminListStaffAccess().then(({ positions }) => {
+          staffAccessRows = positions || [];
+          if (isUnscoped) renderDaily();
+        }).catch(() => { /* the Squadron picker just stays empty; not worth toasting over */ });
+      }
 
       // Extra sheets used only by the Weekly standings. They never gate the
       // first render (the Daily view doesn't need them): each seeds its array
