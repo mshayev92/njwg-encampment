@@ -1804,25 +1804,47 @@
       if (activeMode === "weekly" && document.getElementById("standings-list")) renderStandingsList();
     }
 
+    // Roster/HonorCadet/HonorFlight each used to call renderContent()
+    // (or, for Roster, ran it directly from its OWN onFresh) the moment
+    // THAT ONE sheet's fetch landed — since a sheet's very first-ever
+    // fetch always counts as "changed" (see Api.getSheetCached), a cold
+    // load fired one full render+Shell.animateIn per sheet as it
+    // trickled in, instead of once. These flags gate a single combined
+    // renderIfReady(), same pattern as pages/notes.html's
+    // rosterLoaded/notesLoaded.
+    let rosterLoaded_ = false;
+    let hcLoaded_ = false;
+    let hfLoaded_ = false;
+
+    function renderIfReady_() {
+      if (!rosterLoaded_ || !hcLoaded_ || !hfLoaded_) return;
+      renderContent();
+    }
+
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
-        renderContent();
+        rosterLoaded_ = true;
+        renderIfReady_();
       });
       const hcHandle = Api.getSheetCached("HonorCadetRecommendations", (fresh) => {
         honorCadetRows = fresh.rows || [];
+        hcLoaded_ = true;
         if (document.getElementById("submissions-review-list")) {
           if (activeSubmissionsTab === "hc") renderSubmissionsDayTabs();
           renderSubmissionsReviewList();
         }
+        renderIfReady_();
         refreshWeeklyIfActive();
       });
       const hfHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
         honorFlightRows = fresh.rows || [];
+        hfLoaded_ = true;
         if (document.getElementById("submissions-review-list")) {
           if (activeSubmissionsTab === "hf") renderSubmissionsDayTabs();
           renderSubmissionsReviewList();
         }
+        renderIfReady_();
         refreshWeeklyIfActive();
       });
 
@@ -1830,10 +1852,14 @@
       // card's Squadron picker — never fetched for an ordinary session,
       // and doesn't block the rest of this page's load (same
       // fire-and-forget pattern as notes.html's Auth.listPositions()).
+      // Deliberately NOT part of renderIfReady_'s gate (unlike
+      // Roster/HC/HF above) — the Squadron picker just stays empty for
+      // a moment on a slow connection rather than delaying the whole
+      // page's first paint over a picker nobody's clicked into yet.
       if (isAdmin) {
         Api.adminListStaffAccess().then(({ positions }) => {
           staffAccessRows = positions || [];
-          if (isUnscoped) renderDaily();
+          if (isUnscoped && rosterLoaded_ && hcLoaded_ && hfLoaded_) renderDaily();
         }).catch(() => { /* the Squadron picker just stays empty; not worth toasting over */ });
       }
 
@@ -1857,18 +1883,13 @@
         rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         honorCadetRows = hcHandle.data.rows || [];
         honorFlightRows = hfHandle.data.rows || [];
+        rosterLoaded_ = hcLoaded_ = hfLoaded_ = true;
         renderContent();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
       return Promise.all([rosterHandle.ready, hcHandle.ready, hfHandle.ready])
-        .then(([rosterData, hcData, hfData]) => {
-          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
-          honorCadetRows = hcData.rows || [];
-          honorFlightRows = hfData.rows || [];
-          if (!allCachedNow) renderContent();
-        })
         .catch((err) => {
           if (!allCachedNow) {
             contentEl.innerHTML = `

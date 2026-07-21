@@ -2694,26 +2694,60 @@
       if (inspectionTabsIndicator) inspectionTabsIndicator.move();
     }
 
+    // Each sheet used to call renderActiveView() (and, for periods,
+    // renderPeriodsSection() too) directly from its OWN onFresh — since
+    // a sheet's very first-ever fetch always counts as "changed" (see
+    // Api.getSheetCached), a cold load fired one full render+
+    // Shell.animateIn PER SHEET as each trickled in (up to 6 in quick
+    // succession) instead of once, despite the allCachedNow gate below
+    // already coordinating the FIRST synchronous paint and the final
+    // Promise.all render. These flags gate a single combined
+    // renderIfReady_(), same pattern as pages/notes.html's
+    // rosterLoaded/notesLoaded.
+    let rosterLoaded_ = false;
+    let uniformLoaded_ = false;
+    let roomLoaded_ = false;
+    let ptLoaded_ = false;
+    let assessmentLoaded_ = false;
+    let periodsLoaded_ = false;
+
+    function renderIfReady_() {
+      if (!rosterLoaded_ || !uniformLoaded_ || !roomLoaded_ || !ptLoaded_ || !assessmentLoaded_ || !periodsLoaded_) return;
+      revealTabsBar();
+      renderPeriodsSection();
+      // Refresh (the header button re-invokes this same load()) has to
+      // redraw whatever's actually on screen, not always the Inspect
+      // tab's flight grid — renderActiveView() dispatches on currentView
+      // (Periods/Trends/Students/History/...), same as every other
+      // background revalidation in this file.
+      renderActiveView();
+    }
+
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
-        renderActiveView();
+        rosterLoaded_ = true;
+        renderIfReady_();
       });
       const uniformHandle = Api.getSheetCached("UniformInspections", (fresh) => {
         reindexInspections("uniform", fresh.rows || []);
-        renderActiveView();
+        uniformLoaded_ = true;
+        renderIfReady_();
       });
       const roomHandle = Api.getSheetCached("RoomInspections", (fresh) => {
         reindexInspections("room", fresh.rows || []);
-        renderActiveView();
+        roomLoaded_ = true;
+        renderIfReady_();
       });
       const ptHandle = Api.getSheetCached("PTInspections", (fresh) => {
         reindexInspections("pt", fresh.rows || []);
-        renderActiveView();
+        ptLoaded_ = true;
+        renderIfReady_();
       });
       const assessmentHandle = Api.getSheetCached("PhysicalAssessments", (fresh) => {
         reindexInspections("assessment", fresh.rows || []);
-        renderActiveView();
+        assessmentLoaded_ = true;
+        renderIfReady_();
       });
       const periodsHandle = Api.getSheetCached("InspectionPeriods", (fresh) => {
         inspectionPeriods = fresh.rows || [];
@@ -2725,19 +2759,14 @@
           selectedPeriodFlight = null;
           if (currentView === "period-detail" || currentView === "period-flight-detail") currentView = "periods-tiles";
         }
-        renderPeriodsSection();
-        renderActiveView();
+        periodsLoaded_ = true;
+        renderIfReady_();
       });
 
-      // The periods box (its own container, #periods-section) and the
-      // main flight grid used to load independently — periods rendered
-      // the instant ITS sheet was cached (or an empty "no periods
-      // scheduled" placeholder if it wasn't, even while the main grid
-      // was still spinning), so the two boxes visibly populated at
-      // different times instead of the page appearing all at once.
-      // allCachedNow gates BOTH behind every one of the four sheets
-      // being ready together — either synchronously right now (warm
-      // cache) or once the cold load's Promise.all resolves below.
+      // allCachedNow gates the first paint behind every one of the six
+      // sheets being ready together — either synchronously right now
+      // (warm cache) or once each one's own onFresh above has landed
+      // and renderIfReady_() sees every flag set.
       const allCachedNow = !!(rosterHandle.data && uniformHandle.data && roomHandle.data && ptHandle.data && assessmentHandle.data && periodsHandle.data);
 
       if (allCachedNow) {
@@ -2747,43 +2776,18 @@
         reindexInspections("pt", ptHandle.data.rows || []);
         reindexInspections("assessment", assessmentHandle.data.rows || []);
         inspectionPeriods = periodsHandle.data.rows || [];
-        revealTabsBar();
-        renderPeriodsSection();
-        // Refresh (the header button re-invokes this same load()) has to
-        // redraw whatever's actually on screen, not always the Inspect
-        // tab's flight grid — renderActiveView() dispatches on currentView
-        // (Periods/Trends/Students/History/...), same as every other
-        // background revalidation in this file.
-        renderActiveView();
+        rosterLoaded_ = uniformLoaded_ = roomLoaded_ = ptLoaded_ = assessmentLoaded_ = periodsLoaded_ = true;
+        renderIfReady_();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
+      // Drill-down state (selectedFlight/selectedStudent/
+      // selectedInspectionDate) is deliberately left alone on a
+      // refresh rather than reset, so re-invoking load() (the header's
+      // Refresh button) while drilled into a flight/student doesn't
+      // kick the viewer back out to the grid.
       return Promise.all([rosterHandle.ready, uniformHandle.ready, roomHandle.ready, ptHandle.ready, assessmentHandle.ready, periodsHandle.ready])
-        .then(([rosterData, uniformData, roomData, ptData, assessmentData, periodsData]) => {
-          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
-          reindexInspections("uniform", uniformData.rows || []);
-          reindexInspections("room", roomData.rows || []);
-          reindexInspections("pt", ptData.rows || []);
-          reindexInspections("assessment", assessmentData.rows || []);
-          inspectionPeriods = periodsData.rows || [];
-          // Only re-render here on a COLD load — when everything was
-          // already cached and rendered together above, this same
-          // "ready" resolving again on a warm load would otherwise
-          // re-render both a second time moments after the first, even
-          // when the revalidated data is identical (each handle's own
-          // subscriber above already re-renders on any ACTUAL change).
-          if (!allCachedNow) {
-            revealTabsBar();
-            renderPeriodsSection();
-            // See the allCachedNow branch above — same reasoning applies
-            // to a cold load's first paint. Drill-down state (selectedFlight/
-            // selectedStudent/selectedInspectionDate) is deliberately left
-            // alone rather than reset, so a refresh while drilled into a
-            // flight/student doesn't kick the viewer back out to the grid.
-            renderActiveView();
-          }
-        })
         .catch((err) => {
           if (!allCachedNow) {
             contentEl.innerHTML = `
