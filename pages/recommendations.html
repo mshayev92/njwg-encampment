@@ -964,7 +964,7 @@
     // The Daily view captures ONE recommendation per day; the Weekly view
     // steps back and ranks who's actually leading across every quantitative
     // data point the app collects — uniform/room/PT inspection scores,
-    // positive vs. concern observations, and the recommendations themselves.
+    // positive observations, and the recommendations themselves.
     // Honor Cadet ranks individual cadets; Honor Flight ranks each flight by
     // its cadets' combined (per-cadet average) data, which is what "honor
     // flight of the week" means here. Weights let a reviewer tune how much
@@ -987,21 +987,32 @@
 
     // dir: +1 raises the score, -1 lowers it (a bad signal). def: default
     // share, out of 100 — each mode's def values sum to 100.
+    //
+    // A concernObs metric (dir: -1, def: 15 in both modes) used to live
+    // here — removed at the user's request, alongside Concern
+    // Observations logging/display itself (see
+    // pages/observations.html's OBSERVATION_CATEGORIES comment). Its 15
+    // points were folded into Positive Observations (15 -> 30 in both
+    // modes) so the defaults still sum to 100; a device with its own
+    // saved custom weights (see WEIGHT_STORAGE_KEY) keeps whatever it
+    // had for every OTHER metric untouched — its old concernObs value is
+    // simply no longer read (RANKING_METRICS is the source of truth
+    // loadWeights() iterates), and the visible total will prompt for a
+    // re-balance to 100% before Save re-enables, same as any other
+    // metric change would.
     const RANKING_METRICS = {
       hc: [
         { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
         { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 20 },
-        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
-        { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 30 },
         { id: "hcRecs",     label: "Honor Cadet Nominations",  dir: 1,  def: 20 }
       ],
       hf: [
         { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
         { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 20 },
-        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 15 },
-        { id: "concernObs", label: "Concern Observations",     dir: -1, def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 30 },
         { id: "hfRecs",     label: "Honor Flight Nominations", dir: 1,  def: 20 }
       ]
     };
@@ -1074,18 +1085,18 @@
       const cadets = rosterRows.filter(r => String(r.CapId || "").trim() && flightVisible(r.Flight) && !Shell.isStaffRosterRow(r) && !Shell.isAtsFlight(r.Flight));
       const byCap = {};
       cadets.forEach(c => {
-        byCap[String(c.CapId)] = { uniform: [], room: [], assessment: [], posObs: 0, concernObs: 0, hcRecs: 0 };
+        byCap[String(c.CapId)] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
       roomRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.room.push(num(r.TotalPoints) / ROOM_ITEM_COUNT); });
       assessmentRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.assessment.push(num(r.Score) / ASSESSMENT_MAX_SCORE); });
+      // Positive only — Concern Observations no longer factors into
+      // standings at all (see RANKING_METRICS' comment above).
       observationRows.forEach(r => {
         const e = byCap[String(r.StudentCapId)];
         if (!e) return;
-        const s = String(r.Sentiment).toLowerCase();
-        if (s === "positive") e.posObs++;
-        else if (s === "concern") e.concernObs++;
+        if (String(r.Sentiment).toLowerCase() === "positive") e.posObs++;
       });
       honorCadetRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.hcRecs++; });
 
@@ -1099,7 +1110,6 @@
             room: mean(e.room),
             assessment: mean(e.assessment),
             posObs: e.posObs,
-            concernObs: e.concernObs,
             hcRecs: e.hcRecs
           }
         };
@@ -1127,7 +1137,7 @@
       return Object.keys(byFlight).sort().map(f => {
         const list = byFlight[f];
         const agg = {};
-        ["uniform", "room", "assessment", "posObs", "concernObs"].forEach(k => {
+        ["uniform", "room", "assessment", "posObs"].forEach(k => {
           const vals = list.map(m => m[k]).filter(v => v !== null && v !== undefined);
           agg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
         });
