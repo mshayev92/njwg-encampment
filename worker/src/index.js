@@ -1111,7 +1111,7 @@ async function ensureAutoCreatedTab(env, sheetName) {
     // pages/overview.html, so a device that reads this before anyone has
     // ever saved custom weights (or before this tab even exists) sees the
     // exact same scores either way.
-    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 25, 15, 30, 30, 20, "", ""]]);
+    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 15, 15, 15, 25, 20, 15, 15, "", ""]]);
   }
   if (sheetName === "Observations") {
     await ensureSheetExists(env, "Observations", OBSERVATION_COLUMNS);

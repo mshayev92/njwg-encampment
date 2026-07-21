@@ -1401,20 +1401,30 @@
     // loadWeights() iterates), and the visible total will prompt for a
     // re-balance to 100% before Save re-enables, same as any other
     // metric change would.
+    //
+    // "winner" (added alongside Nominations, not replacing it) is a
+    // count of how many times this cadet/flight has actually been
+    // picked Honor Cadet/Flight of the Day (IsWinner — see markWinner_
+    // above), distinct from hcRecs/hfRecs' count of times it was merely
+    // NOMINATED. Its 15 points came from trimming EOW Assessment
+    // 20->15, Positive Observations 30->25, and Nominations 20->15, so
+    // both modes' defaults still sum to 100.
     const RANKING_METRICS = {
       hc: [
         { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
-        { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 20 },
-        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 30 },
-        { id: "hcRecs",     label: "Honor Cadet Nominations",  dir: 1,  def: 20 }
+        { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 25 },
+        { id: "hcRecs",     label: "Honor Cadet Nominations",  dir: 1,  def: 15 },
+        { id: "winner",     label: "Honor Cadet of the Day",   dir: 1,  def: 15 }
       ],
       hf: [
         { id: "uniform",    label: "Uniform Inspections",      dir: 1,  def: 15 },
         { id: "room",       label: "Room Inspections",         dir: 1,  def: 15 },
-        { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 20 },
-        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 30 },
-        { id: "hfRecs",     label: "Honor Flight Nominations", dir: 1,  def: 20 }
+        { id: "assessment", label: "EOW Assessment",      dir: 1,  def: 15 },
+        { id: "posObs",     label: "Positive Observations",    dir: 1,  def: 25 },
+        { id: "hfRecs",     label: "Honor Flight Nominations", dir: 1,  def: 15 },
+        { id: "winner",     label: "Honor Flight of the Day",  dir: 1,  def: 15 }
       ]
     };
 
@@ -1495,7 +1505,7 @@
       const byCap = {};
       cadets.forEach((c, i) => {
         const key = String(c.CapId || "").trim() || `noCapId:${i}`;
-        byCap[key] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0 };
+        byCap[key] = { uniform: [], room: [], assessment: [], posObs: 0, hcRecs: 0, winner: 0 };
       });
 
       uniformRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.uniform.push(num(r.TotalPoints) / UNIFORM_ITEM_COUNT); });
@@ -1508,7 +1518,16 @@
         if (!e) return;
         if (String(r.Sentiment).toLowerCase() === "positive") e.posObs++;
       });
-      honorCadetRows.forEach(r => { const e = byCap[String(r.StudentCapId)]; if (e) e.hcRecs++; });
+      // hcRecs counts every nomination; winner counts only the ones an
+      // Administrator actually picked as that day's Honor Cadet (see
+      // isWinner/markWinner_ above) — a separate, rarer signal, not a
+      // subset display of the same number.
+      honorCadetRows.forEach(r => {
+        const e = byCap[String(r.StudentCapId)];
+        if (!e) return;
+        e.hcRecs++;
+        if (isWinner(r)) e.winner++;
+      });
 
       return cadets.map((c, i) => {
         const key = String(c.CapId || "").trim() || `noCapId:${i}`;
@@ -1521,7 +1540,8 @@
             room: mean(e.room),
             assessment: mean(e.assessment),
             posObs: e.posObs,
-            hcRecs: e.hcRecs
+            hcRecs: e.hcRecs,
+            winner: e.winner
           }
         };
       });
@@ -1538,11 +1558,18 @@
       const byFlight = {};
       cadetData.forEach(cd => { (byFlight[cd.flight] = byFlight[cd.flight] || []).push(cd.metrics); });
 
+      // hfByFlight counts every nomination; winnerByFlight counts only
+      // the ones an Administrator actually picked as that day's Honor
+      // Flight (see isWinner/markWinner_ above) — a separate, rarer
+      // signal from Nominations, not a subset display of the same
+      // number.
       const hfByFlight = {};
+      const winnerByFlight = {};
       honorFlightRows.forEach(r => {
         if (!flightVisible(r.Flight)) return;
         const f = r.Flight || "Unassigned";
         hfByFlight[f] = (hfByFlight[f] || 0) + 1;
+        if (isWinner(r)) winnerByFlight[f] = (winnerByFlight[f] || 0) + 1;
       });
 
       return Object.keys(byFlight).sort().map(f => {
@@ -1553,6 +1580,7 @@
           agg[k] = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
         });
         agg.hfRecs = hfByFlight[f] || 0;
+        agg.winner = winnerByFlight[f] || 0;
         return { name: f, cadetCount: list.length, metrics: agg };
       });
     }
