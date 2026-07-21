@@ -292,12 +292,21 @@ export async function verifyToken(env, token) {
   if (parts.length !== 2) throw new Error("Malformed token. Please sign in again.");
 
   const [payloadStr, signature] = parts;
-  const expectedSignature = await signPayload(env, payloadStr);
 
-  // Constant-time-ish compare via Web Crypto's verify would be nicer,
-  // but a straight string compare against an HMAC we just recomputed is
-  // the same approach the previous Apps Script version used.
-  if (signature !== expectedSignature) {
+  // Verify the signature with Web Crypto's HMAC verify rather than
+  // recomputing the HMAC and string-comparing it: verify is constant-time
+  // (no early-exit on the first differing byte, so it leaks nothing about
+  // the expected signature through timing) and is the correct primitive
+  // for the job. A malformed signature that won't even base64url-decode is
+  // simply an invalid token.
+  const key = await hmacKey(env);
+  let valid = false;
+  try {
+    valid = await crypto.subtle.verify("HMAC", key, base64UrlDecode(signature), new TextEncoder().encode(payloadStr));
+  } catch (err) {
+    valid = false;
+  }
+  if (!valid) {
     throw new Error("Invalid token. Please sign in again.");
   }
 
