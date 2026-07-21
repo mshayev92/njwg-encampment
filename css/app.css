@@ -1771,71 +1771,19 @@ button.date-field__day:hover {
 
 .hard-refresh-icon svg { width: 18px; height: 18px; }
 
-/* Tablet: compact side rail with a small label stacked UNDER each icon.
-   Tablets are the primary staff device and can't hover, so the themed
-   data-tooltips never appear there — a stacked label keeps the nav
-   self-documenting without the full 248px desktop rail. The rail is a
-   touch wider than a pure icon strip (96px) so the longest labels
-   ("Announcements", "Observations") sit on one line. */
+/* Narrow viewports (tablet width and down, any orientation): nav rail
+   becomes a slide-in drawer, opened by a hamburger toggle next to the
+   page title, instead of a docked side rail — see js/shell.js's
+   wireMobileNavDrawer_. There is no separate "compact icon-only rail"
+   state below the desktop width; once the full 248px rail doesn't fit,
+   it's the same drawer all the way down to the smallest phone, so the
+   drawer always carries its logo + unit name the same way the desktop
+   rail does (see the crest rule below) instead of silently losing its
+   branding at an in-between width.
+   See MOBILE_PORTRAIT_QUERY in js/shell.js and the matching blocks in
+   pages/overview.html / pages/recommendations.html — all four copies of
+   this query must stay identical. */
 @media (max-width: 1024px) {
-  .app-shell { grid-template-columns: 96px 1fr; }
-  .nav-rail { padding: var(--space-5) var(--space-2); }
-  /* Crest keeps just the mark — "NJWG Encampment" wouldn't fit at 96px. */
-  .nav-rail__crest-text { display: none; }
-  .nav-rail__crest { justify-content: center; }
-
-  .nav-rail__link {
-    flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: var(--space-1);
-    padding: var(--space-2) var(--space-1);
-    text-align: center;
-  }
-  .nav-rail__link-label {
-    display: block;
-    font-size: 10px;
-    line-height: 1.2;
-    white-space: normal;   /* allow a stubborn long label to wrap rather than clip */
-    overflow: visible;
-  }
-
-  /* Collapsing is a desktop affordance (toggle the wide rail to narrow);
-     the tablet rail is already compact, so a stray crest tap must NOT
-     blank the stacked labels the way it does on desktop. This overrides
-     the base .app-shell--collapsed rule (same specificity, later in
-     source) to keep the tablet rail stable regardless of that class. */
-  .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
-
-  .app-main { padding: var(--space-5); }
-}
-
-/* Mobile: nav rail becomes a slide-in drawer, opened by a hamburger
-   toggle next to the page title, instead of a docked side rail OR a
-   bottom tab bar — see js/shell.js's wireMobileNavDrawer_.
-   Plain max-width alone made a portrait tablet/large phone (e.g. an
-   iPad Mini at 768px wide) fall into the >720px tablet breakpoint
-   above instead — a desktop-shaped side rail squeezed onto a narrow
-   portrait screen, which is what read as "inherited from desktop and
-   works a little weird." Matching on orientation too (in addition to
-   the plain width for actual phones) means any portrait device up to
-   1024px wide gets this treatment instead.
-   A phone rotated to LANDSCAPE still needs the same treatment — it's
-   still a phone, just short and wide — but neither of the two clauses
-   above catches it (its width is comfortably over 720px, and its
-   orientation obviously isn't portrait), so it fell all the way through
-   to the tablet breakpoint above and got the SAME cramped icon-only
-   compact rail a real landscape tablet gets, on a screen far too short
-   and narrow for it. The third clause here catches that case instead by
-   height rather than orientation: any device short enough (≤500px
-   tall) to be a phone on its side, not wide enough (≤1024px) to be an
-   actual tablet's landscape dimensions (~768-834px tall), gets the
-   drawer too. See MOBILE_PORTRAIT_QUERY in js/shell.js and the matching
-   blocks in pages/overview.html / pages/recommendations.html — all four
-   copies of this query must stay identical. */
-@media (max-width: 720px),
-       (max-width: 1024px) and (orientation: portrait),
-       (max-width: 1024px) and (max-height: 500px) {
   .app-shell {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
@@ -1971,13 +1919,7 @@ button.date-field__day:hover {
   /* The crest (logo + unit name + its own divider) stays visible here,
      same as the desktop rail — the drawer is meant to read as "the same
      nav, presented as an overlay," not a stripped-down version missing
-     its branding. The tablet breakpoint above unconditionally hides
-     .nav-rail__crest-text and centers .nav-rail__crest (there's no room
-     for the unit name next to the icon in its 96px compact rail) — that
-     rule still matches here too (a phone is always <=1024px wide), so
-     it has to be explicitly undone rather than just left alone, or the
-     drawer would silently lose the unit name the exact same way it did
-     before this fix. Clicking the crest still toggles the collapse
+     its branding. Clicking the crest still toggles the collapse
      preference (same handler as desktop — see toggleNavCollapsed_ in
      js/shell.js), but that's harmless here: the drawer already ignores
      --nav-rail-width (it's a fixed-width overlay, not a grid column),
@@ -1988,9 +1930,7 @@ button.date-field__day:hover {
      is back above this breakpoint. A position that collapsed the
      desktop rail on a previous, wider visit still carries that same
      .app-shell--collapsed class into the drawer (it's a persisted
-     preference, not reset per viewport) — same reasoning the tablet
-     breakpoint already applies for its own link-label case, extended to
-     the crest text too. */
+     preference, not reset per viewport). */
   .nav-rail__crest-text { display: block; }
   .nav-rail__crest { justify-content: flex-start; }
   .app-shell--collapsed .nav-rail__crest-text,

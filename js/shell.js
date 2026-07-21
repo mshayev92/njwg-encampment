@@ -620,7 +620,7 @@ const Shell = (() => {
   // and popover positioning logic (the notifications popover and theme
   // menu both work out wherever their trigger currently sits on screen)
   // with no extra code.
-  const MOBILE_PORTRAIT_QUERY = "(max-width: 720px), (max-width: 1024px) and (orientation: portrait), (max-width: 1024px) and (max-height: 500px)";
+  const MOBILE_PORTRAIT_QUERY = "(max-width: 1024px)";
   const HEADER_QUICK_ROW_IDS = ["sync-indicator", "global-search-btn", "theme-menu-wrap", "announcements-bell-btn"];
   let mobilePortraitMql_ = null;
 
@@ -2349,11 +2349,24 @@ const Shell = (() => {
   // ---- Custom tooltip (replaces native title="") ------------------------
 
   let tooltipEl_ = null;
+  let tooltipsGloballyWired_ = false;
   function ensureTooltipEl_() {
     if (!tooltipEl_) {
       tooltipEl_ = document.createElement("div");
       tooltipEl_.className = "tooltip-bubble";
       document.body.appendChild(tooltipEl_);
+    }
+    if (!tooltipsGloballyWired_) {
+      tooltipsGloballyWired_ = true;
+      // A tooltip's trigger element can be torn out of the DOM (e.g. by an
+      // innerHTML re-render inside its own click handler) without ever
+      // firing mouseleave/blur, which would otherwise leave the bubble
+      // stuck open. Hide on any click/scroll instead of relying solely on
+      // the trigger's own events, and use the capture phase so this runs
+      // before the click's own handler can replace the DOM.
+      const hideAll = () => tooltipEl_ && tooltipEl_.classList.remove("is-visible");
+      document.addEventListener("click", hideAll, true);
+      document.addEventListener("scroll", hideAll, true);
     }
     return tooltipEl_;
   }
