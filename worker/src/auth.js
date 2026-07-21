@@ -249,14 +249,27 @@ function base64UrlDecode(str) {
   return bytes;
 }
 
-async function hmacKey(env) {
-  return crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(env.SESSION_SECRET),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign", "verify"]
-  );
+// Memoized per isolate: env.SESSION_SECRET is a binding that's constant
+// for the isolate's life, and the derived CryptoKey is reusable for both
+// sign and verify — so import it once and reuse it instead of re-importing
+// on every signPayload/verifyToken, which runs at least twice per request
+// (the device token and the session token are both verified). Caching the
+// Promise (rather than the resolved key) is race-free and idiomatic. A
+// SESSION_SECRET rotation replaces the isolate with a fresh one, so this
+// can never serve a key derived from a stale secret.
+let hmacKeyPromise = null;
+
+function hmacKey(env) {
+  if (!hmacKeyPromise) {
+    hmacKeyPromise = crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(env.SESSION_SECRET),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign", "verify"]
+    );
+  }
+  return hmacKeyPromise;
 }
 
 async function signPayload(env, payloadStr) {
