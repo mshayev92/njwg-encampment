@@ -848,7 +848,7 @@
       const openSquadrons = adminOpenHonorFlightSquadrons();
 
       return `
-        <div class="card" style="margin-bottom: var(--space-6);">
+        <div class="card" id="admin-add-entry-card" style="margin-bottom: var(--space-6);">
           <h3 class="section-label">Administrator: Add an Entry</h3>
           <p style="font-size: var(--fs-sm); color: var(--ink-600); margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-4);">
             Manually submits a Part I (Honor Cadet) or Part II (Honor Flight) recommendation on behalf of a flight/squadron — only offered for one that hasn't already submitted its own today.
@@ -862,6 +862,24 @@
           ${adminAddKind === "hc" ? renderAdminHonorCadetForm(openFlights) : renderAdminHonorFlightForm(openSquadrons)}
         </div>
       `;
+    }
+
+    /**
+     * Re-renders just #admin-add-entry-card in place, instead of a full
+     * renderDaily() — switching the Honor Cadet/Honor Flight kind toggle
+     * (or submitting) used to re-render the ENTIRE Daily view, which
+     * also re-ran wireSubmissionsReview()'s Shell.enhanceTabs() on the
+     * submissions-review tab bar further down the page; its move()
+     * always ends with active.scrollIntoView({block:"nearest"}), which
+     * yanked the whole page down to that bar even though nothing about
+     * it changed. A targeted re-render of just this card never touches
+     * that bar, so nothing scrolls.
+     */
+    function refreshAdminAddEntrySection() {
+      const card = document.getElementById("admin-add-entry-card");
+      if (!card) return;
+      card.outerHTML = renderAdminAddEntrySection();
+      wireAdminAddEntrySection();
     }
 
     function wireAdminHonorCadetForm() {
@@ -892,7 +910,7 @@
         // meantime), and nothing server-side re-verifies this today.
         if (!adminOpenHonorCadetFlights().some(f => f.toLowerCase() === flight.toLowerCase())) {
           Shell.showToast(`${flight} already has a Honor Cadet recommendation today.`, { type: "error" });
-          renderDaily();
+          refreshAdminAddEntrySection();
           return;
         }
 
@@ -915,7 +933,11 @@
         Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
 
         Shell.showToast(`Honor Cadet recommendation submitted for ${flight}.`, { type: "success" });
-        renderDaily();
+        refreshAdminAddEntrySection();
+        if (document.getElementById("submissions-review-list")) {
+          if (activeSubmissionsTab === "hc") renderSubmissionsDayTabs();
+          renderSubmissionsReviewList();
+        }
       });
     }
 
@@ -930,7 +952,7 @@
 
       squadronSelect.addEventListener("change", () => {
         adminAddSquadron = squadronSelect.value;
-        renderDaily();
+        refreshAdminAddEntrySection();
       });
 
       submitBtn.addEventListener("click", () => {
@@ -940,7 +962,7 @@
 
         if (!adminOpenHonorFlightSquadrons().some(p => String(p.Position).toLowerCase() === squadron.toLowerCase())) {
           Shell.showToast(`${squadron} already has a Honor Flight recommendation today.`, { type: "error" });
-          renderDaily();
+          refreshAdminAddEntrySection();
           return;
         }
 
@@ -963,7 +985,11 @@
 
         adminAddSquadron = null;
         Shell.showToast(`Honor Flight recommendation submitted for ${squadron}.`, { type: "success" });
-        renderDaily();
+        refreshAdminAddEntrySection();
+        if (document.getElementById("submissions-review-list")) {
+          if (activeSubmissionsTab === "hf") renderSubmissionsDayTabs();
+          renderSubmissionsReviewList();
+        }
       });
     }
 
@@ -975,7 +1001,7 @@
           const kind = btn.dataset.adminAddKind;
           if (kind === adminAddKind) return;
           adminAddKind = kind;
-          renderDaily();
+          refreshAdminAddEntrySection();
         });
       });
 
@@ -1042,7 +1068,12 @@
             ${r.TeamworkLeadershipConduct ? `<div class="rec-history-row__note"><strong>Teamwork/Leadership:</strong> ${esc(r.TeamworkLeadershipConduct)}</div>` : ""}
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
-          ${isAdmin ? `<button type="button" class="btn btn--ghost" data-mark-winner-id="${esc(r.Id)}" data-mark-winner-kind="${kind}">${winner ? "Unmark" : "Mark as Winner"}</button>` : ""}
+          ${isAdmin ? `
+            <div style="display:flex; flex-direction:column; gap: var(--space-2);">
+              <button type="button" class="btn btn--ghost" data-mark-winner-id="${esc(r.Id)}" data-mark-winner-kind="${kind}">${winner ? "Unmark" : "Mark as Winner"}</button>
+              <button type="button" class="btn btn--ghost" data-delete-submission-id="${esc(r.Id)}" data-delete-submission-kind="${kind}" style="color: var(--red-600);">Delete</button>
+            </div>
+          ` : ""}
         </div>`;
     }
 
@@ -1076,6 +1107,42 @@
       renderSubmissionsReviewList();
     }
 
+    /**
+     * Deletes ANY flight's/squadron's submission outright — unlike the
+     * flight/squadron's own daily section (Edit only, overwrites its own
+     * row in place), there was no way for anyone to remove a submission
+     * from the record at all before this; Administrator now can, same
+     * "remove locally + a few seconds to Undo before it actually reaches
+     * the server" pattern every other delete in this app uses (see
+     * pages/observations.html's wireHistoryDeleteHandlers). Gated
+     * admin-only server-side too — see handleDelete's HonorCadet/
+     * HonorFlightRecommendations branch in worker/src/index.js.
+     */
+    function deleteSubmission_(kind, row) {
+      const sheet = kind === "hc" ? "HonorCadetRecommendations" : "HonorFlightRecommendations";
+      const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+      const removedIndex = rows.findIndex(r => String(r.Id) === String(row.Id));
+      const removed = rows[removedIndex];
+      rows.splice(removedIndex, 1);
+      Api.setCachedRows(sheet, rows);
+      if (activeSubmissionsTab === kind) renderSubmissionsDayTabs();
+      renderSubmissionsReviewList();
+
+      Shell.showUndoToast(
+        "Recommendation removed.",
+        () => Api.deleteRow(sheet, { Id: row.Id }, { matchColumns: ["Id"] }),
+        {
+          onUndo: () => {
+            if (!removed) return;
+            rows.splice(removedIndex, 0, removed);
+            Api.setCachedRows(sheet, rows);
+            if (activeSubmissionsTab === kind) renderSubmissionsDayTabs();
+            renderSubmissionsReviewList();
+          }
+        }
+      );
+    }
+
     function wireSubmissionsReviewList() {
       if (!isAdmin) return;
       document.querySelectorAll("[data-mark-winner-id]").forEach(btn => {
@@ -1084,6 +1151,14 @@
           const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
           const row = rows.find(r => String(r.Id) === String(btn.dataset.markWinnerId));
           if (row) markWinner_(kind, row);
+        });
+      });
+      document.querySelectorAll("[data-delete-submission-id]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const kind = btn.dataset.deleteSubmissionKind;
+          const rows = kind === "hc" ? honorCadetRows : honorFlightRows;
+          const row = rows.find(r => String(r.Id) === String(btn.dataset.deleteSubmissionId));
+          if (row) deleteSubmission_(kind, row);
         });
       });
     }
