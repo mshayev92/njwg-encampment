@@ -156,7 +156,12 @@ const Auth = (() => {
 
     const session = getSession();
     if (!session || !session.token) {
-      const returnTo = encodeURIComponent(window.location.pathname);
+      // Must include the query string, not just the path — a deep link
+      // like notes.html?subject=<cadet> (see Observations' "Start a
+      // note" button) otherwise loses its subject the moment a session
+      // redirect through login is involved, landing on a blank note
+      // form instead of one pre-filled for that cadet.
+      const returnTo = encodeURIComponent(window.location.pathname + window.location.search);
       window.location.href = `${window.APP_BASE_PATH}index.html?returnTo=${returnTo}`;
       throw new Error("No session — redirecting to login.");
     }
