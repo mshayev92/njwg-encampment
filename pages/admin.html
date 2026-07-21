@@ -981,7 +981,12 @@
     function renderSettingsTab() {
       tabsBarEl.style.display = "";
       if (adminTabsIndicator) adminTabsIndicator.move();
-      const cfg = workerConfig || DEFAULT_WORKER_CONFIG;
+      // Merged with defaults (not a plain `||` fallback) so a field the
+      // deployed Worker doesn't know about yet — e.g. adminRateLimitPerMinute,
+      // added after some devices' cached workerConfig was last fetched —
+      // still shows its default instead of rendering that one input blank
+      // (value="undefined" reads as empty) while everything else works fine.
+      const cfg = { ...DEFAULT_WORKER_CONFIG, ...(workerConfig || {}) };
       const personalDays = Math.round(cfg.deviceTokenLifetimeHoursPersonal / 24);
 
       contentEl.innerHTML = `
