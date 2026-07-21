@@ -225,6 +225,19 @@
     }
     .obs-history-row__delete:hover { color: var(--red-600); }
 
+    /* Notes about this cadet are pulled in from a completely separate
+       sheet/schema (see notesForStudent()) and can carry neutral or
+       negative content, unlike the Positive-only rows above — the left
+       accent + "Note" tag keep the two visually distinct so a skim of
+       the list can't mistake one for the other. */
+    .obs-history-row--note { border-left: 3px solid var(--indigo-500); }
+    .obs-history-row--note .obs-history-row__tag { color: var(--indigo-500); }
+    .obs-hint {
+      font-size: var(--fs-2xs);
+      color: var(--ink-600);
+      margin: 0 0 var(--space-3);
+    }
+
     /* ---- Trends tab ---- */
     .obs-volume-grid {
       display: grid;
@@ -403,6 +416,7 @@
 
     let rosterRows = [];
     let observationRows = [];
+    let noteRows = [];
     let selectedFlight = null;
     let selectedStudent = null;
     let currentTab = "log"; // "log" | "trends"
@@ -428,6 +442,43 @@
       });
       Object.values(map).forEach(list => list.sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp)));
       return map;
+    }
+
+    /**
+     * Notes has no CapId — a note's Subject is free text (see
+     * pages/notes.html's flightForSubject, the same exact-name match
+     * this mirrors). Matched by cadet name rather than id, so a note
+     * only shows up here when its Subject exactly names this cadet.
+     * These are surfaced read-only, in their own section below the
+     * Positive-only Observations history — they're a different sheet
+     * with a different (unscored, any-sentiment) meaning, not more
+     * observations, so the two lists are never merged into one feed.
+     */
+    function notesForStudent(name) {
+      if (!name) return [];
+      const target = String(name).trim().toLowerCase();
+      if (!target) return [];
+      return noteRows
+        .filter(n => String(n.Subject || "").trim().toLowerCase() === target)
+        .sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
+    }
+
+    /** Strips a note's rich-text HTML body down to plain text for this compact card — same approach as this page's own CSV export helper. */
+    function noteBodyToText_(html) {
+      const t = document.createElement("template");
+      t.innerHTML = html || "";
+      return (t.content.textContent || "").replace(/\s+/g, " ").trim();
+    }
+
+    function noteRowHtml(n) {
+      return `
+        <div class="obs-history-row obs-history-row--note">
+          <div class="obs-history-row__body">
+            <div class="obs-history-row__tag">Note</div>
+            ${n.Body ? `<div class="obs-history-row__note">${esc(noteBodyToText_(n.Body))}</div>` : ""}
+            <div class="obs-history-row__meta">${esc(n.AuthorPosition) || "—"} · ${esc(Shell.formatDateTime(n.Timestamp))}</div>
+          </div>
+        </div>`;
     }
 
     // ---- Log tab: flight grid -> student list -> student detail ----------
@@ -613,6 +664,7 @@
     function renderStudentDetail() {
       currentView = "detail";
       const history = (observationsByStudent()[String(selectedStudent.CapId)] || []);
+      const notes = notesForStudent(selectedStudent.Name);
 
       contentEl.innerHTML = `
         <div class="detail-header">
@@ -629,6 +681,7 @@
 
         <div class="obs-category">
           <div class="obs-category__label">Custom note</div>
+          <p class="obs-hint">Always logs as a <strong>Positive</strong> observation — there's no neutral/negative option here. For anything that isn't positive, use a Note instead (button below).</p>
           <div class="obs-note-form">
             <textarea id="custom-note-input" aria-label="Custom observation note" placeholder="Anything that doesn't fit a preset tag…"></textarea>
             <button class="btn btn--primary" id="save-custom-note-btn">Log</button>
@@ -640,6 +693,15 @@
           <div class="obs-history-list" id="obs-history-list">
             ${history.length ? history.map(historyRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No observations logged yet for this cadet.</p>`}
           </div>
+        </div>
+
+        <div class="obs-category">
+          <div class="obs-category__label">Notes About This Cadet</div>
+          <p class="obs-hint">Separate from the Positive-only observations above — Notes can hold neutral or negative feedback and don't count toward Flight Standings scoring.</p>
+          <div class="obs-history-list" id="obs-notes-list">
+            ${notes.length ? notes.map(noteRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No notes yet for this cadet.</p>`}
+          </div>
+          <a class="btn btn--ghost" style="margin-top: var(--space-3);" href="${esc(window.APP_BASE_PATH)}pages/notes.html?subject=${encodeURIComponent(selectedStudent.Name || "")}">+ Start a note about ${esc(selectedStudent.Name) || "this cadet"}</a>
         </div>
       `;
 
@@ -677,6 +739,12 @@
       if (listEl) {
         listEl.innerHTML = history.length ? history.map(historyRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No observations logged yet for this cadet.</p>`;
         wireHistoryDeleteHandlers();
+      }
+
+      const notesListEl = document.getElementById("obs-notes-list");
+      if (notesListEl) {
+        const notes = notesForStudent(selectedStudent.Name);
+        notesListEl.innerHTML = notes.length ? notes.map(noteRowHtml).join("") : `<p style="font-size: var(--fs-sm); color: var(--ink-600); margin:0;">No notes yet for this cadet.</p>`;
       }
     }
 
@@ -882,22 +950,28 @@
         observationRows = fresh.rows || [];
         renderActiveTab();
       });
+      const notesHandle = Api.getSheetCached("Notes", (fresh) => {
+        noteRows = fresh.rows || [];
+        renderActiveTab();
+      });
 
-      const allCachedNow = !!(rosterHandle.data && obsHandle.data);
+      const allCachedNow = !!(rosterHandle.data && obsHandle.data && notesHandle.data);
 
       if (allCachedNow) {
         rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         observationRows = obsHandle.data.rows || [];
+        noteRows = notesHandle.data.rows || [];
         revealTabsBar();
         renderActiveTab();
       } else {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
-      return Promise.all([rosterHandle.ready, obsHandle.ready])
-        .then(([rosterData, obsData]) => {
+      return Promise.all([rosterHandle.ready, obsHandle.ready, notesHandle.ready])
+        .then(([rosterData, obsData, notesData]) => {
           rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
           observationRows = obsData.rows || [];
+          noteRows = notesData.rows || [];
           if (!allCachedNow) {
             selectedFlight = null;
             selectedStudent = null;

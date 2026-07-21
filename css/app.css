@@ -1930,9 +1930,18 @@ button.date-field__day:hover {
      is back above this breakpoint. A position that collapsed the
      desktop rail on a previous, wider visit still carries that same
      .app-shell--collapsed class into the drawer (it's a persisted
-     preference, not reset per viewport). */
-  .nav-rail__crest-text { display: block; }
-  .nav-rail__crest { justify-content: flex-start; }
+     preference, not reset per viewport) — and, on first paint, the
+     html.nav-rail-collapsed class the inline pre-hydration script in
+     each page's <head> sets from the same persisted preference (see
+     the comment on that selector's base-styles definition). Both must
+     be overridden here at matching specificity (html.<class> selector,
+     not just .<class>), or the drawer silently loses its unit name on
+     first paint whenever a wider, earlier visit had left the desktop
+     rail collapsed. */
+  .nav-rail__crest-text,
+  html.nav-rail-collapsed .nav-rail__crest-text { display: block; }
+  .nav-rail__crest,
+  html.nav-rail-collapsed .nav-rail__crest { justify-content: flex-start; }
   .app-shell--collapsed .nav-rail__crest-text,
   .app-shell--collapsed .nav-rail__link-label { opacity: 1; width: auto; overflow: visible; }
   .app-shell--collapsed .nav-rail__crest { justify-content: flex-start; gap: var(--space-3); }
