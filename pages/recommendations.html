@@ -1069,7 +1069,7 @@
             ${r.AdditionalNotes ? `<div class="rec-history-row__note"><strong>Notes:</strong> ${esc(r.AdditionalNotes)}</div>` : ""}
           </div>
           ${isAdmin ? `
-            <div style="display:flex; flex-direction:column; gap: var(--space-2);">
+            <div style="display:flex; gap: var(--space-2); flex-shrink:0;">
               <button type="button" class="btn btn--ghost" data-mark-winner-id="${esc(r.Id)}" data-mark-winner-kind="${kind}">${winner ? "Unmark" : "Mark as Winner"}</button>
               <button type="button" class="btn btn--ghost" data-delete-submission-id="${esc(r.Id)}" data-delete-submission-kind="${kind}" style="color: var(--red-600);">Delete</button>
             </div>
