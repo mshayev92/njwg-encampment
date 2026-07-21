@@ -666,15 +666,35 @@ const Shell = (() => {
   // backdrop behind it, the same pattern as every other overlay in this
   // file (announcements popover, search overlay, modals).
   const MOBILE_NAV_OPEN_CLASS = "mobile-nav-open";
+  // Carries the CSS transition that slides the drawer in/out (see
+  // .nav-rail--animatable in css/app.css) — deliberately NOT present by
+  // default. Simply shrinking a desktop window across the breakpoint
+  // makes .nav-rail's computed transform jump from its desktop value
+  // (none) to this breakpoint's closed default (translateX(-100%)) —
+  // if that jump were transitioned, the rail would visibly sit on
+  // screen, painted in this breakpoint's own (light) background, for
+  // the whole transition duration before sliding off — the "flashes
+  // white before becoming the hamburger" bug. Added only in response to
+  // an actual open/close (see markNavRailAnimatable_ below), so a bare
+  // resize/rotation across the breakpoint always renders the closed
+  // drawer instantly, with nothing to animate.
+  const NAV_RAIL_ANIMATABLE_CLASS = "nav-rail--animatable";
   let mobileNavBackdropEl_ = null;
 
+  function markNavRailAnimatable_() {
+    const rail = document.getElementById("nav-rail");
+    if (rail) rail.classList.add(NAV_RAIL_ANIMATABLE_CLASS);
+  }
+
   function closeMobileNavDrawer_() {
+    markNavRailAnimatable_();
     document.documentElement.classList.remove(MOBILE_NAV_OPEN_CLASS);
     const toggleBtn = document.getElementById("mobile-nav-toggle-btn");
     if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "false");
   }
 
   function openMobileNavDrawer_() {
+    markNavRailAnimatable_();
     document.documentElement.classList.add(MOBILE_NAV_OPEN_CLASS);
     const toggleBtn = document.getElementById("mobile-nav-toggle-btn");
     if (toggleBtn) toggleBtn.setAttribute("aria-expanded", "true");
@@ -708,6 +728,21 @@ const Shell = (() => {
     // to the page already active wouldn't otherwise close it.
     const rail = document.getElementById("nav-rail");
     if (rail) rail.addEventListener("click", (e) => { if (e.target.closest(".nav-rail__link")) closeMobileNavDrawer_(); });
+
+    // Clears NAV_RAIL_ANIMATABLE_CLASS the moment the device/window
+    // leaves this breakpoint, so the NEXT time it's entered (e.g.
+    // shrinking the window again later) starts from the same
+    // never-animated-yet state that avoids the white-flash bug above —
+    // otherwise a class added by an earlier open/close in THIS visit to
+    // the breakpoint would still be sitting on the rail, and the
+    // desktop-to-breakpoint transform jump would animate (and flash)
+    // all over again on the next resize.
+    const mql = window.matchMedia(MOBILE_PORTRAIT_QUERY);
+    const onBreakpointChange = () => {
+      if (!mql.matches && rail) rail.classList.remove(NAV_RAIL_ANIMATABLE_CLASS);
+    };
+    if (mql.addEventListener) mql.addEventListener("change", onBreakpointChange);
+    else if (mql.addListener) mql.addListener(onBreakpointChange);
   }
 
   // ---- Theme menu (header, between search and the bell) — same
