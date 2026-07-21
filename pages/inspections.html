@@ -2607,10 +2607,12 @@
           </div>
           `}
 
+          ${isAssessmentTrend ? "" : `
           <div class="card" style="margin-top: var(--space-4);">
             <h3 class="section-label">Average score over time, by flight</h3>
             ${renderProgressionChart(trendsType)}
           </div>
+          `}
         ` : `
           <div class="state-message">
             <div class="state-message__icon">📊</div>

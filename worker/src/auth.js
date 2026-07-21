@@ -200,7 +200,13 @@ export const BLACK_FLAG_COLUMNS = ["RecordKey", "Active", "UpdatedBy", "UpdatedA
 // logging/display itself (see the OBSERVATION_COLUMNS comment above).
 // The column stays here unchanged; a future pass restoring either
 // feature can read/write it exactly as before.
-export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "Assessment", "PositiveObservations", "ConcernObservations", "UpdatedBy", "UpdatedAt"];
+// HonorFlightNominations/Winner mirror the same-named components in
+// Recommendations' own RANKING_METRICS.hf (see pages/overview.html's
+// DEFAULT_STANDINGS_WEIGHTS comment) — the two pages' weight SETS are
+// meant to match exactly, even though this sheet (shared, admin-only)
+// and Recommendations' own per-device localStorage weights stay two
+// separate configurations.
+export const FLIGHT_STANDINGS_WEIGHTS_COLUMNS = ["RecordKey", "Uniform", "Room", "Assessment", "PositiveObservations", "ConcernObservations", "HonorFlightNominations", "Winner", "UpdatedBy", "UpdatedAt"];
 // One row per logged observation — deliberately append-only (no
 // matchColumns on write from pages/observations.html), so tapping the
 // same tag on the same student twice in a week records two separate

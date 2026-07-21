@@ -364,13 +364,19 @@
     // its own flight's wingman teams whether or not it also has
     // edit-roster (most flight positions won't — adding/removing
     // cadets and editing leadership stays edit-roster/Administrator-
-    // only). A squadron position (two owned flights) or CCT/
-    // Administrator (no owned flight) still sees the groups read-only.
-    // The backend enforces this independently — see
-    // assertRosterWriteAccess in worker/src/index.js — this is purely
-    // the UI-side reflection of the same rule.
+    // only). A squadron position (two owned flights) still sees the
+    // groups read-only, since Wingman below requires exactly one owned
+    // flight — UNLESS the session also has edit-roster, which the
+    // backend (resolveRosterWrite in worker/src/index.js) already lets
+    // bypass that one-flight requirement entirely: edit-roster returns
+    // null immediately there, skipping the "exactly one flight" check
+    // that only applies to a flight-scoped, non-edit-roster session.
+    // Without the `|| canEditRoster` below, an Administrator (blank/
+    // "all" Flights, so ownFlights.length is 0, never 1) could edit
+    // every OTHER Roster field but never see the Wingman control at
+    // all, despite the backend already permitting the write.
     const isFlightProfile = ownFlights.length === 1;
-    const canEditWingman = isFlightProfile;
+    const canEditWingman = isFlightProfile || canEditRoster;
 
     let allRows = [];
     let editingCapId = null; // CapId string being edited, or null for "adding new"

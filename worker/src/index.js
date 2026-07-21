@@ -1021,6 +1021,18 @@ async function handleDelete(env, body, session) {
   assertPermission(sheetName, "write");
   assertPageWriteAccess(sheetName, session);
 
+  // No page owns editing another position's submission away (a flight/
+  // squadron can only ever overwrite/edit its OWN recommendation in
+  // place, via handleWrite — there's no delete UI for anyone but an
+  // Administrator, see pages/recommendations.html's admin-only Delete
+  // button). SHEET_PERMISSIONS' write: "any" would otherwise let any
+  // authenticated session delete ANY flight's/squadron's row via a
+  // direct API call; require admin explicitly, same pattern as the
+  // IsWinner write-gate in handleWrite above.
+  if (sheetName === "HonorCadetRecommendations" || sheetName === "HonorFlightRecommendations") {
+    assertAdmin(session);
+  }
+
   assertReasonableRowPayload(body.matchValues || body.row);
   assertReasonableMatchColumns(body.matchColumns);
 
@@ -1099,7 +1111,7 @@ async function ensureAutoCreatedTab(env, sheetName) {
     // pages/overview.html, so a device that reads this before anyone has
     // ever saved custom weights (or before this tab even exists) sees the
     // exact same scores either way.
-    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 25, 15, 30, 30, 20, "", ""]]);
+    await ensureSheetExists(env, "FlightStandingsWeights", FLIGHT_STANDINGS_WEIGHTS_COLUMNS, [["singleton", 15, 15, 15, 25, 20, 15, 15, "", ""]]);
   }
   if (sheetName === "Observations") {
     await ensureSheetExists(env, "Observations", OBSERVATION_COLUMNS);

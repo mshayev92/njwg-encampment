@@ -886,11 +886,17 @@
     // Today's Inspections progress below) purely as a record, not a
     // scoring input anywhere.
     //
-    // Deliberately a FIXED formula, NOT the tunable weights Recommendations'
-    // own Weekly Standings uses (see RANKING_METRICS there) — those are a
-    // reviewer's personal judgment call for picking an Honor Flight and are
-    // stored per-device; this is meant to read exactly the same way for
-    // every position, every time, with no hidden per-device configuration.
+    // The metric SET and default shares here are meant to match
+    // Recommendations' own Honor Flight weekly ranking exactly (see
+    // RANKING_METRICS.hf there) — same components (Uniform/Room/EOW
+    // Assessment/Positive Observations/Nominations/Winner), same
+    // default 15/15/15/25/15/15 split. What's still deliberately
+    // different: this is stored in the shared FlightStandingsWeights
+    // sheet (admin-only writable, applies to every position at once),
+    // NOT Recommendations' own per-device localStorage
+    // (njwg_award_weights_v2) — a reviewer's personal in-progress
+    // slider tweak on Recommendations never touches this card, and vice
+    // versa, even though the two now use the identical metric list.
 
     const STANDINGS_UNIFORM_ITEM_COUNT = 9; // see SCORE_ITEMS in pages/inspections.html
     const STANDINGS_ROOM_ITEM_COUNT = 9;    // see ROOM_SCORE_ITEMS in pages/inspections.html
@@ -922,9 +928,9 @@
     // FlightStandingsWeights sheet's ConcernObservations column and
     // worker/src's support for it are untouched; this just no longer
     // reads or writes it.
-    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 25, room: 15, assessment: 30, posObs: 30 };
+    const DEFAULT_STANDINGS_WEIGHTS = { uniform: 15, room: 15, assessment: 15, posObs: 25, hfRecs: 15, winner: 15 };
 
-    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, assessment, posObs } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
+    /** Maps a raw FlightStandingsWeights sheet row to the { uniform, room, assessment, posObs, hfRecs, winner } shape computeFlightStandings expects, falling back to the default for any blank/missing cell. */
     function weightsFromRow(row) {
       if (!row) return { ...DEFAULT_STANDINGS_WEIGHTS };
       const pick = (col, fallback) => {
@@ -942,14 +948,16 @@
         uniform: pick("Uniform", DEFAULT_STANDINGS_WEIGHTS.uniform),
         room: pick("Room", DEFAULT_STANDINGS_WEIGHTS.room),
         assessment: pick("Assessment", DEFAULT_STANDINGS_WEIGHTS.assessment),
-        posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs)
+        posObs: pick("PositiveObservations", DEFAULT_STANDINGS_WEIGHTS.posObs),
+        hfRecs: pick("HonorFlightNominations", DEFAULT_STANDINGS_WEIGHTS.hfRecs),
+        winner: pick("Winner", DEFAULT_STANDINGS_WEIGHTS.winner)
       };
     }
 
     function num_(v) { return Number(v) || 0; }
     function mean_(arr) { return arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null; }
 
-    function computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights) {
+    function computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, honorFlightRows, weights) {
       // Deliberately NOT scoped by isFlightAllowed/allowedFlights, unlike
       // every other per-cadet computation on this page (Today's
       // Inspections, the "happening now" banner, etc.) — this is a shared
@@ -1002,6 +1010,21 @@
       const byFlight = {};
       Object.values(byCap).forEach(c => { (byFlight[c.flight] = byFlight[c.flight] || []).push(c); });
 
+      // Nominations count every Honor Flight recommendation for that
+      // flight; Winner counts only the ones an Administrator actually
+      // picked as that day's Honor Flight (IsWinner — see
+      // pages/recommendations.html's markWinner_) — a separate, rarer
+      // signal from Nominations, not a subset of the same number. Both
+      // are unbounded counts (like Positive Observations), so they're
+      // normalized against the cohort's own max below, same as posObs.
+      const hfRecsByFlight = {};
+      const winnerByFlight = {};
+      honorFlightRows.forEach(r => {
+        const flight = r.Flight || "Unassigned";
+        hfRecsByFlight[flight] = (hfRecsByFlight[flight] || 0) + 1;
+        if (String(r.IsWinner || "").toLowerCase() === "true") winnerByFlight[flight] = (winnerByFlight[flight] || 0) + 1;
+      });
+
       const flights = Object.keys(byFlight).sort().map(flight => {
         const members = byFlight[flight];
         return {
@@ -1010,20 +1033,28 @@
           uniformAvg: mean_(members.flatMap(m => m.uniform)),
           roomAvg: mean_(members.flatMap(m => m.room)),
           assessmentAvg: mean_(members.flatMap(m => m.assessment)),
-          posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length
+          posPerCadet: members.reduce((s, m) => s + m.posObs, 0) / members.length,
+          hfRecs: hfRecsByFlight[flight] || 0,
+          winner: winnerByFlight[flight] || 0
         };
       });
       if (!flights.length) return [];
 
       const maxPos = Math.max(0, ...flights.map(f => f.posPerCadet));
+      const maxHfRecs = Math.max(0, ...flights.map(f => f.hfRecs));
+      const maxWinner = Math.max(0, ...flights.map(f => f.winner));
 
       return flights.map(f => {
         const posNorm = maxPos > 0 ? f.posPerCadet / maxPos : 0;
+        const hfRecsNorm = maxHfRecs > 0 ? f.hfRecs / maxHfRecs : 0;
+        const winnerNorm = maxWinner > 0 ? f.winner / maxWinner : 0;
         const score = Math.max(0, Math.round(
           weights.uniform * (f.uniformAvg || 0) +
           weights.room * (f.roomAvg || 0) +
           weights.assessment * (f.assessmentAvg || 0) +
-          weights.posObs * posNorm
+          weights.posObs * posNorm +
+          weights.hfRecs * hfRecsNorm +
+          weights.winner * winnerNorm
         ));
         return { ...f, score };
       }).sort((a, b) => b.score - a.score);
@@ -1038,13 +1069,15 @@
       return `
         <div style="background: var(--surface-sunken); border-radius: var(--radius-md); padding: var(--space-4); margin: var(--space-3) 0 var(--space-4);">
           <p style="font-size: var(--fs-xs); color: var(--ink-600); margin: 0 0 var(--space-3);">
-            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale. Changes apply for every position, immediately.
+            How much each factor counts toward a flight's score. Uniform/Room/EOW Assessment are each already a 0-100% rate and count on that same scale; Positive Observations/Nominations/Honor Flight of the Day are unbounded counts, scaled against whichever flight currently has the most. Changes apply for every position, immediately.
           </p>
           <div class="weights-fields-grid">
             <div class="field" style="margin-bottom:0;"><label for="w-uniform">Uniform</label><input type="number" id="w-uniform" min="0" max="100" value="${esc(weights.uniform)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-room">Room</label><input type="number" id="w-room" min="0" max="100" value="${esc(weights.room)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-assessment">EOW Assessment</label><input type="number" id="w-assessment" min="0" max="100" value="${esc(weights.assessment)}"></div>
             <div class="field" style="margin-bottom:0;"><label for="w-pos">Positive Observations</label><input type="number" id="w-pos" min="0" max="100" value="${esc(weights.posObs)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-hf-recs">Honor Flight Nominations</label><input type="number" id="w-hf-recs" min="0" max="100" value="${esc(weights.hfRecs)}"></div>
+            <div class="field" style="margin-bottom:0;"><label for="w-winner">Honor Flight of the Day</label><input type="number" id="w-winner" min="0" max="100" value="${esc(weights.winner)}"></div>
           </div>
           <div style="display:flex; gap: var(--space-3); margin-top: var(--space-4);">
             <button class="btn btn--primary" id="save-standings-weights-btn">Save</button>
@@ -1053,8 +1086,8 @@
         </div>`;
     }
 
-    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights) {
-      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, weights);
+    function renderFlightStandingsCard(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, honorFlightRows, weights) {
+      const standings = computeFlightStandings(rosterRows, uniformRows, roomRows, assessmentRows, observationRows, honorFlightRows, weights);
       if (!standings.length && !editingStandingsWeights) return "";
 
       return `
@@ -1140,6 +1173,7 @@
     let lastAssessmentRows = null;
     let lastInspectionPeriods = null;
     let lastObservationRows = null;
+    let lastHonorFlightRows = null;
     let lastStandingsWeights = { ...DEFAULT_STANDINGS_WEIGHTS };
     // These come from independent sources (Api's sheet cache x8, a
     // direct National Weather Service API fetch) that used to each trigger their OWN
@@ -1158,10 +1192,11 @@
     let assessmentLoaded = false;
     let periodsLoaded = false;
     let observationsLoaded = false;
+    let honorFlightLoaded = false;
     let standingsWeightsLoaded = false;
 
     function renderAll() {
-      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !assessmentLoaded || !periodsLoaded || !observationsLoaded || !standingsWeightsLoaded) {
+      if (!rosterLoaded || !scheduleLoaded || !weatherLoaded || !uniformLoaded || !roomLoaded || !ptLoaded || !assessmentLoaded || !periodsLoaded || !observationsLoaded || !honorFlightLoaded || !standingsWeightsLoaded) {
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading overview…</p></div>`;
         return;
       }
@@ -1173,7 +1208,7 @@
             ${renderActivityCard(lastScheduleRows)}
           </div>
           ${renderInspectionProgressCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastPtRows || [], lastInspectionPeriods || [])}
-          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastAssessmentRows || [], lastObservationRows || [], lastStandingsWeights)}
+          ${renderFlightStandingsCard(lastRosterRows || [], lastUniformRows || [], lastRoomRows || [], lastAssessmentRows || [], lastObservationRows || [], lastHonorFlightRows || [], lastStandingsWeights)}
           ${renderObservationsPulseCard(lastObservationRows || [])}
         </div>
       `;
@@ -1201,7 +1236,9 @@
             Uniform: Number(document.getElementById("w-uniform").value) || 0,
             Room: Number(document.getElementById("w-room").value) || 0,
             Assessment: Number(document.getElementById("w-assessment").value) || 0,
-            PositiveObservations: Number(document.getElementById("w-pos").value) || 0
+            PositiveObservations: Number(document.getElementById("w-pos").value) || 0,
+            HonorFlightNominations: Number(document.getElementById("w-hf-recs").value) || 0,
+            Winner: Number(document.getElementById("w-winner").value) || 0
           };
           saveBtn.disabled = true;
           saveBtn.textContent = "Saving…";
@@ -1360,6 +1397,22 @@
         observationsLoaded = true;
         // See the matching comment on Roster's ready.finally() above.
         if (!observationsHadCache) renderAll();
+      });
+
+      // Honor Flight nominations/winner picks — Flight Standings' weights
+      // are meant to match Recommendations' own Honor Flight weekly
+      // ranking exactly (see DEFAULT_STANDINGS_WEIGHTS' comment), which
+      // needs this sheet the same way Recommendations does.
+      const honorFlightHandle = Api.getSheetCached("HonorFlightRecommendations", (fresh) => {
+        lastHonorFlightRows = fresh.rows || [];
+        renderAll();
+      });
+      const honorFlightHadCache = !!honorFlightHandle.data;
+      if (honorFlightHandle.data) { lastHonorFlightRows = honorFlightHandle.data.rows || []; honorFlightLoaded = true; }
+      honorFlightHandle.ready.catch(() => { /* surfaced by the Recommendations page itself if it matters */ }).finally(() => {
+        honorFlightLoaded = true;
+        // See the matching comment on Roster's ready.finally() above.
+        if (!honorFlightHadCache) renderAll();
       });
 
       // A BlackFlagStatus read used to live here too, feeding the inline
