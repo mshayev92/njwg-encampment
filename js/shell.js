@@ -3445,8 +3445,23 @@ const Shell = (() => {
       // The active tab can be scrolled out of view (e.g. clicked via
       // keyboard, or newly active after a re-render) — bring it back
       // into the visible portion of the strip so the indicator is
-      // never sitting off-screen.
-      active.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // never sitting off-screen. Adjusting THIS container's own
+      // scrollLeft directly (rather than active.scrollIntoView, which
+      // was used here previously) keeps this strictly horizontal and
+      // scoped to the tab strip itself — scrollIntoView walks every
+      // scrollable ancestor, including the page, and would happily
+      // scroll the WHOLE PAGE vertically to satisfy block: "nearest"
+      // whenever a tall page put this tab bar below the fold on first
+      // render (e.g. pages/recommendations.html's admin-only add-entry
+      // card pushing the submissions-review tab bar down) — the
+      // "jumps to the middle of the page on load" bug this replaces.
+      const containerRect = container.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      if (activeRect.left < containerRect.left) {
+        container.scrollLeft -= (containerRect.left - activeRect.left);
+      } else if (activeRect.right > containerRect.right) {
+        container.scrollLeft += (activeRect.right - containerRect.right);
+      }
     }
 
     move();
