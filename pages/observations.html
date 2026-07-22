@@ -972,18 +972,49 @@
       });
     });
 
+    // Roster/Observations/Notes each used to call renderActiveTab()
+    // directly from their OWN onFresh — since a sheet's very first-ever
+    // fetch always counts as "changed" (see Api.getSheetCached), a cold
+    // load fired one full render+Shell.animateIn per sheet as it
+    // trickled in (up to 3), instead of once. These flags gate a single
+    // combined renderIfReady_(), same pattern as pages/notes.html's
+    // rosterLoaded/notesLoaded.
+    let rosterLoaded_ = false;
+    let obsLoaded_ = false;
+    let notesLoaded_ = false;
+    // Set when this load() call started from a genuinely cold cache
+    // (nothing to render synchronously) — renderIfReady_() only resets
+    // the current flight/student selection once, the first time
+    // everything finishes loading from that cold state, matching the
+    // original behavior of the (now-removed) Promise.all handler below.
+    let pendingReset_ = false;
+
+    function renderIfReady_() {
+      if (!rosterLoaded_ || !obsLoaded_ || !notesLoaded_) return;
+      if (pendingReset_) {
+        pendingReset_ = false;
+        selectedFlight = null;
+        selectedStudent = null;
+      }
+      revealTabsBar();
+      renderActiveTab();
+    }
+
     function load() {
       const rosterHandle = Api.getSheetCached("Roster", (fresh) => {
         rosterRows = Shell.normalizeRosterRows(fresh.rows || []);
-        renderActiveTab();
+        rosterLoaded_ = true;
+        renderIfReady_();
       });
       const obsHandle = Api.getSheetCached("Observations", (fresh) => {
         observationRows = fresh.rows || [];
-        renderActiveTab();
+        obsLoaded_ = true;
+        renderIfReady_();
       });
       const notesHandle = Api.getSheetCached("Notes", (fresh) => {
         noteRows = fresh.rows || [];
-        renderActiveTab();
+        notesLoaded_ = true;
+        renderIfReady_();
       });
 
       const allCachedNow = !!(rosterHandle.data && obsHandle.data && notesHandle.data);
@@ -992,24 +1023,15 @@
         rosterRows = Shell.normalizeRosterRows(rosterHandle.data.rows || []);
         observationRows = obsHandle.data.rows || [];
         noteRows = notesHandle.data.rows || [];
+        rosterLoaded_ = obsLoaded_ = notesLoaded_ = true;
         revealTabsBar();
         renderActiveTab();
       } else {
+        pendingReset_ = true;
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading…</p></div>`;
       }
 
       return Promise.all([rosterHandle.ready, obsHandle.ready, notesHandle.ready])
-        .then(([rosterData, obsData, notesData]) => {
-          rosterRows = Shell.normalizeRosterRows(rosterData.rows || []);
-          observationRows = obsData.rows || [];
-          noteRows = notesData.rows || [];
-          if (!allCachedNow) {
-            selectedFlight = null;
-            selectedStudent = null;
-            revealTabsBar();
-            renderActiveTab();
-          }
-        })
         .catch((err) => {
           if (!allCachedNow) {
             contentEl.innerHTML = `
