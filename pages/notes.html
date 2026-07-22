@@ -769,10 +769,33 @@
       // Positions for the "send to" selector — fetched once, doesn't
       // need Api's sheet-cache/re-render machinery like Roster/Notes
       // above (it barely ever changes and isn't shown until the form
-      // opens), so a plain re-render-on-arrival is enough.
+      // opens), so a plain re-render-on-arrival is enough. Landing
+      // AFTER the form is already open/being filled out (e.g. a
+      // prefilled Subject from Observations' "Start a note" link, which
+      // opens the form immediately) used to call render() — a full
+      // contentEl.innerHTML replace + Shell.animateIn — a second time,
+      // moments after the page's own first paint: a jarring second
+      // entrance animation for a value that's only shown in one <select>
+      // inside a form that's already fully rendered. Update just that
+      // select's options in place instead.
       Auth.listPositions().then(({ positions }) => {
         allPositions = positions.slice().sort((a, b) => a.localeCompare(b));
-        if (showForm || editingNoteId !== null) render();
+        const toPositionSelect = document.getElementById("to-position-select");
+        if (toPositionSelect) {
+          const existing = editingNoteId !== null ? notes.find(n => String(n.Id) === String(editingNoteId)) : null;
+          const currentToPosition = existing ? String(existing.ToPosition || "") : toPositionSelect.value;
+          toPositionSelect.innerHTML = `
+            <option value="">— General note, no specific recipient —</option>
+            ${allPositions.filter(p => p.toLowerCase() !== String(session?.Position || "").toLowerCase()).map(p => `
+              <option value="${esc(p)}" ${currentToPosition.toLowerCase() === p.toLowerCase() ? "selected" : ""}>${esc(p)}</option>
+            `).join("")}
+          `;
+          Shell.enhanceSelect(toPositionSelect);
+        }
+        // Neither adding nor editing is open — nothing on screen
+        // references allPositions yet; whichever renders the form next
+        // (show-note-form-btn's click handler, or startEditNote) reads
+        // the now-updated array fresh.
       }).catch(() => { /* the "send to" selector just stays empty; not worth toasting over */ });
 
       try {

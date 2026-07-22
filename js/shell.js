@@ -950,9 +950,13 @@ const Shell = (() => {
       if (cached) render(cached.rows || []);
       else showLoading();
 
-      return ready.then((data) => {
-        if (!cached) render(data.rows || []);
-      }).catch((err) => {
+      // No render call here on success — onFresh above already fires
+      // for a sheet's very first-ever fetch (see Api.getSheetCached's
+      // "changed" check, which is unconditionally true the first time),
+      // so a cold load (cached === null) used to render() TWICE for the
+      // exact same data: once from onFresh, then again here a moment
+      // later, replaying Shell.animateIn back to back.
+      return ready.catch((err) => {
         if (!cached) showError(err.message);
         showToast(err.message, { type: "error" });
       });

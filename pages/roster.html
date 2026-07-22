@@ -1237,10 +1237,15 @@
         contentEl.innerHTML = `<div class="state-message"><div class="spinner"></div><p>Loading roster…</p></div>`;
       }
 
-      return ready.then((data) => {
-        allRows = Shell.normalizeRosterRows(data.rows || []);
-        if (!cached) { selectedFlight = null; render(allRows); }
-      }).catch((err) => {
+      // No render call here on success — onFresh above already fires
+      // for a sheet's very first-ever fetch (Api.getSheetCached's
+      // "changed" check is unconditionally true then), so a cold load
+      // (cached === null) used to render() TWICE for the exact same
+      // data: once from onFresh, then again here a moment later,
+      // replaying Shell.animateIn back to back. selectedFlight is
+      // already null at this point either way (its own `let` starts
+      // null, and this is a fresh page load, not a persisted value).
+      return ready.catch((err) => {
         if (!cached) {
           contentEl.innerHTML = `
             <div class="state-message">

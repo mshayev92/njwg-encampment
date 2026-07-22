@@ -2543,11 +2543,13 @@
               <button type="button" class="${trendsType === t ? "is-selected" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
             `).join("")}
           </div>
+          ${isAssessmentTrend ? "" : `
           <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
           <select id="trends-basis-select">
             <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
             ${periodsForType.map(p => `<option value="${esc(p.Id)}" data-sublabel="${esc(p.Date)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))}</option>`).join("")}
           </select>
+          `}
         </div>
 
         <h3 class="section-label">
