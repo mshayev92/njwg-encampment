@@ -886,6 +886,7 @@ html.nav-rail-collapsed .nav-rail__crest {
   justify-content: center;
   gap: var(--space-3);
   padding: var(--space-8) var(--space-5);
+  min-height: calc(100vh - var(--header-height) - var(--space-6) * 2);
   text-align: center;
   color: var(--ink-600);
 }
