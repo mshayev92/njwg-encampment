@@ -1856,10 +1856,22 @@
       // Roster/HC/HF above) — the Squadron picker just stays empty for
       // a moment on a slow connection rather than delaying the whole
       // page's first paint over a picker nobody's clicked into yet.
+      //
+      // This resolves as its own separate network round trip, so it can
+      // easily land a few milliseconds AFTER renderIfReady_() already
+      // did the page's real first paint — calling the full renderDaily()
+      // here (a whole contentEl.innerHTML replace + Shell.animateIn)
+      // used to re-render (and re-animate) the ENTIRE page a second
+      // time just to fill in one dropdown's options. Use the same
+      // targeted, non-animating refresh the scroll-jump fix already
+      // introduced for this exact card instead — and only if the page
+      // has actually rendered once already (the card exists); if it
+      // hasn't yet, the eventual first render already reads
+      // staffAccessRows fresh, so there's nothing left to do here.
       if (isAdmin) {
         Api.adminListStaffAccess().then(({ positions }) => {
           staffAccessRows = positions || [];
-          if (isUnscoped && rosterLoaded_ && hcLoaded_ && hfLoaded_) renderDaily();
+          if (isUnscoped && document.getElementById("admin-add-entry-card")) refreshAdminAddEntrySection();
         }).catch(() => { /* the Squadron picker just stays empty; not worth toasting over */ });
       }
 
