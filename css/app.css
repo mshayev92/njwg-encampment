@@ -740,6 +740,16 @@ html.nav-rail-collapsed .nav-rail__crest {
   font-size: var(--fs-sm);
   font-weight: 600;
   cursor: pointer;
+  /* A handful of pages (Notes' "+ Add a Note", Admin's "+ Add Position")
+     render a bare top-level button as a direct child of one of the
+     `.app-main > [id$="-content"]` flex columns (see that rule below) —
+     without this, the container's default cross-axis stretch expands
+     the button to the full row width instead of its natural
+     content-hugging size, which is what inline-flex already gives it
+     everywhere else. Explicit .btn { width: 100% } rules (e.g. the
+     mobile modal actions) still win over this since they set width
+     directly rather than relying on stretch. */
+  align-self: flex-start;
   /* .btn is also used on plain <a> elements (e.g. Observations' "Start
      a note" link) — without this, those pick up the browser's default
      link underline that a <button> never has. */
@@ -918,12 +928,16 @@ html.nav-rail-collapsed .nav-rail__crest {
   flex-direction: column;
 }
 
-/* Only takes effect inside one of the flex wrappers above — flex
-   properties are no-ops outside a flex container, so a state-message
-   nested inside a `.card` or a plain wrapper div (e.g. a flight
-   section's "No cadets in this flight") stays exactly as compact as it
-   always was. */
-.state-message:only-child {
+/* :last-child (not just :only-child) so this also covers pages like
+   Notes ("+ Add a Note" button, then the feed) and Admin's Staff Access
+   tab ("+ Add Position", then the list) — a persistent action button
+   stays above as its own flex item, and the state-message below it
+   still fills and centers in whatever space is left. Only takes effect
+   inside one of the flex wrappers above — flex properties are no-ops
+   outside a flex container, so a state-message nested inside a `.card`
+   or a plain wrapper div (e.g. a flight section's "No cadets in this
+   flight") stays exactly as compact as it always was. */
+.state-message:last-child {
   flex: 1;
 }
 
@@ -1646,6 +1660,14 @@ button.date-field__day:hover {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+  /* Every tabs bar (Schedule's day tabs, Admin's Staff/Log/Settings
+     tabs, Inspections' Inspect/Periods/Trends, etc.) is a direct child
+     of either .app-main or one of the `.app-main > [id$="-content"]`
+     flex columns — same as .btn above, it would otherwise get
+     stretched to the full row width by the container's default
+     cross-axis stretch instead of staying the compact pill it's
+     designed as (inline-flex, hugging its tab labels). */
+  align-self: flex-start;
 }
 
 .tabs.is-dragging {
