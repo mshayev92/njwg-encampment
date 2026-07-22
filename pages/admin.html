@@ -268,6 +268,13 @@
       color: var(--ink-600);
     }
     .log-summary strong { color: var(--red-600); }
+
+    /* Everything below the (persisted, see renderLogTab) filter tabs bar —
+       its own flex column so a lone .state-message ("No login activity
+       recorded yet") inside it still gets the app-wide flex:1 + center
+       treatment (see .state-message:last-child in css/app.css), same as
+       when this content was a direct child of #admin-content itself. */
+    #admin-log-data { display: flex; flex-direction: column; flex: 1; }
   </style>
 </head>
 <body>
@@ -352,6 +359,7 @@
     let editing = null;          // Position being edited, "" for a new one, or null when the form is closed
     let bulkGroup = null;         // "flights" | "ats" | null — which group's bulk "Edit all" form is open, mutually exclusive with `editing`
     let failuresOnly = false;
+    let logFilterIndicator = null;
     // Real flight names, sourced from the Roster tab (read is "any"
     // signed-in position per SHEET_PERMISSIONS, so this works regardless
     // of whether "roster" is in the Admin position's own Pages) — drives
@@ -917,44 +925,60 @@
       const shown = failuresOnly ? loginEntries.filter(e => !isSuccess(e)) : loginEntries;
       const failures = loginEntries.filter(e => !isSuccess(e)).length;
 
-      contentEl.innerHTML = `
-        <div class="log-toolbar">
-          <div class="tabs" role="group" aria-label="Filter">
-            <button class="tabs__tab ${failuresOnly ? "" : "is-active"}" data-filter="all">All</button>
-            <button class="tabs__tab ${failuresOnly ? "is-active" : ""}" data-filter="failures">Failures Only</button>
+      // The All/Failures Only filter's own tabs bar is only rebuilt the
+      // first time (or if a background refresh/tab-switch tore contentEl
+      // down entirely) — same "keep the indicator's DOM node alive so it
+      // actually slides" pattern as Inspections' Trends type toggle
+      // (renderTrends). Rebuilding it on every filter click, like this
+      // used to, destroyed the indicator each time, so it never slid —
+      // it just snapped from a fresh 0.
+      const filterStillMounted = !!document.getElementById("admin-log-filter-tabs");
+      if (!filterStillMounted) {
+        contentEl.innerHTML = `
+          <div class="log-toolbar">
+            <div class="tabs" id="admin-log-filter-tabs" role="group" aria-label="Filter">
+              <button class="tabs__tab ${failuresOnly ? "" : "is-active"}" data-filter="all">All</button>
+              <button class="tabs__tab ${failuresOnly ? "is-active" : ""}" data-filter="failures">Failures Only</button>
+            </div>
+            <div class="log-summary" id="admin-log-summary"></div>
           </div>
-          <div class="log-summary">
-            Showing ${shown.length} of ${logTotal} recorded · <strong>${failures}</strong> failed attempt${failures === 1 ? "" : "s"} in this window
-          </div>
-        </div>
+          <div id="admin-log-data"></div>
+        `;
+        logFilterIndicator = Shell.enhanceTabs(document.getElementById("admin-log-filter-tabs"));
+        contentEl.querySelectorAll("[data-filter]").forEach(b =>
+          b.addEventListener("click", () => { failuresOnly = b.dataset.filter === "failures"; renderLogTab(); }));
+      } else {
+        document.querySelectorAll("#admin-log-filter-tabs .tabs__tab").forEach(b =>
+          b.classList.toggle("is-active", b.dataset.filter === (failuresOnly ? "failures" : "all")));
+        if (logFilterIndicator) logFilterIndicator.move();
+      }
 
-        ${shown.length ? `
-          <table class="data-table">
-            <thead>
-              <tr><th>Time</th><th>Type</th><th>Identifier</th><th>Result</th></tr>
-            </thead>
-            <tbody>
-              ${shown.map(e => {
-                const ok = isSuccess(e);
-                const when = e.Timestamp ? Shell.formatDateTime(e.Timestamp) : "—";
-                return `
-                  <tr>
-                    <td data-label="Time" class="mono">${esc(when)}</td>
-                    <td data-label="Type">${esc(e.Type || "—")}</td>
-                    <td data-label="Identifier">${esc(e.Identifier || "—")}</td>
-                    <td data-label="Result"><span class="badge ${ok ? "badge--success" : "badge--error"}">${ok ? "Success" : "Failed"}</span></td>
-                  </tr>`;
-              }).join("")}
-            </tbody>
-          </table>
-        ` : `
-          <div class="state-message"><div class="state-message__icon">🪵</div><p>No login activity recorded yet.</p></div>
-        `}
+      document.getElementById("admin-log-summary").innerHTML =
+        `Showing ${shown.length} of ${logTotal} recorded · <strong>${failures}</strong> failed attempt${failures === 1 ? "" : "s"} in this window`;
+
+      document.getElementById("admin-log-data").innerHTML = shown.length ? `
+        <table class="data-table">
+          <thead>
+            <tr><th>Time</th><th>Type</th><th>Identifier</th><th>Result</th></tr>
+          </thead>
+          <tbody>
+            ${shown.map(e => {
+              const ok = isSuccess(e);
+              const when = e.Timestamp ? Shell.formatDateTime(e.Timestamp) : "—";
+              return `
+                <tr>
+                  <td data-label="Time" class="mono">${esc(when)}</td>
+                  <td data-label="Type">${esc(e.Type || "—")}</td>
+                  <td data-label="Identifier">${esc(e.Identifier || "—")}</td>
+                  <td data-label="Result"><span class="badge ${ok ? "badge--success" : "badge--error"}">${ok ? "Success" : "Failed"}</span></td>
+                </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      ` : `
+        <div class="state-message"><div class="state-message__icon">🪵</div><p>No login activity recorded yet.</p></div>
       `;
 
-      contentEl.querySelectorAll("[data-filter]").forEach(b =>
-        b.addEventListener("click", () => { failuresOnly = b.dataset.filter === "failures"; renderLogTab(); }));
-      Shell.enhanceTabs(contentEl.querySelector(".log-toolbar .tabs"));
       Shell.animateIn(contentEl);
     }
 

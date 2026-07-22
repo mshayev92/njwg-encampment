@@ -358,6 +358,7 @@
     // State for the admin-only manual add-entry card (renderAdminAddEntrySection).
     let adminAddKind = "hc"; // "hc" (Honor Cadet) | "hf" (Honor Flight) — which form the card shows
     let adminAddSquadron = null; // currently selected Squadron in the hf form, so its own Flight options survive a re-render
+    let adminAddEntryTabsIndicator = null;
 
     // Daily = the per-day recommendation forms/review (below); Weekly = the
     // aggregated standings that rank top contenders across every data point.
@@ -866,7 +867,7 @@
             <button type="button" class="tabs__tab${adminAddKind === "hf" ? " is-active" : ""}" data-admin-add-kind="hf">Honor Flight</button>
           </div>
 
-          ${adminAddKind === "hc" ? renderAdminHonorCadetForm(openFlights) : renderAdminHonorFlightForm(openSquadrons)}
+          <div id="admin-add-entry-form">${adminAddKind === "hc" ? renderAdminHonorCadetForm(openFlights) : renderAdminHonorFlightForm(openSquadrons)}</div>
         </div>
       `;
     }
@@ -887,6 +888,26 @@
       if (!card) return;
       card.outerHTML = renderAdminAddEntrySection();
       wireAdminAddEntrySection();
+    }
+
+    /**
+     * Lighter-weight than refreshAdminAddEntrySection: only rebuilds the
+     * form below the Honor Cadet/Honor Flight tabs, leaving the tabs bar
+     * (and its sliding indicator) untouched — same "keep the indicator's
+     * DOM node alive so it actually slides" pattern as Inspections'
+     * Trends type toggle. Used when switching kind, where nothing about
+     * the tabs bar itself needs to change; refreshAdminAddEntrySection's
+     * full rebuild is still used after a submit or squadron change,
+     * where the card's description/open-flights list can also be stale.
+     */
+    function refreshAdminAddEntryForm() {
+      const formEl = document.getElementById("admin-add-entry-form");
+      if (!formEl) return;
+      const openFlights = adminOpenHonorCadetFlights();
+      const openSquadrons = adminOpenHonorFlightSquadrons();
+      formEl.innerHTML = adminAddKind === "hc" ? renderAdminHonorCadetForm(openFlights) : renderAdminHonorFlightForm(openSquadrons);
+      if (adminAddKind === "hc") wireAdminHonorCadetForm();
+      else wireAdminHonorFlightForm();
     }
 
     function wireAdminHonorCadetForm() {
@@ -1003,19 +1024,22 @@
     function wireAdminAddEntrySection() {
       if (!isAdmin) return;
 
-      // Same sliding-indicator treatment as every other tabs bar (see
-      // Shell.enhanceTabs) — refreshAdminAddEntrySection() replaces this
-      // whole card via outerHTML each time, so there's no indicator to
-      // reposition; a fresh call here just builds a new one on the new
-      // DOM node, same as any other tabs bar's first render.
-      Shell.enhanceTabs(document.getElementById("admin-add-entry-tabs"));
+      // A fresh indicator on this fresh DOM node — refreshAdminAddEntrySection()
+      // (still used after a submit/squadron change) replaces this whole
+      // card via outerHTML, so there's genuinely no previous indicator
+      // to reuse there. The kind-toggle click below deliberately does
+      // NOT go through that path, so the SAME indicator persists across
+      // clicks and actually slides — see refreshAdminAddEntryForm.
+      adminAddEntryTabsIndicator = Shell.enhanceTabs(document.getElementById("admin-add-entry-tabs"));
 
       document.querySelectorAll("[data-admin-add-kind]").forEach(btn => {
         btn.addEventListener("click", () => {
           const kind = btn.dataset.adminAddKind;
           if (kind === adminAddKind) return;
           adminAddKind = kind;
-          refreshAdminAddEntrySection();
+          document.querySelectorAll("[data-admin-add-kind]").forEach(b => b.classList.toggle("is-active", b === btn));
+          if (adminAddEntryTabsIndicator) adminAddEntryTabsIndicator.move();
+          refreshAdminAddEntryForm();
         });
       });
 
