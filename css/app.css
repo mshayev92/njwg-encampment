@@ -625,6 +625,15 @@ html.nav-rail-collapsed .nav-rail__crest {
      names, tables, CAPIDs) push the column past the viewport. Pinning
      it to 0 lets the column shrink and keeps content within bounds. */
   min-width: 0;
+  /* A flex column (rather than plain block layout) so the page's
+     `*-content` wrapper below can flex:1 and grow to fill whatever
+     vertical space is left after any page-header/toolbar/tabs-bar above
+     it — see the `.app-main > [id$="-content"]` rule below. app-main's
+     own height still comes from the grid row's stretch (its parent,
+     .app-shell, uses grid-template-rows: header-height 1fr), unaffected
+     by switching its own display to flex here. */
+  display: flex;
+  flex-direction: column;
 }
 
 /* Attribution/contact note appended to every page by Shell.init() — see
@@ -890,18 +899,32 @@ html.nav-rail-collapsed .nav-rail__crest {
   color: var(--ink-600);
 }
 
-/* When a state-message is the sole content of its container (full-page
-   loading/error/empty states), stretch it to fill the content area so
-   the flex centering actually centers vertically. Nested states inside
-   cards or multi-element layouts are excluded via :only-child. */
-.state-message:only-child {
-  min-height: calc(100vh - var(--header-height) - var(--space-6) * 2);
+/* Every page's `*-content` wrapper (#schedule-content, #admin-content,
+   #page-content, etc.) is a direct child of .app-main, sometimes
+   alongside other page chrome above it — a page-header, a toolbar, a
+   tabs bar that's hidden (0px) until data loads. Making that wrapper a
+   flex column which grows to fill whatever vertical space is ACTUALLY
+   left is what lets a lone state-message inside it center correctly no
+   matter how much (or how little, or how much of it is currently
+   hidden) chrome sits above — instead of guessing with a fixed vh()
+   calculation, which overshot on pages with that extra chrome and
+   pushed the icon lower than the real available space (e.g. Schedule's
+   "No schedule items yet"). Normal (non-empty-state) content is
+   unaffected: without a sibling flex-grow, it still just renders at its
+   natural height at the top, same as plain block layout. */
+.app-main > [id$="-content"] {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Card-level loading spinners are only-child of the card but should
-   stay compact — reset the full-page min-height. */
-.card .state-message:only-child {
-  min-height: 0;
+/* Only takes effect inside one of the flex wrappers above — flex
+   properties are no-ops outside a flex container, so a state-message
+   nested inside a `.card` or a plain wrapper div (e.g. a flight
+   section's "No cadets in this flight") stays exactly as compact as it
+   always was. */
+.state-message:only-child {
+  flex: 1;
 }
 
 .state-message__icon { font-size: var(--fs-3xl); opacity: 0.4; }
