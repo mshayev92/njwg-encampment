@@ -380,28 +380,6 @@
       align-items: center;
     }
 
-    .trends-type-toggle {
-      display: inline-flex;
-      border: 1px solid var(--line);
-      border-radius: var(--radius-md);
-      overflow: hidden;
-    }
-
-    .trends-type-toggle button {
-      padding: var(--space-2) var(--space-4);
-      font-size: var(--fs-sm);
-      font-weight: 600;
-      border: none;
-      background: var(--surface);
-      color: var(--ink-600);
-      cursor: pointer;
-    }
-
-    .trends-type-toggle button.is-selected {
-      background: var(--indigo-900);
-      color: var(--on-brand);
-    }
-
     .trends-toolbar select {
       font-family: var(--font-body);
       font-size: var(--fs-sm);
@@ -987,7 +965,7 @@
         <div class="card" style="margin-bottom: var(--space-5);">
           <div style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3); flex-wrap:wrap;">
             <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin: 0;">Inspection Periods</h3>
-            ${canEditInspections ? `<button class="btn btn--ghost" id="add-period-btn">${showPeriodForm ? "Cancel" : "+ Schedule Period"}</button>` : ""}
+            ${canEditInspections ? `<button class="btn btn--ghost" id="add-period-btn">+ Schedule Period</button>` : ""}
           </div>
           <div id="periods-form-slot"></div>
           <div style="margin-top: var(--space-4);">
@@ -1019,14 +997,15 @@
 
       const addBtn = document.getElementById("add-period-btn");
       if (addBtn) {
+        // Always opens a fresh "new period" form — same "+ Add X" pattern
+        // as Schedule's own "+ Add Item" button, which never itself
+        // toggles into a Cancel. Closing (whether adding or editing) is
+        // the form's own Cancel button's job (renderPeriodForm below) —
+        // this used to ALSO turn into its own "Cancel" when the form was
+        // open, showing two redundant Cancel buttons on screen at once.
         addBtn.addEventListener("click", () => {
-          if (editingPeriodId !== null) {
-            // Switch from editing an existing period to a fresh "new period" form.
-            editingPeriodId = null;
-            showPeriodForm = true;
-          } else {
-            showPeriodForm = !showPeriodForm;
-          }
+          editingPeriodId = null;
+          showPeriodForm = true;
           renderPeriodsSection();
         });
       }
@@ -1058,10 +1037,10 @@
           <div class="field" style="margin-bottom:0; min-width: 160px;"><label for="period-date">Date</label><input type="date" id="period-date" value="${esc(existing?.Date || "")}"></div>
           <div class="field" style="margin-bottom:0;">
             <label>Type</label>
-            <div class="trends-type-toggle" id="period-type-toggle">
-              <button type="button" data-type="uniform-ocp">OCP/ABU</button>
-              <button type="button" data-type="uniform-blues">Blues</button>
-              <button type="button" data-type="room">Room</button>
+            <div class="tabs" id="period-type-toggle">
+              <button type="button" class="tabs__tab" data-type="uniform-ocp">OCP/ABU</button>
+              <button type="button" class="tabs__tab" data-type="uniform-blues">Blues</button>
+              <button type="button" class="tabs__tab" data-type="room">Room</button>
               <!-- PT training is intentionally NOT offered here — see the
                    comment above periodLabel() for why the "pt" Category
                    and its whole PTInspections scoring path stay fully
@@ -1082,12 +1061,17 @@
       const toggle = document.getElementById("period-type-toggle");
       function syncToggleUI() {
         toggle.querySelectorAll("button").forEach(btn => {
-          btn.classList.toggle("is-selected", btn.dataset.type === selection);
+          btn.classList.toggle("is-active", btn.dataset.type === selection);
         });
       }
       syncToggleUI();
+      const toggleIndicator = Shell.enhanceTabs(toggle);
       toggle.querySelectorAll("button").forEach(btn => {
-        btn.addEventListener("click", () => { selection = btn.dataset.type; syncToggleUI(); });
+        btn.addEventListener("click", () => {
+          selection = btn.dataset.type;
+          syncToggleUI();
+          toggleIndicator.move();
+        });
       });
 
       document.getElementById("cancel-period-btn").addEventListener("click", () => {
@@ -2538,9 +2522,9 @@
 
       contentEl.innerHTML = `
         <div class="trends-toolbar">
-          <div class="trends-type-toggle" id="trends-type-toggle">
+          <div class="tabs" id="trends-type-toggle">
             ${visibleInspectionTypeKeys().filter(t => TRENDS_TYPE_LABELS[t]).map(t => `
-              <button type="button" class="${trendsType === t ? "is-selected" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
+              <button type="button" class="tabs__tab${trendsType === t ? " is-active" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
             `).join("")}
           </div>
           ${isAssessmentTrend ? "" : `
@@ -2623,6 +2607,7 @@
         `}
       `;
 
+      Shell.enhanceTabs(document.getElementById("trends-type-toggle"));
       document.getElementById("trends-type-toggle").querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", () => {
           trendsType = btn.dataset.type;

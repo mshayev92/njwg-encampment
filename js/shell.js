@@ -2341,7 +2341,12 @@ const Shell = (() => {
       toast.setAttribute("role", "status");
       toast.setAttribute("aria-live", "polite");
     }
-    document.body.appendChild(toast);
+    // Appended inside .app-shell (not document.body) so it inherits
+    // whatever --nav-rail-width is CURRENTLY set to there (the collapsed
+    // override lives on .app-shell/.app-shell--collapsed, not :root) —
+    // see the .toast CSS, which centers within the content area rather
+    // than the full viewport.
+    (document.querySelector(".app-shell") || document.body).appendChild(toast);
 
     setTimeout(() => toast.remove(), 4000);
   }
@@ -2384,7 +2389,8 @@ const Shell = (() => {
     undoBtn.textContent = "Undo";
     toast.appendChild(undoBtn);
 
-    document.body.appendChild(toast);
+    // See the matching comment in showToast above.
+    (document.querySelector(".app-shell") || document.body).appendChild(toast);
 
     let committed = false;
     const timer = setTimeout(() => {
