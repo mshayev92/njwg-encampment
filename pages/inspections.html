@@ -987,7 +987,7 @@
         <div class="card" style="margin-bottom: var(--space-5);">
           <div style="display:flex; align-items:center; justify-content:space-between; gap: var(--space-3); flex-wrap:wrap;">
             <h3 style="font-size: var(--fs-sm); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--ink-600); margin: 0;">Inspection Periods</h3>
-            ${canEditInspections ? `<button class="btn btn--ghost" id="add-period-btn">${showPeriodForm ? "Cancel" : "+ Schedule Period"}</button>` : ""}
+            ${canEditInspections ? `<button class="btn btn--ghost" id="add-period-btn">+ Schedule Period</button>` : ""}
           </div>
           <div id="periods-form-slot"></div>
           <div style="margin-top: var(--space-4);">
@@ -1019,14 +1019,15 @@
 
       const addBtn = document.getElementById("add-period-btn");
       if (addBtn) {
+        // Always opens a fresh "new period" form — same "+ Add X" pattern
+        // as Schedule's own "+ Add Item" button, which never itself
+        // toggles into a Cancel. Closing (whether adding or editing) is
+        // the form's own Cancel button's job (renderPeriodForm below) —
+        // this used to ALSO turn into its own "Cancel" when the form was
+        // open, showing two redundant Cancel buttons on screen at once.
         addBtn.addEventListener("click", () => {
-          if (editingPeriodId !== null) {
-            // Switch from editing an existing period to a fresh "new period" form.
-            editingPeriodId = null;
-            showPeriodForm = true;
-          } else {
-            showPeriodForm = !showPeriodForm;
-          }
+          editingPeriodId = null;
+          showPeriodForm = true;
           renderPeriodsSection();
         });
       }
