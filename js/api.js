@@ -475,6 +475,14 @@ const Api = (() => {
   // Shell uses this to show a one-time "you're offline, this will sync
   // later" toast right when it actually happens (see onOutboxEnqueue).
   const outboxListeners = new Set();
+  // Fired when a QUEUED write is permanently rejected by the server on
+  // replay (not a network error — those just retry later). Separate from
+  // syncListeners because "status is now error" alone gives no clue WHAT
+  // failed; Shell uses this to pop an explicit modal naming it. Never
+  // fires while offline — flushOutbox_ only runs once the browser is
+  // back online, so a failure here always means a real server rejection
+  // that happened after reconnecting, not a byproduct of being offline.
+  const syncFailureListeners = new Set();
 
   // Durable outbox for writes that couldn't reach the server (offline /
   // network error). Persisted to localStorage so a queued write survives
@@ -572,6 +580,9 @@ const Api = (() => {
           outbox.shift();
           saveOutbox_();
           setSyncStatus_("error");
+          syncFailureListeners.forEach((cb) => {
+            try { cb({ action: item.action, sheet: item.body && item.body.sheet, error: err.message }); } catch (e) { /* ignore */ }
+          });
         }
       }
     } finally {
@@ -885,6 +896,12 @@ const Api = (() => {
     onOutboxEnqueue(cb) {
       outboxListeners.add(cb);
       return () => outboxListeners.delete(cb);
+    },
+
+    /** Fires cb({ action, sheet, error }) when a queued write is permanently rejected on replay — see the comment on syncFailureListeners above. */
+    onSyncFailure(cb) {
+      syncFailureListeners.add(cb);
+      return () => syncFailureListeners.delete(cb);
     },
 
     /**
