@@ -87,13 +87,20 @@
       display: flex;
       align-items: flex-start;
       justify-content: space-between;
+      /* The action buttons (Mark as Winner/Unmark, Delete — see
+         submissionReviewRowHtml) refuse to shrink (flex-shrink:0) since
+         they'd otherwise get squeezed illegibly narrow. Without wrap,
+         that meant on a narrow/mobile viewport they had nowhere to go
+         but overflow past the row's edge instead of dropping to their
+         own line below the body text. */
+      flex-wrap: wrap;
       gap: var(--space-3);
       padding: var(--space-3) var(--space-4);
       background: var(--surface);
       border: 1px solid var(--line);
       border-radius: var(--radius-md);
     }
-    .rec-history-row__body { flex: 1; }
+    .rec-history-row__body { flex: 1; min-width: 200px; }
     .rec-history-row__title { font-weight: 600; color: var(--heading); }
     .rec-history-row__meta { font-size: var(--fs-2xs); color: var(--ink-600); margin-top: var(--space-1); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
     .rec-history-row__note { font-size: var(--fs-sm); color: var(--ink-900); margin-top: var(--space-2); white-space: pre-wrap; }
@@ -854,7 +861,7 @@
             Manually submits a Part I (Honor Cadet) or Part II (Honor Flight) recommendation on behalf of a flight/squadron — only offered for one that hasn't already submitted its own today.
           </p>
 
-          <div class="tabs" style="margin-bottom: var(--space-4);">
+          <div class="tabs" id="admin-add-entry-tabs" style="margin-bottom: var(--space-4);">
             <button type="button" class="tabs__tab${adminAddKind === "hc" ? " is-active" : ""}" data-admin-add-kind="hc">Honor Cadet</button>
             <button type="button" class="tabs__tab${adminAddKind === "hf" ? " is-active" : ""}" data-admin-add-kind="hf">Honor Flight</button>
           </div>
@@ -995,6 +1002,13 @@
 
     function wireAdminAddEntrySection() {
       if (!isAdmin) return;
+
+      // Same sliding-indicator treatment as every other tabs bar (see
+      // Shell.enhanceTabs) — refreshAdminAddEntrySection() replaces this
+      // whole card via outerHTML each time, so there's no indicator to
+      // reposition; a fresh call here just builds a new one on the new
+      // DOM node, same as any other tabs bar's first render.
+      Shell.enhanceTabs(document.getElementById("admin-add-entry-tabs"));
 
       document.querySelectorAll("[data-admin-add-kind]").forEach(btn => {
         btn.addEventListener("click", () => {

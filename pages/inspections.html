@@ -2538,9 +2538,9 @@
 
       contentEl.innerHTML = `
         <div class="trends-toolbar">
-          <div class="trends-type-toggle" id="trends-type-toggle">
+          <div class="tabs" id="trends-type-toggle">
             ${visibleInspectionTypeKeys().filter(t => TRENDS_TYPE_LABELS[t]).map(t => `
-              <button type="button" class="${trendsType === t ? "is-selected" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
+              <button type="button" class="tabs__tab${trendsType === t ? " is-active" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
             `).join("")}
           </div>
           ${isAssessmentTrend ? "" : `
@@ -2623,6 +2623,7 @@
         `}
       `;
 
+      Shell.enhanceTabs(document.getElementById("trends-type-toggle"));
       document.getElementById("trends-type-toggle").querySelectorAll("button").forEach(btn => {
         btn.addEventListener("click", () => {
           trendsType = btn.dataset.type;

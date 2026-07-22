@@ -979,7 +979,16 @@ html.nav-rail-collapsed .nav-rail__crest {
 .toast {
   position: fixed;
   bottom: var(--space-6);
-  left: 50%;
+  /* Centered within the CONTENT area (right of the nav rail), not the
+     full viewport — plain 50% would sit visibly left of true-center
+     relative to what's actually on screen, since the nav rail eats
+     --nav-rail-width off the left edge. Requires the toast to be a DOM
+     descendant of .app-shell (see js/shell.js) so it inherits whatever
+     that custom property is currently set to (it's overridden locally
+     on .app-shell/.app-shell--collapsed, not just at :root), and the
+     mobile media query below resets this back to plain 50% once the
+     rail becomes a fixed-width overlay instead of a grid column. */
+  left: calc(50% + var(--nav-rail-width) / 2);
   transform: translateX(-50%);
   background: var(--indigo-950);
   color: var(--on-brand);
@@ -1854,6 +1863,12 @@ button.date-field__day:hover {
       "header"
       "main";
   }
+
+  /* At this breakpoint the nav rail becomes a fixed-width overlay
+     drawer, not a grid column — it no longer eats real horizontal
+     space from the content area, so the toast's --nav-rail-width offset
+     (see .toast above) needs to reset back to true center. */
+  .toast { left: 50%; }
 
   /* One row — nav toggle, page title, profile tab — never wrapping.
      The title truncates instead of wrapping so it can never push the
