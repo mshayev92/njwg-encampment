@@ -886,9 +886,22 @@ html.nav-rail-collapsed .nav-rail__crest {
   justify-content: center;
   gap: var(--space-3);
   padding: var(--space-8) var(--space-5);
-  min-height: calc(100vh - var(--header-height) - var(--space-6) * 2);
   text-align: center;
   color: var(--ink-600);
+}
+
+/* When a state-message is the sole content of its container (full-page
+   loading/error/empty states), stretch it to fill the content area so
+   the flex centering actually centers vertically. Nested states inside
+   cards or multi-element layouts are excluded via :only-child. */
+.state-message:only-child {
+  min-height: calc(100vh - var(--header-height) - var(--space-6) * 2);
+}
+
+/* Card-level loading spinners are only-child of the card but should
+   stay compact — reset the full-page min-height. */
+.card .state-message:only-child {
+  min-height: 0;
 }
 
 .state-message__icon { font-size: var(--fs-3xl); opacity: 0.4; }
