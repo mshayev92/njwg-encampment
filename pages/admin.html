@@ -1125,7 +1125,22 @@
         // with what's really in effect.
         workerConfig = res.config;
         renderSettingsTab();
-        Shell.showToast("Worker settings saved.", { type: "success" });
+        // If the deployed Worker predates one of these fields (e.g. it
+        // was redeployed before adminRateLimitPerMinute was added), it
+        // won't recognize that key in the patch and silently drops it —
+        // res.config comes back without it, and the merge-with-defaults
+        // in renderSettingsTab then quietly shows the DEFAULT instead of
+        // what was just typed, looking exactly like the save "reverted."
+        // Flag that explicitly instead of a misleading success toast.
+        const droppedKeys = Object.keys(patch).filter((key) => !(key in res.config));
+        if (droppedKeys.length) {
+          Shell.showToast(
+            `Worker settings saved, but the deployed server doesn't recognize: ${droppedKeys.join(", ")}. Those fields kept their previous value — redeploy the Worker to pick them up.`,
+            { type: "error" }
+          );
+        } else {
+          Shell.showToast("Worker settings saved.", { type: "success" });
+        }
       } catch (err) {
         Shell.showToast(err.message, { type: "error" });
         btn.disabled = false; btn.textContent = "Save Changes";
