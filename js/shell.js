@@ -871,6 +871,22 @@ const Shell = (() => {
       showToast("You're offline — this will be saved and sent automatically once you're back online.", { type: "" });
     });
 
+    // A queued write that's permanently rejected once back online (a
+    // permission error, a validation error — something that can never
+    // succeed on retry) previously only showed as the pill going red
+    // with "tap Refresh," with no way to tell what actually failed. This
+    // only ever fires from flushOutbox_, which only runs once the browser
+    // is back online — so it can never pop while still offline, only
+    // once a queued item genuinely fails after reconnecting.
+    Api.onSyncFailure(({ sheet, error }) => {
+      enqueueAlertModal_({
+        icon: "⚠️",
+        danger: true,
+        title: "A Queued Change Couldn't Be Saved",
+        bodyHtml: `${sheet ? `Your ${escapeHtml_(sheet)} change` : "A change made while offline"} could not be saved: ${escapeHtml_(error || "Unknown error.")} It has been discarded — you'll need to make that change again.`
+      });
+    });
+
     // "Data updated: Xm ago" — a hover tooltip on the sync pill itself
     // (see wireTooltips_, which reads data-tooltip live at hover time, so
     // just updating the attribute is enough) rather than a second
