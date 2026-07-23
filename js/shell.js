@@ -70,8 +70,21 @@ const Shell = (() => {
     // Hamburger — the mobile nav drawer's trigger (see
     // #mobile-nav-toggle-btn in renderHeader), replacing the bottom tab
     // bar on narrow/phone viewports (portrait, or landscape).
-    menu:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>'
+    menu:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
+    // Added so functional affordances stop reaching for cross-platform-variable
+    // Unicode glyphs (✕ ⋮ ⓘ) or emoji — same stroke style as the set above.
+    close:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>',
+    more:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/></svg>',
+    info:     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 7.5v.5"/></svg>',
+    trash:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>',
+    chart:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l3-4 3 3 4-6"/></svg>',
+    cloudOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 2l20 20"/><path d="M5.8 8.02A5 5 0 0 0 6 18h11a4 4 0 0 0 1.6-.32"/><path d="M8.5 5.2A5 5 0 0 1 18 8a4 4 0 0 1 1.9 7.4"/></svg>'
   };
+
+  /** Public accessor for the shared inline-SVG icon set — pages build markup
+      with `Shell.icon("edit")` instead of hardcoding an emoji/dingbat glyph.
+      Returns "" for an unknown name so a typo degrades to nothing, not "undefined". */
+  function icon_(name) { return ICONS[name] || ""; }
 
   // All of these used to be single GLOBAL localStorage keys, shared by
   // every position that ever signed in on a given device. That meant a
@@ -882,8 +895,12 @@ const Shell = (() => {
       enqueueAlertModal_({
         icon: "⚠️",
         danger: true,
-        title: "A Queued Change Couldn't Be Saved",
-        bodyHtml: `${sheet ? `Your ${escapeHtml_(sheet)} change` : "A change made while offline"} could not be saved: ${escapeHtml_(error || "Unknown error.")} It has been discarded — you'll need to make that change again.`
+        title: "A Change Couldn't Be Saved",
+        // Fires for both a queued (offline) write rejected on replay AND an
+        // immediate write the server rejected outright (permission, validation,
+        // rate limit, maintenance mode) — the copy is worded to fit either,
+        // since in both cases the change did NOT stick and must be redone.
+        bodyHtml: `${sheet ? `Your ${escapeHtml_(sheet)} change` : "A change you made"} could not be saved: ${escapeHtml_(error || "Unknown error.")} It was not saved — you'll need to make that change again.`
       });
     });
 
@@ -2370,7 +2387,7 @@ const Shell = (() => {
    * against the far more common case of clicking Delete on the wrong
    * row. A brief, cancelable window after the fact solves that instead.
    */
-  function showUndoToast(message, onCommit, { windowMs = 6000, onUndo = null } = {}) {
+  function showUndoToast(message, onCommit, { windowMs = 8000, onUndo = null } = {}) {
     const existing = document.querySelector(".toast");
     if (existing) existing.remove();
 
@@ -3567,7 +3584,7 @@ const Shell = (() => {
     isScheduleRowToday: isScheduleRowToday_, todayIso: todayIso_,
     formatDateTime: formatDateTime_, formatTime: formatTime_,
     formatRelativeTime: formatRelativeTime_,
-    showUndoToast, parseCsv, pickAndParseCsv,
+    showUndoToast, parseCsv, pickAndParseCsv, icon: icon_,
     showInfoModal: showInfoModal_,
     animateIn, enhanceTabs
   };
