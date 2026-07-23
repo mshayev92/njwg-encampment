@@ -476,8 +476,8 @@
               <span class="note-card__date">${esc(Shell.formatDateTime(n.Timestamp))}</span>
             </div>
             <div class="note-card__actions">
-              <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" aria-label="Edit note">✎</button>
-              <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" aria-label="Delete note">✕</button>
+              <button class="btn btn--ghost" data-edit-id="${esc(n.Id)}" data-tooltip="Edit note" aria-label="Edit note"><span class="btn__icon">${Shell.icon("edit")}</span></button>
+              <button class="btn btn--ghost" data-delete-id="${esc(n.Id)}" data-tooltip="Delete note" aria-label="Delete note"><span class="btn__icon">${Shell.icon("close")}</span></button>
             </div>
           </div>
           <div class="note-card__subject">${esc(n.Subject) || "(no subject)"}</div>
@@ -520,7 +520,7 @@
         // then newest-first within each group.
         .sort((a, b) => (Number(isNoteToMe(b)) - Number(isNoteToMe(a))) || (new Date(b.Timestamp) - new Date(a.Timestamp)));
       if (!sorted.length) {
-        return `<div class="state-message"><div class="state-message__icon">🗒️</div><p>No notes yet.</p></div>`;
+        return `<div class="state-message"><div class="state-message__icon">${Shell.icon("edit")}</div><p>No notes yet.</p></div>`;
       }
       // Mark seen AFTER building `sorted` (not during renderNoteCard's own
       // map, which just builds HTML strings) — this note is visibly open
@@ -720,7 +720,12 @@
       // resolves BEFORE the network write returns — so there's no error to
       // await/catch here; a background failure surfaces via the sync
       // indicator, not a rejected promise.
-      Api.writeRow("Notes", noteRow, editing ? { matchColumns: ["Id"] } : {});
+      // Always key on the row's stable Id — for an edit this updates in place,
+      // and for a NEW note it makes the write idempotent: a retry/replay from
+      // the offline outbox (or performWrite_'s own network-error retry) upserts
+      // the same Id instead of appending a duplicate note. First landing finds
+      // no such Id and appends; any replay matches and no-ops.
+      Api.writeRow("Notes", noteRow, { matchColumns: ["Id"] });
       if (editing) {
         const idx = notes.findIndex(n => String(n.Id) === String(editingNoteId));
         if (idx >= 0) notes[idx] = noteRow; else notes.unshift(noteRow);

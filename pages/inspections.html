@@ -58,7 +58,7 @@
 
     .flight-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: var(--space-4);
     }
 
@@ -189,9 +189,12 @@
       color: var(--ink-900);
     }
 
+    /* Keep the gold border cue for pointer focus, but do NOT kill the outline:
+       removing `outline: none` lets the app-wide 2px gold :focus-visible ring
+       (css/app.css) show for keyboard users, matching every other input rather
+       than leaving this one with only a subtle 1px border change. */
     .assessment-quick-input:focus {
       border-color: var(--gold-500);
-      outline: none;
     }
 
     .detail-header {
@@ -578,6 +581,12 @@
     @media (pointer: coarse) {
       .scorecard-toggle button { min-height: 44px; min-width: 56px; }
       .tabs__tab { min-height: 40px; }
+      /* The EOW Assessment score inputs (the roster-list quick-entry and the
+         scorecard's single-score field) are the one scoring control that
+         wasn't getting a finger-friendly height on touch — bring them up to
+         the same 44px minimum as the 0/1 toggles above. */
+      .assessment-quick-input,
+      #assessment-score-input { min-height: 44px; }
     }
 
     /* Trends: average-score-over-time line chart (renderProgressionChart) */
@@ -635,7 +644,15 @@
     <header class="app-header" id="app-header"></header>
 
     <main class="app-main">
-      <div id="periods-section"></div>
+      <!-- The "Inspection Periods" MANAGEMENT card (schedule/edit/delete
+           upcoming periods) lives here, above the tabs, but is shown ONLY
+           while the Periods tab is active (see activateTab) — so the primary
+           Inspect view and the Trends view aren't topped by scheduling chrome
+           the way they used to be. The Inspect view still gets its own
+           compact "Scheduled for today" banner for context, and all period
+           concerns (managing them here + reviewing scores by period below)
+           now sit together on the Periods tab. -->
+      <div id="periods-section" style="display:none;"></div>
 
       <!-- Hidden until everything has actually loaded (see load()'s
            allCachedNow gate below) — this tab bar is static markup, so it
@@ -1001,8 +1018,8 @@
                     </div>
                     ${canEditInspections ? `
                       <span style="display:flex; gap: var(--space-1);">
-                        <button class="btn btn--ghost" data-edit-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Edit period">✎</button>
-                        <button class="btn btn--ghost" data-delete-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Delete period">✕</button>
+                        <button class="btn btn--ghost" data-edit-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Edit period"><span class="btn__icon">${Shell.icon("edit")}</span></button>
+                        <button class="btn btn--ghost" data-delete-period="${esc(p.Id)}" style="padding: var(--space-1) var(--space-2);" aria-label="Delete period"><span class="btn__icon">${Shell.icon("close")}</span></button>
                       </span>
                     ` : ""}
                   </div>
@@ -1210,7 +1227,7 @@
       if (!periods.length) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">📋</div>
+            <div class="state-message__icon">${Shell.icon("calendar")}</div>
             <p>No inspection periods have happened yet.</p>
           </div>`;
         return;
@@ -1532,7 +1549,7 @@
       if (!flightNames.length) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">🪖</div>
+            <div class="state-message__icon">${Shell.icon("users")}</div>
             <p>No flights available to inspect.</p>
           </div>`;
         return;
@@ -1553,7 +1570,7 @@
       }
 
       contentEl.innerHTML = `
-        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
+        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
         <div class="flight-grid">
           ${flightNames.map(flight => `
             <button class="flight-tile" data-flight="${esc(flight)}" style="box-shadow: inset 4px 0 0 0 ${Shell.flightColor(flight)};">
@@ -1582,7 +1599,7 @@
      */
     function renderOwnFlightsDirect(grouped, flightNames, todaysPeriods) {
       contentEl.innerHTML = `
-        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">📋 Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
+        ${todaysPeriods.length ? `<div class="alert alert--warning" style="margin-bottom: var(--space-4);">Scheduled for today: <strong>${todaysPeriods.map(p => esc(periodLabel(p))).join(", ")}</strong></div>` : ""}
         ${flightNames.map(flight => {
           const members = grouped[flight] || [];
           return `
@@ -1596,7 +1613,7 @@
                 </div>
               ` : `
                 <div class="state-message">
-                  <div class="state-message__icon">🪖</div>
+                  <div class="state-message__icon">${Shell.icon("users")}</div>
                   <p>No cadets in this flight.</p>
                 </div>
               `}
@@ -1633,7 +1650,7 @@
           </div>
         ` : `
           <div class="state-message">
-            <div class="state-message__icon">🪖</div>
+            <div class="state-message__icon">${Shell.icon("users")}</div>
             <p>No cadets in this flight.</p>
           </div>
         `}
@@ -1777,7 +1794,7 @@
           </div>
         ` : `
           <div class="state-message">
-            <div class="state-message__icon">🪖</div>
+            <div class="state-message__icon">${Shell.icon("users")}</div>
             <p>No inspections recorded yet for this cadet.</p>
           </div>
         `}
@@ -2667,7 +2684,7 @@
           `}
         ` : `
           <div class="state-message">
-            <div class="state-message__icon">📊</div>
+            <div class="state-message__icon">${Shell.icon("chart")}</div>
             <p>No ${trendsType} inspection data yet.</p>
           </div>
         `}
@@ -2843,6 +2860,12 @@
     function activateTab(tab) {
       tabButtons.forEach(b => b.classList.toggle("is-active", b.dataset.tab === tab));
       inspectionTabsIndicator.move();
+      // The Inspection Periods management card belongs to the Periods tab —
+      // keep it out from above the Inspect/Trends views (see the markup note
+      // on #periods-section). It's still populated in the background by
+      // renderPeriodsSection() regardless of tab, just hidden until needed.
+      const periodsSection = document.getElementById("periods-section");
+      if (periodsSection) periodsSection.style.display = (tab === "periods") ? "" : "none";
       if (tab === "trends") renderTrends();
       else if (tab === "periods") { selectedPeriod = null; selectedPeriodFlight = null; renderPeriodsTab(); }
       else { selectedFlight = null; selectedStudent = null; renderFlightGrid(); }

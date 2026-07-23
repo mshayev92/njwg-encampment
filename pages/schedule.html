@@ -306,7 +306,7 @@
       if (!items.length) {
         return `
           <div class="state-message">
-            <div class="state-message__icon">📋</div>
+            <div class="state-message__icon">${Shell.icon("calendar")}</div>
             <p>No schedule items for today. Check back once cadre staff publish today's activities.</p>
           </div>`;
       }
@@ -326,7 +326,7 @@
                   <td data-label="Flight">${item.Flight ? `<span class="badge" style="background:${Shell.flightColorTint(item.Flight)}; color:${Shell.flightColor(item.Flight)};">${esc(item.Flight)}</span>` : "—"}</td>
                   ${canEditSchedule ? `
                     <td data-label="" class="schedule-item-row">
-                      <button class="btn btn--ghost" data-index="${scheduleRows.indexOf(item)}" data-action="row-menu" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
+                      <button class="btn btn--ghost" data-index="${scheduleRows.indexOf(item)}" data-action="row-menu" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions"><span class="btn__icon">${Shell.icon("more")}</span></button>
                     </td>
                   ` : ""}
                 </tr>
@@ -403,7 +403,7 @@
         scheduleTabsBarEl.style.display = "none";
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">📋</div>
+            <div class="state-message__icon">${Shell.icon("calendar")}</div>
             <p>No schedule items yet.</p>
           </div>`;
         return;
@@ -521,7 +521,7 @@
                   <td data-label="Activity">${esc(r.Activity)}</td>
                   <td data-label="Location">${esc(r.Location) || "—"}</td>
                   <td data-label="Audience">${r.Flight ? esc(r.Flight) : "All"}</td>
-                  <td data-label=""><button class="btn btn--ghost" data-remove-pending="${i}" style="padding: var(--space-1) var(--space-2);" aria-label="Remove staged row">✕</button></td>
+                  <td data-label=""><button class="btn btn--ghost" data-remove-pending="${i}" style="padding: var(--space-1) var(--space-2);" aria-label="Remove staged row"><span class="btn__icon">${Shell.icon("close")}</span></button></td>
                 </tr>
               `).join("")}
             </tbody>

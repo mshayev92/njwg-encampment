@@ -239,6 +239,7 @@
       cursor: pointer;
       font-size: var(--fs-sm);
     }
+    .page-check__edit svg { width: 15px; height: 15px; display: block; }
     .page-check__edit:hover { border-color: var(--gold-500); }
     .page-check__edit.is-active {
       background: var(--gold-100);
@@ -458,7 +459,7 @@
           ${isNew ? "" : `<div class="hint">Position name is the key and can't be changed here — delete and re-add to rename.</div>`}
 
           <label class="field-label">Pages this position can access</label>
-          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the ✎ where present to also grant edit access for that page. Inspections and Awards are unavailable once every checked flight below is Advanced Training School — both exclude ATS entirely, so granting them would just be a permanently empty page.</div>
+          <div class="hint" style="margin-top:0; margin-bottom: var(--space-2);">Check a page to grant it, and use the pencil (edit) control where present to also grant edit access for that page. Inspections and Awards are unavailable once every checked flight below is Advanced Training School — both exclude ATS entirely, so granting them would just be a permanently empty page.</div>
           <div class="page-checks">
             ${basePages.map(p => {
               const editGate = editGateByBase.get(p.id);
@@ -471,7 +472,7 @@
                     <span class="page-check__label">${esc(p.label)}</span>
                   </label>
                   ${editGate ? `
-                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}">✎</button>
+                    <button type="button" class="page-check__edit${editChecked ? " is-active" : ""}" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="${editChecked}" aria-label="${esc(editGate.label)}"><span class="btn__icon">${Shell.icon("edit")}</span></button>
                     <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" ${editChecked ? "checked" : ""} hidden>
                   ` : ""}
                 </div>
@@ -584,7 +585,7 @@
                     <span class="page-check__label">${esc(p.label)}</span>
                   </label>
                   ${editGate ? `
-                    <button type="button" class="page-check__edit" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="false" aria-label="${esc(editGate.label)}">✎</button>
+                    <button type="button" class="page-check__edit" data-edit-gate="${esc(editGate.id)}" data-tooltip="${esc(editGate.label)}" aria-pressed="false" aria-label="${esc(editGate.label)}"><span class="btn__icon">${Shell.icon("edit")}</span></button>
                     <input type="checkbox" class="page-check__edit-input" value="${esc(editGate.id)}" hidden>
                   ` : ""}
                 </div>
@@ -703,7 +704,7 @@
       if (!staff.length) {
         return `
           <div class="state-message">
-            <div class="state-message__icon">🗝️</div>
+            <div class="state-message__icon">${Shell.icon("shield")}</div>
             <p>No positions found. If you're locked out, add <span class="chip">admin</span> to a position's Pages column directly in the StaffAccess Google Sheet to bootstrap the first administrator.</p>
           </div>`;
       }
@@ -981,7 +982,7 @@
           </tbody>
         </table>
       ` : `
-        <div class="state-message"><div class="state-message__icon">🪵</div><p>No login activity recorded yet.</p></div>
+        <div class="state-message"><div class="state-message__icon">${Shell.icon("clock")}</div><p>No login activity recorded yet.</p></div>
       `;
 
       Shell.animateIn(contentEl);
