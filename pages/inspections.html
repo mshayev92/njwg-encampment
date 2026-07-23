@@ -397,6 +397,20 @@
       background: var(--surface);
     }
 
+    /* #trends-basis-slot only exists so renderTrends can target it with
+       innerHTML without touching the persisted tabs bar next to it (see
+       renderTrends) — it's not meant to be a layout box of its own.
+       Without this, the "Showing:" label + <select> inside it were laid
+       out as normal inline content constrained to THIS wrapper div's own
+       (narrower, flex-shrunk) width instead of flex items of
+       .trends-toolbar directly, wrapping the label onto its own line
+       above the select instead of sitting inline with the tabs bar the
+       way they did before this wrapper existed. display:contents makes
+       the wrapper invisible to layout — its children become direct flex
+       items of .trends-toolbar again, restoring the original layout,
+       while still being a real, targetable DOM node. */
+    #trends-basis-slot { display: contents; }
+
     .flight-avg-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

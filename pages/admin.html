@@ -261,7 +261,12 @@
       align-items: center;
       gap: var(--space-3);
       flex-wrap: wrap;
-      margin-bottom: var(--space-4);
+      /* Matches the app-wide convention for this exact "filter/toolbar
+         row directly above a data view" pattern — see .roster-toolbar
+         (pages/roster.html) and .trends-toolbar (pages/inspections.html),
+         both margin-bottom: var(--space-5). This was the one outlier at
+         --space-4 (16px vs 24px). */
+      margin-bottom: var(--space-5);
     }
     .log-summary {
       font-size: var(--fs-sm);
