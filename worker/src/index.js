@@ -979,6 +979,13 @@ async function handleWrite(env, body, session, ctx) {
   assertReasonableRowPayload(rowData);
   assertReasonableMatchColumns(matchColumns);
 
+  // Never persist a row with no fields at all — the frontend never sends one,
+  // so an empty rowData is a bug or a malformed client, and appending a blank
+  // row just leaves junk in the sheet.
+  if (!rowData || Object.keys(rowData).length === 0) {
+    throw new Error("Refusing to write an empty row.");
+  }
+
   await ensureAutoCreatedTab(env, sheetName);
 
   const headers = await getHeaderRow(env, sheetName);
@@ -988,6 +995,18 @@ async function handleWrite(env, body, session, ctx) {
       headers.push(key);
       await setHeaderCell(env, sheetName, headers.length - 1, key);
     }
+  }
+
+  // Defense-in-depth idempotency (the client already sends matchColumns:["Id"]
+  // on these append-only sheets — see the writeRow call sites in
+  // pages/observations.html, notes.html, announcements.html, recommendations.html):
+  // if NO match key was supplied but the row carries a stable Id and this sheet
+  // has an Id column, key on Id so a retried/replayed append can't create a
+  // duplicate row. Harmless for a genuine first write — its Id has never been
+  // seen, so it still appends — and it also covers any stale offline-outbox
+  // entry queued by an older client before that matchColumns change shipped.
+  if (!matchColumns.length && headers.includes("Id") && rowData.Id != null && String(rowData.Id).trim() !== "") {
+    matchColumns = ["Id"];
   }
 
   const newRowArray = headers.map((h) => (h in rowData ? rowData[h] : ""));

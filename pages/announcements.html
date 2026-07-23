@@ -189,7 +189,7 @@
     function renderFeed() {
       const sorted = announcements.slice().sort((a, b) => new Date(b.Timestamp) - new Date(a.Timestamp));
       if (!sorted.length) {
-        return `<div class="state-message"><div class="state-message__icon">📣</div><p>No announcements yet.</p></div>`;
+        return `<div class="state-message"><div class="state-message__icon">${Shell.icon("bell")}</div><p>No announcements yet.</p></div>`;
       }
       return `
         <div class="announcement-feed">
@@ -199,8 +199,8 @@
                 <span>${esc(a.Position || "—")} · ${esc(Shell.formatDateTime(a.Timestamp))}</span>
                 ${canPost ? `
                   <span style="display:flex; gap: var(--space-1);">
-                    <button class="btn btn--ghost" data-edit-id="${esc(a.Id)}" data-tooltip="Edit announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Edit announcement">✎</button>
-                    <button class="btn btn--ghost" data-delete-id="${esc(a.Id)}" data-tooltip="Delete announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Delete announcement">✕</button>
+                    <button class="btn btn--ghost" data-edit-id="${esc(a.Id)}" data-tooltip="Edit announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Edit announcement"><span class="btn__icon">${Shell.icon("edit")}</span></button>
+                    <button class="btn btn--ghost" data-delete-id="${esc(a.Id)}" data-tooltip="Delete announcement" style="padding: var(--space-1) var(--space-2);" aria-label="Delete announcement"><span class="btn__icon">${Shell.icon("close")}</span></button>
                   </span>
                 ` : ""}
               </div>
@@ -280,7 +280,11 @@
       // background and the header's sync indicator reflects whether it
       // lands. Api.writeRow resolves BEFORE the network write returns, so
       // there's no background failure to await/catch here.
-      Api.writeRow("Announcements", announcementRow, editing ? { matchColumns: ["Id"] } : {});
+      // Key on the row's stable Id whether editing or posting new: an edit
+      // updates in place, and a NEW announcement's write becomes idempotent —
+      // a retry/outbox replay upserts the same Id rather than posting the
+      // announcement twice. First landing appends; any replay matches.
+      Api.writeRow("Announcements", announcementRow, { matchColumns: ["Id"] });
       if (editing) {
         const idx = announcements.findIndex(a => String(a.Id) === String(editingAnnouncementId));
         if (idx >= 0) announcements[idx] = announcementRow; else announcements.unshift(announcementRow);
@@ -345,7 +349,7 @@
       if (!navigator.onLine) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">📵</div>
+            <div class="state-message__icon">${Shell.icon("cloudOff")}</div>
             <p>You're offline. Connect to the internet to view announcements.</p>
           </div>`;
         return;

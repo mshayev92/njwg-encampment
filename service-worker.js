@@ -25,13 +25,12 @@
    navigation strategy).
    ============================================================ */
 
-// Bumped to v17: the "Update available" confirm prompt in
-// initUpdatePrompt_ (js/shell.js) is gone — a real update now reloads
-// immediately with no confirmation, since writes are saved as they're
-// made and there's nothing an unannounced refresh could lose. Bumping
-// the cache name gets this change itself in front of a device that's
-// stuck on an old worker.
-const CACHE_NAME = "njwg-encampment-v17";
+// Bumped to v18: the fetch handler now revalidates subresources against the
+// server (cache: "no-cache") so a freshly deployed css/app.css or js/shell.js
+// reaches returning online users on the next load instead of being pinned by
+// GitHub Pages' default HTTP max-age. Bumping the cache name also re-precaches
+// the shell under the new version and evicts the old cache on activate.
+const CACHE_NAME = "njwg-encampment-v18";
 
 // Paths are relative to this file's own location (self.location), which
 // is whatever folder the service worker is served from — the repo root
@@ -161,8 +160,19 @@ self.addEventListener("fetch", (event) => {
   // every successful response, still serves the whole app offline.
   const isNavigation = request.mode === "navigate";
 
+  // For SUBRESOURCES (css/app.css, js/shell.js, icons) revalidate against the
+  // server instead of letting the browser's HTTP cache answer from a stale
+  // copy — GitHub Pages serves these with a default max-age, so a returning
+  // online user could otherwise run a freshly deployed CSS/JS's OLD bytes for
+  // that whole window even though this handler is "network-first". `no-cache`
+  // (conditional, not `no-store`) means an UNCHANGED asset still 304s cheaply;
+  // only genuinely-changed bytes are re-downloaded. Navigations are left as-is
+  // (a "navigate"-mode Request can't be safely reconstructed, and the browser
+  // already revalidates top-level HTML).
+  const networkRequest = isNavigation ? request : new Request(request, { cache: "no-cache" });
+
   event.respondWith(
-    fetch(request)
+    fetch(networkRequest)
       .then((response) => {
         if (response.ok) {
           const clone = response.clone();

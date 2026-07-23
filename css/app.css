@@ -949,6 +949,18 @@ html.nav-rail-collapsed .nav-rail__crest {
 }
 
 .state-message__icon { font-size: var(--fs-3xl); opacity: 0.4; }
+/* When a state-message icon is an inline SVG from the shared ICONS set
+   (Shell.icon), size it to the same visual footprint the emoji had — 1em of
+   the --fs-3xl above — and let it inherit the muted text color. This is what
+   lets empty/loading/error states use the app's own icon set instead of
+   OS-variable emoji, while keeping the exact same size/placement. */
+.state-message__icon svg { width: 1em; height: 1em; display: block; margin: 0 auto; stroke-width: 1.75; }
+
+/* An icon-only .btn (edit/delete/kebab row actions) carries a single inline
+   SVG instead of text — size it consistently so those buttons match across
+   every page rather than depending on a per-page inline style. */
+.btn__icon { width: 18px; height: 18px; display: inline-block; }
+.btn__icon svg { width: 100%; height: 100%; display: block; }
 
 /* Spinner: a stylized take on the wing-motif — two arcs sweeping from
    a shared point rather than a plain ring, so even the loading state

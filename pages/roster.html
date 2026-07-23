@@ -68,7 +68,7 @@
     /* Flight tile grid — shown before a flight is selected */
     .flight-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: var(--space-4);
     }
 
@@ -127,6 +127,66 @@
       .roster-table-card {
         padding: var(--space-5);
       }
+
+      /* Denser cadet cards on phones. The app-wide .data-table collapse
+         (css/app.css) stacks ALL SIX columns as six full-width label/value
+         rows per cadet — a very tall card, and a brutal scroll for a 40+
+         cadet flight where nothing is scannable at a glance. Scoped ONLY to
+         the roster table, re-lay each cadet as a compact card instead: the
+         NAME as the headline, CAPID/Rank/Age/Sex as one muted inline meta
+         line, the Room input on its own line, and the row-menu pinned to the
+         top-right — roughly halving the height and making Name the thing you
+         scan for. No other .data-table on any page is affected. */
+      .roster-table-card .data-table tr {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        column-gap: var(--space-3);
+        row-gap: var(--space-1);
+        padding: var(--space-3) var(--space-4);
+        position: relative;
+      }
+      .roster-table-card .data-table td {
+        display: inline-flex;
+        width: auto;
+        justify-content: flex-start;
+        gap: var(--space-1);
+        border-bottom: none;
+      }
+      /* Name = full-width headline, no label prefix. */
+      .roster-table-card .data-table td[data-label="Name"] {
+        flex: 1 1 100%;
+        order: -1;
+        font-family: var(--font-display);
+        font-size: var(--fs-md);
+        color: var(--heading);
+        padding-right: 44px; /* clear the pinned row-menu button */
+      }
+      .roster-table-card .data-table td[data-label="Name"]::before { display: none; }
+      /* CAPID / Rank / Age / Sex = one muted inline meta line (labels kept
+         small so "14"/"M" stay unambiguous). */
+      .roster-table-card .data-table td[data-label="CAPID"],
+      .roster-table-card .data-table td[data-label="Rank"],
+      .roster-table-card .data-table td[data-label="Age"],
+      .roster-table-card .data-table td[data-label="Sex"] {
+        font-size: var(--fs-xs);
+        color: var(--ink-600);
+      }
+      /* Room keeps its own full-width line (it's an interactive input). */
+      .roster-table-card .data-table td[data-label="Room"] {
+        flex: 1 1 100%;
+        align-items: center;
+        margin-top: var(--space-1);
+      }
+      /* Row menu: pinned to the card's top-right corner, no label. */
+      .roster-table-card .data-table td.roster-row-actions {
+        position: absolute;
+        top: var(--space-2);
+        right: var(--space-2);
+        padding: 0;
+        width: auto;
+      }
+      .roster-table-card .data-table td.roster-row-actions::before { display: none; }
     }
 
     /* Detail view header — shown once a flight is selected */
@@ -172,7 +232,10 @@
       color: var(--ink-900);
       text-align: center;
     }
-    .room-input:focus { border-color: var(--gold-500); outline: none; }
+    /* Keep the gold border cue but don't suppress the app-wide focus ring —
+       removing `outline: none` lets the 2px gold :focus-visible outline show
+       for keyboard users, matching every other input. */
+    .room-input:focus { border-color: var(--gold-500); }
 
     /* ---- Flight leadership card ---- */
     .leadership-card {
@@ -424,7 +487,7 @@
       if (!flightNames.length) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">👥</div>
+            <div class="state-message__icon">${Shell.icon("users")}</div>
             <p>No roster entries yet.</p>
           </div>`;
         return;
@@ -667,7 +730,7 @@
                     </td>
                     ${canEditRoster ? `
                       <td data-label="" class="roster-row-actions">
-                        <button class="btn btn--ghost" data-action="row-menu" data-capid="${esc(m.CapId)}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions">⋮</button>
+                        <button class="btn btn--ghost" data-action="row-menu" data-capid="${esc(m.CapId)}" data-tooltip="Row actions" style="padding: var(--space-1) var(--space-2);" aria-label="Row actions"><span class="btn__icon">${Shell.icon("more")}</span></button>
                       </td>
                     ` : ""}
                   </tr>
@@ -677,7 +740,7 @@
           </div>
         ` : `
           <div class="state-message">
-            <div class="state-message__icon">👥</div>
+            <div class="state-message__icon">${Shell.icon("users")}</div>
             <p>No cadets in this flight.</p>
           </div>
         `}
@@ -1123,6 +1186,11 @@
 
       document.getElementById("cancel-cadet-btn").addEventListener("click", closeForm);
       document.getElementById("save-cadet-btn").addEventListener("click", saveStudent);
+      // Swap the native Sex <select> for the app's custom-styled control, so
+      // this field matches every other select/date/time input in the app
+      // (all of which go through enhanceSelect/enhanceDateInput) instead of
+      // rendering as the raw OS dropdown next to them.
+      Shell.enhanceSelect(document.getElementById("f-sex"));
       formContainer.scrollIntoView({ behavior: "smooth", block: "start" });
     }
 

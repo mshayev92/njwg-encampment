@@ -550,7 +550,10 @@
           AdditionalNotes: document.getElementById("hc-notes").value.trim()
         };
 
-        Api.writeRow("HonorCadetRecommendations", row, existing ? { matchColumn: "Id" } : {});
+        // Key on the row's stable Id whether editing or submitting new — a new
+        // submission's write is then idempotent under a retry/outbox replay
+        // (upserts the same Id instead of duplicating the recommendation).
+        Api.writeRow("HonorCadetRecommendations", row, { matchColumn: "Id" });
         if (existing) {
           honorCadetRows = honorCadetRows.map(r => String(r.Id) === String(row.Id) ? row : r);
         } else {
@@ -705,7 +708,9 @@
           AdditionalNotes: document.getElementById("hf-notes").value.trim()
         };
 
-        Api.writeRow("HonorFlightRecommendations", row, existing ? { matchColumn: "Id" } : {});
+        // Key on the row's stable Id whether editing or submitting new, so a
+        // retried/replayed new submission upserts rather than duplicating.
+        Api.writeRow("HonorFlightRecommendations", row, { matchColumn: "Id" });
         if (existing) {
           honorFlightRows = honorFlightRows.map(r => String(r.Id) === String(row.Id) ? row : r);
         } else {
@@ -956,7 +961,9 @@
           AdditionalNotes: document.getElementById("admin-hc-notes").value.trim()
         };
 
-        Api.writeRow("HonorCadetRecommendations", row);
+        // Key on the stable Id so a retried/replayed write upserts instead of
+        // duplicating this admin-submitted recommendation.
+        Api.writeRow("HonorCadetRecommendations", row, { matchColumn: "Id" });
         honorCadetRows.push(row);
         Api.setCachedRows("HonorCadetRecommendations", honorCadetRows);
 
@@ -1007,7 +1014,9 @@
           AdditionalNotes: document.getElementById("admin-hf-notes").value.trim()
         };
 
-        Api.writeRow("HonorFlightRecommendations", row);
+        // Key on the stable Id so a retried/replayed write upserts instead of
+        // duplicating this admin-submitted recommendation.
+        Api.writeRow("HonorFlightRecommendations", row, { matchColumn: "Id" });
         honorFlightRows.push(row);
         Api.setCachedRows("HonorFlightRecommendations", honorFlightRows);
 

@@ -479,10 +479,23 @@ const Api = (() => {
   // replay (not a network error — those just retry later). Separate from
   // syncListeners because "status is now error" alone gives no clue WHAT
   // failed; Shell uses this to pop an explicit modal naming it. Never
-  // fires while offline — flushOutbox_ only runs once the browser is
-  // back online, so a failure here always means a real server rejection
-  // that happened after reconnecting, not a byproduct of being offline.
+  // fires while offline — it fires either from flushOutbox_ (which only
+  // runs once the browser is back online) or from the optimistic
+  // writeRow/deleteRow background call when the server actively REJECTS a
+  // write for a non-network reason (permission, validation, rate limit,
+  // maintenance mode). In every case the request actually reached the
+  // server, so this is a real rejection, never a byproduct of being
+  // offline. Surfacing the optimistic-path case matters because that call
+  // already resolved "queued" to its caller (which likely showed a
+  // success toast) — without this, such a rejection would be invisible
+  // except for the header pill quietly flipping to "error": the classic
+  // "looks saved but wasn't."
   const syncFailureListeners = new Set();
+
+  /** Notify every onSyncFailure listener; one bad listener can't break the rest. */
+  function notifySyncFailure_(info) {
+    syncFailureListeners.forEach((cb) => { try { cb(info); } catch (e) { /* ignore */ } });
+  }
 
   // Durable outbox for writes that couldn't reach the server (offline /
   // network error). Persisted to localStorage so a queued write survives
@@ -580,9 +593,7 @@ const Api = (() => {
           outbox.shift();
           saveOutbox_();
           setSyncStatus_("error");
-          syncFailureListeners.forEach((cb) => {
-            try { cb({ action: item.action, sheet: item.body && item.body.sheet, error: err.message }); } catch (e) { /* ignore */ }
-          });
+          notifySyncFailure_({ action: item.action, sheet: item.body && item.body.sheet, error: err.message });
         }
       }
     } finally {
@@ -862,7 +873,15 @@ const Api = (() => {
       // because the device is offline/unreachable, park it in the durable
       // outbox to replay on reconnect instead of silently dropping it.
       performWrite_("write", body).catch((err) => {
-        if (isNetworkError_(err)) enqueueOutbox_("write", body);
+        // Offline/unreachable — park it in the durable outbox to replay on
+        // reconnect instead of silently dropping it.
+        if (isNetworkError_(err)) { enqueueOutbox_("write", body); return; }
+        // Non-network REJECTION (permission, validation, rate limit,
+        // maintenance mode) — this can never succeed on retry, and the caller
+        // already got a resolved "queued" (and likely showed success), so make
+        // it explicit via the same failure channel the outbox uses rather than
+        // leaving only the header pill quietly on "error".
+        notifySyncFailure_({ action: "write", sheet: body.sheet, error: err.message });
       });
       return Promise.resolve({ ok: true, action: "queued", row: rowData });
     },
@@ -880,7 +899,9 @@ const Api = (() => {
         return Promise.resolve({ ok: true, action: "queued" });
       }
       performWrite_("delete", body).catch((err) => {
-        if (isNetworkError_(err)) enqueueOutbox_("delete", body);
+        if (isNetworkError_(err)) { enqueueOutbox_("delete", body); return; }
+        // Non-network rejection — surface it explicitly (see writeRow above).
+        notifySyncFailure_({ action: "delete", sheet: body.sheet, error: err.message });
       });
       return Promise.resolve({ ok: true, action: "queued" });
     },

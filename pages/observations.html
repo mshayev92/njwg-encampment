@@ -51,7 +51,7 @@
 
     .flight-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
       gap: var(--space-4);
     }
 
@@ -224,6 +224,9 @@
       padding: 0 0 0 var(--space-2);
     }
     .obs-history-row__delete:hover { color: var(--red-600); }
+    /* Size the inline SVG icon to the element's own font-size (fs-md), so the
+       shared close icon sits exactly where the "✕" glyph used to. */
+    .obs-history-row__delete svg { width: 1em; height: 1em; display: block; }
 
     /* Notes about this cadet are pulled in from a completely separate
        sheet/schema (see notesForStudent()) and can carry neutral or
@@ -240,12 +243,14 @@
     .obs-category__label-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); margin-bottom: var(--space-2); }
     .obs-category__label-row .obs-category__label { margin-bottom: 0; }
     .obs-info-icon {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
       margin-left: var(--space-1);
       color: var(--ink-400);
       cursor: help;
       font-size: var(--fs-xs);
     }
+    .obs-info-icon svg { width: 1.15em; height: 1.15em; display: block; }
     .obs-note-link {
       font-size: var(--fs-xs);
       font-weight: 600;
@@ -518,7 +523,7 @@
       if (!flightNames.length) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">⭐</div>
+            <div class="state-message__icon">${Shell.icon("star")}</div>
             <p>No flights available to log observations for.</p>
           </div>`;
         return;
@@ -590,7 +595,7 @@
               </div>
             ` : `
               <div class="state-message">
-                <div class="state-message__icon">⭐</div>
+                <div class="state-message__icon">${Shell.icon("star")}</div>
                 <p>No cadets in this flight.</p>
               </div>
             `}
@@ -639,7 +644,7 @@
           </div>
         ` : `
           <div class="state-message">
-            <div class="state-message__icon">⭐</div>
+            <div class="state-message__icon">${Shell.icon("star")}</div>
             <p>No cadets in this flight.</p>
           </div>
         `}
@@ -684,7 +689,7 @@
             ${o.Note ? `<div class="obs-history-row__note">${esc(o.Note)}</div>` : ""}
             <div class="obs-history-row__meta">${esc(CATEGORY_LABELS[o.Category] || "General")} · ${esc(Shell.formatDateTime(o.Timestamp))} · ${esc(o.LoggerPosition) || "—"}</div>
           </div>
-          <button type="button" class="obs-history-row__delete" data-delete-id="${esc(o.Id)}" aria-label="Remove observation">✕</button>
+          <button type="button" class="obs-history-row__delete" data-delete-id="${esc(o.Id)}" aria-label="Remove observation">${Shell.icon("close")}</button>
         </div>`;
     }
 
@@ -725,7 +730,7 @@
         <div class="obs-category">
           <div class="obs-category__label-row">
             <div class="obs-category__label">Notes About This Cadet
-              <span class="obs-info-icon" tabindex="0" data-tooltip="Separate from the Positive-only observations above — doesn't count toward Flight Standings scoring.">ⓘ</span>
+              <span class="obs-info-icon" tabindex="0" data-tooltip="Separate from the Positive-only observations above — doesn't count toward Flight Standings scoring.">${Shell.icon("info")}</span>
             </div>
             <a class="obs-note-link" href="${esc(window.APP_BASE_PATH)}pages/notes.html?subject=${encodeURIComponent(selectedStudent.Name || "")}">+ Start a note</a>
           </div>
@@ -793,7 +798,14 @@
         Note: note || ""
       };
 
-      Api.writeRow("Observations", row);
+      // matchColumns:["Id"] makes a retried/duplicated write idempotent — the
+      // row carries a stable client-generated Id, so a replay from the offline
+      // outbox (or performWrite_'s own retry after a lost/timed-out response)
+      // upserts that same Id in place instead of appending a second event.
+      // Observations is append-only per its data model, but the write itself
+      // must still be idempotent, or a dropped-mid-request log double-counts in
+      // Trends. First landing finds no such Id and appends; any replay matches.
+      Api.writeRow("Observations", row, { matchColumns: ["Id"] });
       observationRows.push(row);
       // See inspections.html's identical pattern: reconciling the local
       // cache immediately (rather than waiting for the write's own
@@ -881,7 +893,7 @@
       if (!flightNames.length) {
         contentEl.innerHTML = `
           <div class="state-message">
-            <div class="state-message__icon">📊</div>
+            <div class="state-message__icon">${Shell.icon("chart")}</div>
             <p>No flights available yet.</p>
           </div>`;
         return;
