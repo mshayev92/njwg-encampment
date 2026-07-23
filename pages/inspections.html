@@ -380,6 +380,14 @@
       align-items: center;
     }
 
+    /* Everything below the (persisted, see renderTrends) tabs bar — its
+       own flex column so a lone .state-message ("No X inspection data
+       yet") inside it still gets the app-wide flex:1 + center treatment
+       (see .state-message:last-child in css/app.css), same as it did
+       when this content used to be a direct child of #inspection-content
+       itself. */
+    #trends-data { display: flex; flex-direction: column; flex: 1; }
+
     .trends-toolbar select {
       font-family: var(--font-body);
       font-size: var(--fs-sm);
@@ -2324,6 +2332,8 @@
      */
     let trendsBasis = "all"; // "all" | an InspectionPeriods Id
     let trendsType = "uniform"; // "uniform" | "room" | "assessment" — which inspection's trends are on screen
+    let trendsTypeIndicator = null;
+    let trendsToolbarBuiltForTypes = null; // signature of the visible-type set the tabs bar was last built from — see renderTrends
 
     // PT is deliberately excluded here — it's scored pass/fail per
     // exercise against age/sex standards (ptStandardFor), not a
@@ -2520,22 +2530,64 @@
         members.forEach(m => allowedCapIds.add(String(m.CapId)))
       );
 
-      contentEl.innerHTML = `
-        <div class="trends-toolbar">
-          <div class="tabs" id="trends-type-toggle">
-            ${visibleInspectionTypeKeys().filter(t => TRENDS_TYPE_LABELS[t]).map(t => `
-              <button type="button" class="tabs__tab${trendsType === t ? " is-active" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>
-            `).join("")}
-          </div>
-          ${isAssessmentTrend ? "" : `
-          <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
-          <select id="trends-basis-select">
-            <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
-            ${periodsForType.map(p => `<option value="${esc(p.Id)}" data-sublabel="${esc(p.Date)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))}</option>`).join("")}
-          </select>
-          `}
-        </div>
+      // The type tabs bar (and its sliding indicator) is only rebuilt
+      // when the SET of visible types itself changes — same "keep the
+      // indicator's own DOM node alive" pattern renderScheduleTabsBar
+      // uses (see its comment) and the exact bug schedule.html used to
+      // have: rebuilding this whole toolbar on every trendsType click
+      // destroyed the indicator each time, so it always "slid" from a
+      // fresh 0 instead of animating from wherever it actually was.
+      const visibleTypes = visibleInspectionTypeKeys().filter(t => TRENDS_TYPE_LABELS[t]);
+      const typesSignature = visibleTypes.join(" ");
+      // Switching to the Inspect/Periods tab and back replaces contentEl's
+      // ENTIRE innerHTML (see activateTab), tearing this toolbar's DOM
+      // node out along with it — trendsToolbarBuiltForTypes alone can't
+      // tell that apart from "same types, still on screen," so also
+      // check the node is actually still there before reusing it.
+      const toggleStillMounted = !!document.getElementById("trends-type-toggle");
 
+      if (!toggleStillMounted || typesSignature !== trendsToolbarBuiltForTypes) {
+        contentEl.innerHTML = `
+          <div class="trends-toolbar">
+            <div class="tabs" id="trends-type-toggle">
+              ${visibleTypes.map(t => `<button type="button" class="tabs__tab${trendsType === t ? " is-active" : ""}" data-type="${t}">${TRENDS_TYPE_LABELS[t]}</button>`).join("")}
+            </div>
+            <div id="trends-basis-slot"></div>
+          </div>
+          <div id="trends-data"></div>
+        `;
+        trendsToolbarBuiltForTypes = typesSignature;
+        trendsTypeIndicator = Shell.enhanceTabs(document.getElementById("trends-type-toggle"));
+        document.getElementById("trends-type-toggle").querySelectorAll("button").forEach(btn => {
+          btn.addEventListener("click", () => {
+            trendsType = btn.dataset.type;
+            renderTrends();
+          });
+        });
+      } else {
+        document.querySelectorAll("#trends-type-toggle .tabs__tab").forEach(b => {
+          b.classList.toggle("is-active", b.dataset.type === trendsType);
+        });
+        if (trendsTypeIndicator) trendsTypeIndicator.move();
+      }
+
+      document.getElementById("trends-basis-slot").innerHTML = isAssessmentTrend ? "" : `
+        <label style="font-size: var(--fs-sm); color: var(--ink-600);">Showing:</label>
+        <select id="trends-basis-select">
+          <option value="all" ${trendsBasis === "all" ? "selected" : ""}>All inspections (all-time)</option>
+          ${periodsForType.map(p => `<option value="${esc(p.Id)}" data-sublabel="${esc(p.Date)}" ${trendsBasis === String(p.Id) ? "selected" : ""}>${esc(periodLabel(p))}</option>`).join("")}
+        </select>
+      `;
+      const basisSelect = document.getElementById("trends-basis-select");
+      if (basisSelect) {
+        basisSelect.addEventListener("change", () => {
+          trendsBasis = basisSelect.value;
+          renderTrends();
+        });
+        Shell.enhanceSelect(basisSelect);
+      }
+
+      document.getElementById("trends-data").innerHTML = `
         <h3 class="section-label">
           ${TRENDS_TYPE_LABELS[trendsType] || "Inspection"} Trends
         </h3>
@@ -2607,22 +2659,6 @@
         `}
       `;
 
-      Shell.enhanceTabs(document.getElementById("trends-type-toggle"));
-      document.getElementById("trends-type-toggle").querySelectorAll("button").forEach(btn => {
-        btn.addEventListener("click", () => {
-          trendsType = btn.dataset.type;
-          renderTrends();
-        });
-      });
-
-      const basisSelect = document.getElementById("trends-basis-select");
-      if (basisSelect) {
-        basisSelect.addEventListener("change", () => {
-          trendsBasis = basisSelect.value;
-          renderTrends();
-        });
-        Shell.enhanceSelect(basisSelect);
-      }
       Shell.animateIn(contentEl);
     }
 
