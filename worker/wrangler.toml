@@ -5,8 +5,11 @@ compatibility_date = "2024-11-01"
 # One KV namespace, used for several things (distinguished by key prefix):
 #   rl:<hash>        rate-limit counters (short TTL)
 #   googletoken       cached Google OAuth access token (~55 min TTL)
-#   sheetvals:<name>  cached sheet read data (READ_CACHE_TTL_SECONDS, ~5 min;
-#                     invalidated immediately on any write to that sheet)
+#   sheetvals:<name>  cached sheet read data (READ_CACHE_TTL_SECONDS, ~1 hr;
+#                     invalidated immediately on any write to that sheet, and
+#                     on demand for every sheet via the admin "Sync now" button,
+#                     so the long TTL only bounds how long an UNsynced direct
+#                     Sheet edit can linger — see worker/src/readCache.js)
 #   sheetmeta         cached sheet name -> numeric gid map (~1 hr TTL;
 #                     invalidated immediately when a new tab is created)
 #   push:<hash>       stored Web Push subscriptions (one per device;
@@ -28,3 +31,33 @@ id = "a0c1d24db52d4364b1dbbbaf281d779d"
 #   SPREADSHEET_ID        the target Google Sheet's ID (from its URL)
 #   SESSION_SECRET        random secret for signing device/session tokens
 #   PASSPHRASE_HASH       SHA-256 hex hash of the device-gate passphrase
+
+# ---------------------------------------------------------------------------
+# STAGING ENVIRONMENT
+# ---------------------------------------------------------------------------
+# A separate Worker + KV namespace so changes can be tested WITHOUT touching
+# the production Google Sheet or production KV. Deploy it with:
+#   npm run deploy:staging          (== npx wrangler deploy --env staging)
+# and run it locally against staging secrets with `wrangler dev --env staging`.
+#
+# ONE-TIME SETUP (do this before the first staging deploy):
+#   1. Create a dedicated KV namespace and paste its id below:
+#        npx wrangler kv namespace create NJWG_KV_STAGING
+#   2. Point SPREADSHEET_ID at a SEPARATE test spreadsheet (a copy of the real
+#      tab structure), and set every secret for this env explicitly, e.g.:
+#        npx wrangler secret put SPREADSHEET_ID --env staging
+#        npx wrangler secret put SESSION_SECRET --env staging      (use a DIFFERENT secret than prod)
+#        npx wrangler secret put PASSPHRASE_HASH --env staging
+#        npx wrangler secret put GOOGLE_CLIENT_EMAIL --env staging
+#        npx wrangler secret put GOOGLE_PRIVATE_KEY --env staging
+#   3. During staging testing, point js/config.js APPS_SCRIPT_URL at the
+#      staging Worker's URL (…-staging.…workers.dev) — never commit that.
+#
+# Until the namespace id below is filled in, `--env staging` will fail fast
+# (intentionally) rather than silently sharing production KV.
+[env.staging]
+name = "njwg-encampment-api-staging"
+
+[[env.staging.kv_namespaces]]
+binding = "NJWG_KV"
+id = "PASTE_STAGING_KV_NAMESPACE_ID_HERE"

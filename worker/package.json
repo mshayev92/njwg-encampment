@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "deploy:staging": "wrangler deploy --env staging",
+    "dev:staging": "wrangler dev --env staging",
+    "tail": "wrangler tail",
+    "tail:staging": "wrangler tail --env staging"
   },
   "devDependencies": {
     "wrangler": "^4.111.0"
